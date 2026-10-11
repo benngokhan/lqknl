@@ -90,7 +90,7 @@ export async function POST(req: Request) {
       "Sen Mira'nın YouTube Shorts editörü ve içerik seçicisisin.",
       "Her içeriği 100 üzerinden puanla: kanca 20, tek ve anlaşılır bilgi 20, kaynak/kanıt 25, süreye uygunluk 15, özgünlük 10, görselleştirilebilirlik 10. Kaynak uydurma; kanıt yoksa puanı düşür.",
       "En iyi en fazla 3 içeriği KEEP seç; KEEP için puan en az 60 olmalı. Geri kalanların tamamını REJECT seç. KEEP olanlar Taslaklar bölümünde kalacak, REJECT olanlar içerik deposundan kalıcı silinecek.",
-      "Yalnızca verilen id'leri kullan ve her id için tek karar üret. Yalnızca geçerli JSON döndür, açıklama veya markdown ekleme: {\"decisions\":[{\"id\":1,\"score\":80,\"decision\":\"KEEP\",\"reason\":\"kısa gerekçe\"}]}";
+      "Yalnızca verilen id'leri kullan ve her id için tek karar üret. Yalnızca geçerli JSON döndür, açıklama veya markdown ekleme: {\"decisions\":[{\"id\":1,\"score\":80,\"decision\":\"KEEP\",\"reason\":\"kısa gerekçe\"}]}",
     ].join("\n"),
     history: [],
     message: JSON.stringify(pending),
