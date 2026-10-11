@@ -89,7 +89,7 @@ export async function GET() {
     ok: true,
     service: "mira-content-producer",
     usage: {
-      real: 'POST {"contentId": <id>} — taslak → TTS → 3 görsel → MP4 → content_assets',
+      real: 'POST {"contentId": <id>} — onaylı taslak → TTS → 3 görsel → MP4 → content_assets',
       mock: 'POST {"mock": true, "narrationText": "...", "imageBase64": [...3 görsel...]} — DB/Civitai/LLM olmadan uçtan uca test',
     },
   });
@@ -145,15 +145,15 @@ export async function POST(req: Request) {
   const stages: Record<string, unknown> = {};
 
   try {
-    // 1) İçeriği bul: açık ID yoksa en eski 'draft' (üretim bekleyen ilk taslak)
+    // 1) İçeriği bul: yalnızca kullanıcı tarafından onaylanmış içerik üretilebilir.
     const candidate = hasId
       ? await db.select().from(contentItems)
-          .where(and(eq(contentItems.id, requestedId), eq(contentItems.status, "draft"))).limit(1)
+          .where(and(eq(contentItems.id, requestedId), eq(contentItems.status, "approved"))).limit(1)
       : await db.select().from(contentItems)
-          .where(eq(contentItems.status, "draft")).orderBy(contentItems.id).limit(1);
+          .where(eq(contentItems.status, "approved")).orderBy(contentItems.id).limit(1);
     const content = candidate[0];
     if (!content) {
-      return NextResponse.json({ ok: true, produced: false, message: "Üretilecek taslağı yok." });
+      return NextResponse.json({ ok: true, produced: false, message: "Üretilecek onaylı içerik yok." });
     }
 
     // 2) Senaryo metnini al
@@ -244,7 +244,7 @@ export async function POST(req: Request) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[Produce] failed:", message);
     if (hasId) {
-      // Hata durumunda içerik 'draft' kalır (tekrar denenebilir); işlem kayıtlarına yaz.
+      // Hata durumunda içerik 'approved' kalır (tekrar denenebilir); işlem kayıtlarına yaz.
       await db.insert(operations).values({
         action: "content_produce",
         summary: `Video üretimi başarısız oldu`,
