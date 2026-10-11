@@ -62,6 +62,21 @@ export async function POST(req: Request) {
   }
 
   try {
+    // Güvenlik kapısı: yükleme için açık kullanıcı onayı kaydı zorunlu.
+    const approvals = await db.select().from(operations)
+      .where(and(eq(operations.action, "content_approved"), eq(operations.status, "success")))
+      .orderBy(desc(operations.id)).limit(500);
+    const hasUserApproval = approvals.some((op) => {
+      const meta = op.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {};
+      return Number(meta.contentId) === contentId && meta.approvedByUser === true;
+    });
+    if (!hasUserApproval) {
+      return NextResponse.json({
+        ok: false,
+        error: "Yükleme durduruldu: bu içerik için kullanıcı onay kaydı bulunamadı.",
+      }, { status: 403 });
+    }
+
     // İçerik hazır mı?
     const [content] = await db.select().from(contentItems)
       .where(and(eq(contentItems.id, contentId), eq(contentItems.status, "ready"))).limit(1);
