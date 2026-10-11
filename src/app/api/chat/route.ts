@@ -126,6 +126,7 @@ export async function POST(req: Request) {
           '/taslak <id> — Kayıtlı içerik taslağının tam metnini gösterir.',
           '/n8n — n8n bağlantı durumunu kontrol eder.',
           '/yt-viral <konu> — YouTube Shorts otomasyonunu başlatır.',
+          '/video <id> — Taslağı MP4 olarak üretir (id yoksa en eski onaylı taslak).',
           '/oku <dosya> — GitHub reposundaki dosyayı okur.',
         ].join('\\n'),
         emotion: 'focused',
@@ -315,6 +316,95 @@ export async function POST(req: Request) {
         });
       } catch {
         return NextResponse.json({ reply: 'n8n durumunu şu anda doğrulayamıyorum.', emotion: 'focused' });
+      }
+    }
+
+    // /video komutu veya doğal dilde video üretim isteği ("MP4 video oluştur", "videoyu üret")
+    const wantsVideoProduction =
+      /(\bmp4\b|\brender\b).+\b(üret|oluştur|hazırla)\b/i.test(message) ||
+      /\b(videoyu|video|videonun)\s+(üret|oluştur|hazırla)\b/i.test(message);
+    if (command === '/video' || message.startsWith('/video') || wantsVideoProduction) {
+      // ID'yi yalnızca bağımsız sayı olarak al ("MP4" içindeki 4 sayılmaz)
+      const idMatch = message.replace(/^\/video/i, '').match(/(?:^|[^\w])(\d+)(?=$|[^\w])/);
+      const contentId = idMatch ? Number(idMatch[1]) : null;
+      const origin = new URL(req.url).origin;
+      const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
+      const steps: string[] = [];
+      try {
+        // id verildiyse ve içerik hâlâ taslaksa önce "videolu onay" al (kullanıcının açık isteği)
+        if (contentId) {
+          let row: typeof contentItems.$inferSelect | undefined;
+          try {
+            [row] = await db.select().from(contentItems).where(eq(contentItems.id, contentId)).limit(1);
+          } catch {
+            return NextResponse.json({ reply: '❌ Veritabanına erişemedim; biraz sonra tekrar dene.' });
+          }
+          if (!row) {
+            return NextResponse.json({ reply: `❌ İçerik #${contentId} bulunamadı.` });
+          }
+          if (row.status === 'draft') {
+            const reviewRes = await fetch(origin + '/api/content/review', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                cookie: req.headers.get('cookie') || '',
+              },
+              body: JSON.stringify({ id: contentId, action: 'approve_video' }),
+              cache: 'no-store',
+            });
+            if (!reviewRes.ok) {
+              const rData: unknown = await reviewRes.json().catch(() => null);
+              const rErr = rData && typeof rData === 'object' && 'error' in rData ? String((rData as { error: unknown }).error) : `HTTP ${reviewRes.status}`;
+              return NextResponse.json({ reply: `❌ Taslak #${contentId} onaylanamadı: ${rErr}` });
+            }
+            steps.push(`#${contentId} videolu onaylandı`);
+          } else if (row.status === 'approved') {
+            steps.push(`#${contentId} zaten onaylı`);
+          } else if (row.status === 'ready') {
+            steps.push(`#${contentId} videosu daha önce üretilmiş`);
+          } else {
+            return NextResponse.json({ reply: `ℹ️ İçerik #${contentId} durumu "${row.status}"; üretim yalnızca taslak/onaylı içeriklerden tetiklenebilir.` });
+          }
+        }
+
+        const res = await fetch(origin + '/api/automation/produce', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(secret ? { 'x-mira-key': secret } : {}),
+          },
+          body: JSON.stringify(contentId ? { contentId } : {}),
+          cache: 'no-store',
+        });
+        const data = await res.json().catch(() => null) as Record<string, unknown> | null;
+        if (!data) {
+          return NextResponse.json({ reply: `❌ Üretim motoru yanıt vermedi (HTTP ${res.status}).` });
+        }
+        if (!res.ok || data.ok !== true) {
+          const err = typeof data.error === 'string' ? data.error : JSON.stringify(data).slice(0, 300);
+          return NextResponse.json({
+            reply: `❌ Video üretimi başarısız oldu.\n\n**Hata:** ${err}\n\n${steps.length ? `**Adımlar:** ${steps.join(' → ')}\n\n` : ''}Detay için Operations kayıtlarına bakabilirsin.`,
+          });
+        }
+        if (data.alreadyProduced === true) {
+          return NextResponse.json({
+            reply: `✅ #${data.contentId} videosu zaten üretilmiş durumda; tekrar üretilmedi.\n\nÜretilen Videolar panelinden izleyebilir, "YouTube'a Yayınla" ile yükleyebilirsin.`,
+          });
+        }
+        if (data.produced === false) {
+          return NextResponse.json({
+            reply: `ℹ️ ${typeof data.message === 'string' ? data.message : 'Üretilecek onaylı içerik yok.'}\n\nÖnce İçerik Taslakları panelinden bir taslağı videolu onayla ya da "/video <taslak-no>" yaz.`,
+          });
+        }
+        const stages = data.stages as Record<string, Record<string, unknown>> | undefined;
+        const ttsInfo = stages?.tts ? `ses: ${stages.tts.provider ?? '?'}${stages.tts.speechSeconds ? ` ${stages.tts.speechSeconds}s` : ''}` : '';
+        const renderInfo = stages?.render ? `video: ${stages.render.durationSeconds ?? '?'}s` : '';
+        return NextResponse.json({
+          reply: `✅ **Video üretildi (yayınlanmadı).**\n\n- **İçerik:** #${data.contentId}\n- **Durum:** ready (onay bekliyor)\n- **Adımlar:** ${steps.length ? steps.join(' → ') + ' → ' : ''}senaryo + görseller + ses + altyazı + MP4 birleştirme\n- **Özet:** ${[ttsInfo, renderInfo].filter(Boolean).join(' · ')}\n\nÜretilen Videolar panelinden izleyebilirsin. YouTube'a yüklemek istersen "YouTube'a Yayınla" butonuna basman gerekir.`,
+        });
+      } catch (err: unknown) {
+        const message2 = err instanceof Error ? err.message : 'bağlantı hatası';
+        return NextResponse.json({ reply: `❌ Üretim isteği gönderilemedi: ${message2}` });
       }
     }
 
