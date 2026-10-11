@@ -404,6 +404,18 @@ export async function POST(req: Request) {
       .set({ status: "done", updatedAt: new Date() })
       .where(like(tasks.notes, `%"contentId":${content.id}%`));
 
+    // Video artık güvenle kaydedildi: büyük ara dosyaları veritabanında tutma.
+    // MP4 inceleme/onay ve YouTube yüklemesi için korunur.
+    try {
+      await db.delete(contentAssets).where(and(eq(contentAssets.contentId, content.id), eq(contentAssets.kind, "audio")));
+      await db.delete(contentAssets).where(and(eq(contentAssets.contentId, content.id), eq(contentAssets.kind, "image")));
+      stages.cleanup = { intermediateAudioAndImagesDeleted: true };
+      console.log(`[Produce] içerik #${content.id}: ara ses/görsel varlıkları temizlendi; MP4 korundu`);
+    } catch (cleanupError) {
+      stages.cleanup = { intermediateAudioAndImagesDeleted: false };
+      console.warn(`[Produce] içerik #${content.id}: ara varlık temizliği başarısız:`, cleanupError instanceof Error ? cleanupError.message : String(cleanupError));
+    }
+
     const baseUrl = (process.env.NEXT_PUBLIC_MIRA_BASE_URL || "https://aimira.up.railway.app").replace(/\/$/, "");
     const previewUrl = `${baseUrl}/api/video/asset/${asset.id}`;
     const telegram = await sendTelegramMessage(

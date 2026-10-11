@@ -153,6 +153,17 @@ export async function POST(req: Request) {
       },
     });
 
+    // YouTube başarıyla doğrulandıktan sonra video ve ara medya verilerini DB'den kaldır.
+    // Yayın metaverisi ve YouTube URL'si content_items/operations içinde kalır.
+    let mediaCleaned = false;
+    try {
+      await db.delete(contentAssets).where(eq(contentAssets.contentId, content.id));
+      mediaCleaned = true;
+      console.log(`[YouTube upload] içerik #${content.id}: tüm medya varlıkları silindi`);
+    } catch (cleanupError) {
+      console.error(`[YouTube upload] içerik #${content.id} yayımlandı ama medya temizliği başarısız:`, cleanupError instanceof Error ? cleanupError.message : String(cleanupError));
+    }
+
     return NextResponse.json({
       ok: true,
       published: true,
@@ -160,6 +171,7 @@ export async function POST(req: Request) {
       videoId: result.videoId,
       url: result.url,
       privacyStatus: result.privacyStatus,
+      mediaCleaned,
       content: updated,
     });
   } catch (error) {
