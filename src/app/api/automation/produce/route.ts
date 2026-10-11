@@ -145,6 +145,46 @@ export async function POST(req: Request) {
   const stages: Record<string, unknown> = {};
 
   try {
+    // Önceki çalışmada video üretildi ama YouTube yüklemesi başarısız olduysa yeniden dene.
+    const readyItems = await db.select().from(contentItems)
+      .where(eq(contentItems.status, "ready"))
+      .orderBy(contentItems.id)
+      .limit(50);
+    if (readyItems.length) {
+      const approvalOps = await db.select().from(operations)
+        .where(and(eq(operations.action, "content_approved"), eq(operations.status, "success")))
+        .orderBy(desc(operations.id))
+        .limit(500);
+      const approvedIds = new Set(approvalOps
+        .filter((op) => {
+          const meta = op.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {};
+          return meta.approvedByUser === true;
+        })
+        .map((op) => Number((op.metadata as Record<string, unknown>).contentId)));
+      const readyApproved = readyItems.find((item) => approvedIds.has(item.id));
+      if (readyApproved) {
+        const [asset] = await db.select({ id: contentAssets.id }).from(contentAssets)
+          .where(and(
+            eq(contentAssets.contentId, readyApproved.id),
+            eq(contentAssets.kind, "video"),
+            eq(contentAssets.mime, "video/mp4"),
+          ))
+          .orderBy(desc(contentAssets.id))
+          .limit(1);
+        if (asset) {
+          return NextResponse.json({
+            ok: true,
+            produced: true,
+            alreadyProduced: true,
+            contentId: readyApproved.id,
+            assetId: asset.id,
+            status: "ready",
+            message: "Onaylı video hazır; YouTube yüklemesi yeniden denenebilir.",
+          });
+        }
+      }
+    }
+
     // 1) İçeriği bul: yalnızca kullanıcı tarafından onaylanmış içerik üretilebilir.
     const candidate = hasId
       ? await db.select().from(contentItems)
