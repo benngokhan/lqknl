@@ -5,7 +5,7 @@ import { contentAssets, contentItems, operations, tasks } from "@/db/schema";
 import { like } from "drizzle-orm";
 import { generateWithFallback } from "@/lib/model-manager";
 import { generateNarration, type CaptionGroup } from "@/lib/narration";
-import { generateCivitaiImage } from "@/lib/civitai";
+import { generateTensorArtImage } from "@/lib/tensorart";
 import { renderShort, type RenderImage } from "@/lib/render-video";
 import { extractNarration, parseDraftScript } from "@/lib/script-parse";
 import { sendTelegramMessage } from "@/lib/telegram";
@@ -79,7 +79,7 @@ async function imagePromptsWithLlm(topic: string, script: string): Promise<strin
 async function produceImages(prompts: string[], onImageReady?: (count: number) => Promise<void>) {
   const images: RenderImage[] = [];
   for (const prompt of prompts) {
-    const result = await generateCivitaiImage({ prompt, aspectRatio: "9:16", size: "medium" });
+    const result = await generateTensorArtImage(prompt);
     const urls = collectImageUrls(result);
     if (!urls.length) throw new Error("Civitai görsel URL'si döndürmedi");
     images.push(await downloadImage(urls[0]));
