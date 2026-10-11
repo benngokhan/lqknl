@@ -606,7 +606,30 @@ export default function Home() {
                     {analysis.model ? ` / ${analysis.model}` : ''}
                   </p>
                   <div className="space-y-3 rounded-lg border border-slate-700 bg-slate-900 p-3 text-sm leading-relaxed">{renderAnalysisReport(analysis.report)}</div>
-                  <p className="text-xs text-emerald-300">Bu rapor taslakları değiştirmez ve içerik yayınlamaz. Kaynak doğrulaması ayrıca yapılmalıdır.</p>
+                  <div className="rounded-lg border border-emerald-500/20 bg-emerald-950/10 p-3 space-y-3">
+                    <p className="text-xs text-emerald-200">Karar alanı: yalnızca bu raporda analiz edilmiş içerikler burada onaylanır veya reddedilir. Taslak deposundaki kayıtlar bu kararlardan etkilenmeden önce burada değerlendirilir. Kaynak doğrulaması ayrıca yapılmalıdır.</p>
+                    {analysis.titles.length === 0 ? (
+                      <p className="text-sm text-slate-400">Bu rapor için karar verilebilir içerik listesi bulunamadı.</p>
+                    ) : analysis.titles.map((item) => (
+                      <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 p-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-white">{item.title}</p>
+                          <p className="text-xs text-slate-500">Taslak #{item.id}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => void reviewDraft(item.id, 'approve_video')} disabled={reviewBusyId !== null} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-medium hover:bg-emerald-600 disabled:opacity-50">
+                            {reviewBusyId === item.id ? 'İşleniyor…' : 'Onayla ve video üret'}
+                          </button>
+                          <button type="button" onClick={() => void reviewDraft(item.id, 'approve_text')} disabled={reviewBusyId !== null} className="rounded-lg border border-slate-600 px-3 py-2 text-xs font-medium hover:bg-slate-700 disabled:opacity-50">
+                            Onayla, videosuz
+                          </button>
+                          <button type="button" onClick={() => void reviewDraft(item.id, 'reject')} disabled={reviewBusyId !== null} className="rounded-lg bg-red-900/80 px-3 py-2 text-xs font-medium hover:bg-red-800 disabled:opacity-50">
+                            Reddet
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </>
               )}
             </div>
@@ -620,7 +643,7 @@ export default function Home() {
               aria-expanded={draftPanelOpen}
               className="flex min-w-0 flex-1 items-center gap-2 text-left"
             >
-              <span className="font-semibold text-white">İçerik Taslakları</span>
+              <span className="font-semibold text-white">İçerik Deposu · İşçi Taslakları</span>
               <span className="shrink-0 rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
                 {drafts.length} bekleyen
               </span>
@@ -637,7 +660,7 @@ export default function Home() {
           </div>
           {draftPanelOpen && (
             <div className="mt-3 space-y-3">
-              <p className="text-xs text-slate-400">Onayladığın içerik bile otomatik yayınlanmaz.</p>
+              <p className="text-xs text-slate-400">İşçilerin topladığı ve hazırladığı içerikler burada birikir. Bu bölümde onay veya ret işlemi yapılmaz; kararlar Analizler bölümündedir.</p>
               {draftsError && <p className="text-sm text-red-300" role="alert">{draftsError}</p>}
               {!draftsLoading && drafts.length === 0 && !draftsError && (
                 <p className="text-sm text-slate-400">Bekleyen taslak yok. Yeni taslaklar burada görünecek.</p>
@@ -659,32 +682,7 @@ export default function Home() {
                   {draft.generation?.provider && (
                     <p className="text-[11px] text-slate-500">Model: {draft.generation.provider}{draft.generation.model ? ` / ${draft.generation.model}` : ''}</p>
                   )}
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void reviewDraft(draft.id, 'approve_video')}
-                      disabled={reviewBusyId !== null}
-                      className="flex-1 rounded-lg bg-emerald-700 px-3 py-2.5 text-sm font-medium hover:bg-emerald-600 disabled:opacity-50"
-                    >
-                      {reviewBusyId === draft.id ? 'İşleniyor…' : 'Onayla + video oluştur'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void reviewDraft(draft.id, 'approve_text')}
-                      disabled={reviewBusyId !== null}
-                      className="flex-1 rounded-lg border border-slate-600 px-3 py-2.5 text-sm font-medium hover:bg-slate-700 disabled:opacity-50"
-                    >
-                      Onayla, videosuz
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void reviewDraft(draft.id, 'reject')}
-                      disabled={reviewBusyId !== null}
-                      className="rounded-lg bg-red-900/80 px-3 py-2.5 text-sm font-medium hover:bg-red-800 disabled:opacity-50"
-                    >
-                      Reddet
-                    </button>
-                  </div>
+
                 </article>
               ))}
             </div>
