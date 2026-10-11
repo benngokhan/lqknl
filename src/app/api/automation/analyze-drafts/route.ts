@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { contentItems, operations } from "@/db/schema";
+import { contentAssets, contentItems, operations } from "@/db/schema";
 import { generateWithFallback } from "@/lib/model-manager";
 
 export const dynamic = "force-dynamic";
@@ -87,22 +87,49 @@ export async function POST(req: Request) {
 
   const result = await generateWithFallback({
     system: [
-      "Sen Mira'nın Bilgi Dozu YouTube Shorts editörü ve kalite analistisin.",
-      "Verilen birikmiş taslakları birbiriyle karşılaştır. Her birine 100 üzerinden puan ver: ilk 2 saniye kancası (20), tek ve anlaşılır bilgi (20), kaynak/kanıt şeffaflığı (25), 20 saniyeye uygunluk (15), özgünlük ve tekrar etmeme (10), görsel anlatılabilirlik (10).",
-      "Kaynak uydurma ve bir iddiayı dışarıdan doğrulamış gibi davranma. Metinde gerçek ve denetlenebilir kaynak yoksa bunu açıkça 'DOĞRULAMA GEREKLİ' olarak işaretle ve kaynak puanını düşür.",
-      "40-48 kelimeyi aşan seslendirmeyi, çoklu konu/listeleri, belirsiz veya sansasyonel iddiaları, eksik zorunlu başlıkları ve ret/hata metinlerini işaretle.",
-      "Her taslak için id, başlık, toplam puan, güçlü yan, sorunlar, düzeltilmesi gerekenler ve karar ver: 'ÖNE ÇIKAR', 'DÜZELT', 'ELE'. Ardından en iyi 1-3 taslağı sırala ve nedenlerini yaz.",
-      "Yalnızca verilen taslaklara dayan. Taslak metinlerini değiştirme, veritabanındaki durumlarını değiştirme, yayınlama veya kullanıcı onayı varmış gibi davranma.",
-      "Türkçe, kısa ve uygulanabilir bir analiz raporu üret. Raporu 'BİRİKEN TASLAKLAR ANALİZİ' başlığıyla başlat."
+      "Sen Mira'nın YouTube Shorts editörü ve içerik seçicisisin.",
+      "Her içeriği 100 üzerinden puanla: kanca 20, tek ve anlaşılır bilgi 20, kaynak/kanıt 25, süreye uygunluk 15, özgünlük 10, görselleştirilebilirlik 10. Kaynak uydurma; kanıt yoksa puanı düşür.",
+      "En iyi en fazla 3 içeriği KEEP seç; KEEP için puan en az 60 olmalı. Geri kalanların tamamını REJECT seç. KEEP olanlar Taslaklar bölümünde kalacak, REJECT olanlar içerik deposundan kalıcı silinecek.",
+      "Yalnızca verilen id'leri kullan ve her id için tek karar üret. Yalnızca geçerli JSON döndür, açıklama veya markdown ekleme: {\"decisions\":[{\"id\":1,\"score\":80,\"decision\":\"KEEP\",\"reason\":\"kısa gerekçe\"}]}";
     ].join("\n"),
     history: [],
     message: JSON.stringify(pending),
   });
 
-  const report = result.content.trim();
-  if (!report || report.length < 80) {
+  let report = result.content.trim();
+  if (!report || report.length < 20) {
     return NextResponse.json({ ok: false, error: "Model kullanılabilir bir analiz raporu üretmedi; sonuç kaydedilmedi." }, { status: 502 });
   }
+
+  let decisions: { id: number; score: number; decision: "KEEP" | "REJECT"; reason: string }[];
+  try {
+    const parsed = JSON.parse(report.replace(/^\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`$/, "")) as { decisions?: unknown };
+    if (!Array.isArray(parsed.decisions)) throw new Error("Karar listesi yok.");
+    decisions = parsed.decisions.map((value) => {
+      const item = value as Record<string, unknown>;
+      const id = Number(item.id);
+      const score = Number(item.score);
+      if (!pending.some((draft) => draft.id === id) || !Number.isFinite(score) || typeof item.reason !== "string" || (item.decision !== "KEEP" && item.decision !== "REJECT")) throw new Error("Geçersiz karar.");
+      return { id, score: Math.max(0, Math.min(100, score)), decision: item.decision as "KEEP" | "REJECT", reason: item.reason.slice(0, 500) };
+    });
+    if (new Set(decisions.map((item) => item.id)).size !== pending.length || decisions.length !== pending.length) throw new Error("Her taslak için bir karar gelmedi.");
+  } catch {
+    return NextResponse.json({ ok: false, error: "Mira'nın kararları geçerli JSON değil; güvenlik için hiçbir içerik silinmedi.", deleted: 0 }, { status: 502 });
+  }
+
+  const keep = decisions.filter((item) => item.decision === "KEEP" && item.score >= 60)
+    .sort((a, b) => b.score - a.score).slice(0, 3);
+  const keepIds = new Set(keep.map((item) => item.id));
+  const rejected = pending.filter((item) => !keepIds.has(item.id));
+  report = [
+    "MİRA İÇERİK SEÇİMİ",
+    "",
+    "TASLAKLARDA KALANLAR:",
+    ...(keep.length ? keep.map((item, i) => `${i + 1}. ${pending.find((draft) => draft.id === item.id)?.title} — ${item.score}/100 — ${item.reason}`) : ["60 puan ve üzeri içerik bulunamadı."]),
+    "",
+    "SİLİNENLER:",
+    ...(rejected.length ? rejected.map((item) => `- ${item.title} — ${decisions.find((decision) => decision.id === item.id)?.reason ?? "Mira seçmedi"}`) : ["Yok"]),
+  ].join("\n");
 
   const [saved] = await db.insert(operations).values({
     action: "content_draft_analysis",
@@ -111,6 +138,9 @@ export async function POST(req: Request) {
     platform: "youtube",
     metadata: {
       analyzedContentIds: pending.map((draft) => draft.id),
+      decisions,
+      keptContentIds: [...keepIds],
+      deletedContentIds: rejected.map((draft) => draft.id),
       titles: pending.map((draft) => ({ id: draft.id, title: draft.title })),
       report,
       provider: result.provider,
@@ -120,10 +150,32 @@ export async function POST(req: Request) {
     },
   }).returning();
 
+  let deletedCount = 0;
+  for (const item of rejected) {
+    await db.delete(contentAssets).where(eq(contentAssets.contentId, item.id));
+    const deleted = await db.delete(contentItems)
+      .where(and(eq(contentItems.id, item.id), eq(contentItems.status, "draft")))
+      .returning({ id: contentItems.id });
+    if (deleted.length) {
+      deletedCount++;
+      await db.insert(operations).values({
+        action: "content_auto_rejected",
+        summary: `Mira beğenmediği içeriği sildi: ${item.title}`,
+        status: "success",
+        platform: drafts.find((draft) => draft.id === item.id)?.platform ?? "youtube",
+        metadata: { contentId: item.id, reason: decisions.find((decision) => decision.id === item.id)?.reason ?? "Mira seçmedi", analysisOperationId: saved.id },
+      });
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     analyzed: true,
     count: pending.length,
+    kept: keep.length,
+    deleted: deletedCount,
+    keptTitles: keep.map((item) => pending.find((draft) => draft.id === item.id)?.title),
+    deletedTitles: rejected.filter((item) => !keepIds.has(item.id)).map((item) => item.title),
     contentIds: pending.map((draft) => draft.id),
     report,
     provider: result.provider,
