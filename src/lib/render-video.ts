@@ -93,22 +93,29 @@ function runFfmpeg(args: string[], timeoutMs = 120_000, env: Partial<NodeJS.Proc
     if (!ffmpegPath) return reject(new Error("FFmpeg çalıştırılabilir dosyası bulunamadı"));
     const child = spawn(ffmpegPath, args, { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, ...env } });
     let stderr = "";
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve();
+    };
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
-      stderr = (stderr + chunk).slice(-6000);
+      stderr = (stderr + chunk).slice(-12000);
     });
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error("Video üretimi zaman aşımına uğradı"));
+      finish(new Error(`FFmpeg zaman aşımı: ${timeoutMs}ms; son çıktı: ${stderr.slice(-2500) || "(stderr boş)"}`));
     }, timeoutMs);
     child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
+      finish(new Error(`FFmpeg başlatılamadı: ${error.message}; binary=${ffmpegPath}`));
     });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0) return resolve();
-      reject(new Error("FFmpeg hata verdi: " + stderr.slice(-1800)));
+    child.on("close", (code, signal) => {
+      if (code === 0) return finish();
+      const output = stderr.trim() || "(FFmpeg stderr boş)";
+      finish(new Error(`FFmpeg hata verdi (exit=${String(code)}, signal=${String(signal)}): ${output.slice(-2500)}`));
     });
   });
 }
@@ -165,7 +172,7 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
     const subtitleStyle = "FontName=DejaVu Sans,FontSize=17,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=34";
     filters.push(`[v0][v1][v2]concat=n=3:v=1:a=0,subtitles=${escapeFilterPath(srtPath)}:fontsdir='${escapeFilterPath(fontsDir)}':force_style='${subtitleStyle}'[vout]`);
 
-    const args = ["-hide_banner", "-loglevel", "error", "-y"];
+    const args = ["-hide_banner", "-loglevel", "warning", "-y"];
     for (const imagePath of imagePaths) {
       args.push("-loop", "1", "-framerate", "30", "-t", String(segment), "-i", imagePath);
     }
