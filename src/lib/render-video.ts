@@ -88,7 +88,7 @@ function escapeFilterPath(value: string) {
   return value.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
-function runFfmpeg(args: string[], timeoutMs = 120_000, env: NodeJS.ProcessEnv = process.env) {
+function runFfmpeg(args: string[], timeoutMs = 120_000, env: Partial<NodeJS.ProcessEnv> = process.env) {
   return new Promise<void>((resolve, reject) => {
     if (!ffmpegPath) return reject(new Error("FFmpeg çalıştırılabilir dosyası bulunamadı"));
     const child = spawn(ffmpegPath, args, { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, ...env } });
