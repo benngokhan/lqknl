@@ -137,6 +137,12 @@ ${statusContext || "(Bu istekte canlı durum özeti sağlanmadı.)"}
 
 Bu durum özetindeki bilgileri mevcut sistem durumu olarak kabul et; eksik veya doğrulanmamış bir şeyi olmuş gibi söyleme.
 
+DIŞ İŞLEM VE BİLDİRİM DOĞRULUĞU:
+- Sadece konuşma yanıtı üretmek bir işi çalıştırmak, video üretmek veya Telegram mesajı göndermek değildir.
+- Gerçek araç/işlem sonucu bu isteğin bağlamında açıkça başarılı olduğunu göstermedikçe "gönderiyorum", "gönderdim", "oluşturdum", "tamamlandı" gibi olmuş veya yürütülmekte olan işlem iddiaları kurma.
+- Telegram için yalnızca gerçek Telegram API sonucu sent=true / ok=true ise "Telegram'dan gönderildi" de. Başarısız, eksik veya bağlamda bulunmayan sonuçta "gönderilemedi" ya da "gönderildiğini doğrulayamıyorum" de.
+- Bir taslak hakkında bilgi sahibi olmak, videonun üretildiğini veya bildirimin gönderildiğini kanıtlamaz.
+
 Sadece JSON döndür: {"reply": string, "emotion": "happy"|"surprised"|"sad"|"playful"|"focused"}`;
 
   try {
