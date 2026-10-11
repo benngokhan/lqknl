@@ -389,6 +389,61 @@ export async function POST(req: Request) {
       });
     }
 
+    // Explicit request: analyze the drafts already stored in the content depot.
+    // Route to the real analysis endpoint instead of asking the user to resend drafts.
+    const asksToAnalyzeStoredDrafts =
+      /(?:taslak|içerik deposu|işçi taslakları).{0,120}(?:analiz|incele|değerlendir)|(?:analiz|incele|değerlendir).{0,120}(?:taslak|içerik deposu|işçi taslakları)/iu.test(message);
+
+    if (asksToAnalyzeStoredDrafts) {
+      try {
+        const base = new URL(req.url).origin;
+        const response = await fetchWithTimeoutMs(`${base}/api/automation/analyze-drafts`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+          },
+          body: JSON.stringify({ source: "chat" }),
+        }, VIDEO_TIMEOUT_MS);
+        const data = await response.json().catch(() => ({})) as {
+          ok?: boolean;
+          analyzed?: boolean;
+          count?: number;
+          message?: string;
+          report?: string;
+          provider?: string;
+          model?: string;
+          error?: string;
+        };
+
+        if (!response.ok || data.ok === false) {
+          return NextResponse.json({
+            reply: `Taslak analizi başlatılamadı. HTTP ${response.status}. ${data.error || data.message || "Analiz servisi hata döndürdü."}`,
+            emotion: "focused",
+          });
+        }
+
+        if (data.analyzed && data.report) {
+          return NextResponse.json({
+            reply: `📊 Kayıtlı taslak analizi tamamlandı. İncelenen taslak: ${data.count ?? 0}. Model: ${data.provider ?? "bilinmiyor"} / ${data.model ?? "bilinmiyor"}.\n\n${data.report}`,
+            emotion: "focused",
+          });
+        }
+
+        return NextResponse.json({
+          reply: data.message || `Analiz servisi yeni analiz yapmadı. İncelenen taslak sayısı: ${data.count ?? 0}. Taslakların kayıtlı senaryo metinleri veya önceki analiz durumları kontrol edilmeli.`,
+          emotion: "focused",
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.error("[Chat] Stored-draft analysis failed:", reason);
+        return NextResponse.json({
+          reply: `Kayıtlı taslak analiz servisine ulaşılamadı: ${reason.slice(0, 250)}`,
+          emotion: "focused",
+        }, { status: 502 });
+      }
+    }
+
     // Persisted conversation + relevant long-term memory.
     // Memory failures must never take the live chat path down.
     let history: { role: "user" | "assistant"; content: string }[] = [];
