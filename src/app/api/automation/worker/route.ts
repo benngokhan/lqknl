@@ -101,10 +101,29 @@ export async function POST(req: Request) {
       .set({ status: "done", updatedAt: new Date() })
       .where(like(tasks.notes, `%"contentId":${claimed.id}%`));
 
+    // New generated content is screened immediately; only selected drafts should reach the review panel.
+    let contentScreening: { ok?: boolean; kept?: number; deleted?: number; error?: string } = {};
+    try {
+      const origin = new URL(req.url).origin;
+      const screening = await fetch(`${origin}/api/automation/analyze-drafts`, {
+        method: "POST",
+        headers: { "x-mira-key": process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(55_000),
+      });
+      const screeningData = await screening.json().catch(() => null);
+      contentScreening = screening.ok && screeningData && typeof screeningData === "object"
+        ? screeningData as { ok?: boolean; kept?: number; deleted?: number; error?: string }
+        : { ok: false, error: screeningData?.error || `Analiz HTTP ${screening.status}` };
+    } catch (screeningError) {
+      contentScreening = { ok: false, error: screeningError instanceof Error ? screeningError.message : String(screeningError) };
+      console.error("[Worker] Otomatik içerik analizi başarısız:", contentScreening.error);
+    }
+
     let telegramNotification: { sent: boolean; error?: string } = { sent: false, error: "Bildirim gönderimi doğrulanamadı." };
     try {
       const telegram = await sendTelegramMessage(
-        `✅ Mira işçisi taslağı hazırladı\n\nBaşlık: ${updated.title}\nİçerik ID: ${updated.id}\nModel: ${result.provider}/${result.model}\nDurum: Taslak kaydedildi; kullanıcı onayı bekleniyor. Otomatik yayın yapılmadı.`
+        `🤖 Mira içerik işleme tamamlandı\n\nBaşlık: ${updated.title}\nİçerik ID: ${updated.id}\nModel: ${result.provider}/${result.model}\nAnaliz: ${contentScreening.ok ? `${contentScreening.kept ?? 0} taslak tutuldu, ${contentScreening.deleted ?? 0} içerik silindi.` : `Tamamlanamadı: ${contentScreening.error || "sonuç alınamadı"}`}\nYalnızca seçilen içerikler onay panelinde gösterilir. Otomatik yayın yapılmadı.`
       );
       telegramNotification = telegram.sent
         ? { sent: true }
@@ -123,6 +142,7 @@ export async function POST(req: Request) {
       provider: result.provider,
       model: result.model,
       operationId: savedOperation.id,
+      contentScreening,
       published: false,
     });
   } catch (error) {
