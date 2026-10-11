@@ -3,6 +3,7 @@ import { and, eq, like } from "drizzle-orm";
 import { db } from "@/db";
 import { contentItems, operations, tasks } from "@/db/schema";
 import { generateWithFallback } from "@/lib/model-manager";
+import { sendTelegramMessage } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -100,9 +101,23 @@ export async function POST(req: Request) {
       .set({ status: "done", updatedAt: new Date() })
       .where(like(tasks.notes, `%"contentId":${claimed.id}%`));
 
+    let telegramNotification: { sent: boolean; error?: string } = { sent: false, error: "Bildirim gönderimi doğrulanamadı." };
+    try {
+      const telegram = await sendTelegramMessage(
+        `✅ Mira işçisi taslağı hazırladı\n\nBaşlık: ${updated.title}\nİçerik ID: ${updated.id}\nModel: ${result.provider}/${result.model}\nDurum: Taslak kaydedildi; kullanıcı onayı bekleniyor. Otomatik yayın yapılmadı.`
+      );
+      telegramNotification = telegram.sent
+        ? { sent: true }
+        : { sent: false, error: telegram.reason === "not_configured" ? "Telegram ayarları eksik." : (telegram.error || "Telegram API gönderimi reddetti.") };
+    } catch (telegramError) {
+      telegramNotification = { sent: false, error: telegramError instanceof Error ? telegramError.message : String(telegramError) };
+    }
+    if (!telegramNotification.sent) console.error("[Worker] Telegram success notification failed:", telegramNotification.error);
+
     return NextResponse.json({
       ok: true,
       processed: true,
+      notification: telegramNotification,
       content: updated,
       script: result.content,
       provider: result.provider,
@@ -125,6 +140,18 @@ export async function POST(req: Request) {
       platform: claimed.platform,
       metadata: { contentId: claimed.id, error: reason.slice(0, 1500) },
     });
-    return NextResponse.json({ ok: false, processed: true, error: reason.slice(0, 500) }, { status: 502 });
+    let telegramNotification: { sent: boolean; error?: string } = { sent: false, error: "Bildirim gönderimi doğrulanamadı." };
+    try {
+      const telegram = await sendTelegramMessage(
+        `❌ Mira işçisi taslak oluşturamadı\n\nBaşlık: ${claimed.title}\nİçerik ID: ${claimed.id}\nHata: ${reason.slice(0, 900)}\n\nGörev kaydı korundu; hata incelenmeli.`
+      );
+      telegramNotification = telegram.sent
+        ? { sent: true }
+        : { sent: false, error: telegram.reason === "not_configured" ? "Telegram ayarları eksik." : (telegram.error || "Telegram API gönderimi reddetti.") };
+    } catch (telegramError) {
+      telegramNotification = { sent: false, error: telegramError instanceof Error ? telegramError.message : String(telegramError) };
+    }
+    if (!telegramNotification.sent) console.error("[Worker] Telegram failure notification failed:", telegramNotification.error);
+    return NextResponse.json({ ok: false, processed: true, error: reason.slice(0, 500), notification: telegramNotification }, { status: 502 });
   }
 }
