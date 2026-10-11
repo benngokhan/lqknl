@@ -242,6 +242,7 @@ export default function Home() {
         if (!uploadRes.ok || uploaded?.ok !== true || uploaded?.published !== true) {
           throw new Error(uploaded?.error || `YouTube yüklemesi başarısız (HTTP ${uploadRes.status}).`);
         }
+        setVideoProgress({ contentId: id, percentage: 100, stage: 'Video YouTube’a gizli olarak yüklendi', status: 'success' });
         setReviewNotice(`Tamamlandı: video oluşturuldu ve YouTube'a gizli yüklendi. ${uploaded.url || ''}`.trim());
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Video üretim/yükleme işlemi tamamlanamadı.';
@@ -251,6 +252,10 @@ export default function Home() {
         if (progressTimer) { clearInterval(progressTimer); progressTimer = undefined; }
       }
     } catch (error) {
+      if (action === 'approve_video') {
+        const message = error instanceof Error ? error.message : 'İşlem tamamlanamadı.';
+        setVideoProgress((current) => current?.contentId === id ? { ...current, status: 'failed', stage: `İşlem durdu: ${message}` } : current);
+      }
       setDraftsError(error instanceof Error ? error.message : 'İşlem tamamlanamadı.');
     } finally {
       setReviewBusyId(null);
