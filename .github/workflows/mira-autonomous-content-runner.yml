@@ -45,7 +45,22 @@ jobs:
           MIRA_BASE_URL: ${{ secrets.MIRA_BASE_URL }}
           MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
         run: |
-          RESPONSE=$(curl --fail-with-body --silent --show-error --max-time 300 -X POST "${MIRA_BASE_URL%/}/api/automation/produce" -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" -H "Content-Type: application/json" -d '{}')
+          # Railway's HTTP proxy can return 502 if one production attempt exceeds its request window.
+          # The producer persists prompts, narration and images between calls, so retries resume from checkpoints.
+          RESPONSE=""
+          for attempt in 1 2 3 4; do
+            echo "Video production attempt $attempt/4"
+            if RESPONSE=$(curl --fail-with-body --silent --show-error --max-time 150 -X POST "${MIRA_BASE_URL%/}/api/automation/produce" -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" -H "Content-Type: application/json" -d '{}'); then
+              break
+            fi
+            echo "Production attempt $attempt failed; saved checkpoints will be reused on retry."
+            RESPONSE=""
+            if [ "$attempt" -lt 4 ]; then sleep 5; fi
+          done
+          if [ -z "$RESPONSE" ]; then
+            echo "Video production did not return a successful response after 4 checkpoint-resume attempts."
+            exit 1
+          fi
           echo "$RESPONSE"
           CONTENT_ID=$(printf '%s' "$RESPONSE" | python -c 'import json,sys; d=json.load(sys.stdin); print(d.get("contentId","") if d.get("produced") is True else "")')
           if [ -n "$CONTENT_ID" ]; then
