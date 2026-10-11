@@ -1,8 +1,10 @@
 name: Mira Autonomous Content Runner
 
-# PAUSED: automatic schedule and manual dispatch disabled while content workers are stopped.
 on:
-  workflow_call:
+  schedule:
+    # Türkiye saati (UTC+3): 09:00, 13:00, 18:00 ve 21:00
+    - cron: "0 6,10,15,18 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
