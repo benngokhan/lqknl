@@ -160,7 +160,7 @@ export async function POST(req: Request) {
       const approvedIds = new Set(approvalOps
         .filter((op) => {
           const meta = op.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {};
-          return meta.approvedByUser === true;
+          return meta.approvedByUser === true && meta.videoRequested === true;
         })
         .map((op) => Number((op.metadata as Record<string, unknown>).contentId)));
       const readyApproved = readyItems.find((item) => approvedIds.has(item.id));
@@ -188,14 +188,23 @@ export async function POST(req: Request) {
     }
 
     // 1) İçeriği bul: yalnızca kullanıcı tarafından onaylanmış içerik üretilebilir.
-    const candidate = hasId
+    const candidateRows = hasId
       ? await db.select().from(contentItems)
           .where(and(eq(contentItems.id, requestedId), eq(contentItems.status, "approved"))).limit(1)
       : await db.select().from(contentItems)
-          .where(eq(contentItems.status, "approved")).orderBy(contentItems.id).limit(1);
-    const content = candidate[0];
+          .where(eq(contentItems.status, "approved")).orderBy(contentItems.id).limit(50);
+    const approvalOpsForQueue = await db.select().from(operations)
+      .where(and(eq(operations.action, "content_approved"), eq(operations.status, "success")))
+      .orderBy(desc(operations.id)).limit(500);
+    const videoApprovedIds = new Set(approvalOpsForQueue
+      .filter((op) => {
+        const meta = op.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {};
+        return meta.approvedByUser === true && meta.videoRequested === true;
+      })
+      .map((op) => Number((op.metadata as Record<string, unknown>).contentId)));
+    const content = candidateRows.find((item) => videoApprovedIds.has(item.id));
     if (!content) {
-      return NextResponse.json({ ok: true, produced: false, message: "Üretilecek onaylı içerik yok." });
+      return NextResponse.json({ ok: true, produced: false, message: "Video üretimi için onaylanmış içerik yok." });
     }
 
     // 2) Senaryo metnini al
