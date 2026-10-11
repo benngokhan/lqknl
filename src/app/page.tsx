@@ -189,7 +189,7 @@ export default function Home() {
   async function reviewDraft(id: number, action: 'approve_video' | 'approve_text' | 'reject') {
     if (reviewBusyId !== null) return;
     const prompt = action === 'approve_video'
-      ? 'Bu içeriği onaylayıp videoyu oluşturmayı ve YouTube kanalına gizli (private) olarak yüklemeyi başlatmak istiyor musun? İşlem birkaç dakika sürebilir.'
+      ? 'Bu içeriği onaylayıp video üretimini başlatmak istiyor musun? Bu testte YouTube yüklemesi otomatik yapılmayacak.'
       : action === 'approve_text'
         ? 'Bu içeriği onaylayıp video üretmeden saklamak istiyor musun?'
         : 'Bu taslağı reddetmek istiyor musun?';
@@ -248,19 +248,8 @@ export default function Home() {
         }
 
         if (progressTimer) { clearInterval(progressTimer); progressTimer = undefined; }
-        setVideoProgress({ contentId: id, title: drafts.find((draft) => draft.id === id)?.title || `İçerik #${id}`, percentage: 100, stage: 'Video hazır; YouTube’a gizli yükleme yapılıyor', status: 'success' });
-        setReviewNotice('Video hazır. YouTube kanalına gizli yükleme yapılıyor…');
-        const uploadRes = await fetch('/api/youtube/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contentId: id, privacy: 'private' }),
-        });
-        const uploaded = await uploadRes.json().catch(() => null);
-        if (!uploadRes.ok || uploaded?.ok !== true || uploaded?.published !== true) {
-          throw new Error(uploaded?.error || `YouTube yüklemesi başarısız (HTTP ${uploadRes.status}).`);
-        }
-        setVideoProgress({ contentId: id, title: drafts.find((draft) => draft.id === id)?.title || `İçerik #${id}`, percentage: 100, stage: 'Video YouTube’a gizli olarak yüklendi', status: 'success' });
-        setReviewNotice(`Tamamlandı: video oluşturuldu ve YouTube'a gizli yüklendi. ${uploaded.url || ''}`.trim());
+        setVideoProgress({ contentId: id, title: drafts.find((draft) => draft.id === id)?.title || `İçerik #${id}`, percentage: 100, stage: 'Video üretimi tamamlandı; YouTube yüklemesi yapılmadı', status: 'success' });
+        setReviewNotice('Video üretimi tamamlandı. Bu testte YouTube’a yükleme yapılmadı; Telegram video/onay akışı ayrıca doğrulanacak.');
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Video üretim/yükleme işlemi tamamlanamadı.';
         setVideoProgress((current) => current?.contentId === id ? { ...current, status: 'failed', stage: `İşlem durdu: ${message}` } : current);
