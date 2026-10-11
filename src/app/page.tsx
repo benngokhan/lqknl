@@ -716,7 +716,6 @@ export default function Home() {
           {draftPanelOpen && (
             <div className="mt-3 space-y-3">
               <p className="text-xs text-slate-400">İşçilerin topladığı içerikler burada birikir. Senaryosu olmayanı önce <b className="text-slate-300">Senaryoyu oluştur</b> ile hazırlat; <b className="text-slate-300">Onayla ve video üret</b> üretimi heaslak yok. Yeni taslaklar burada görünecek.</p>
-              )}
               {drafts.map((draft) => (
                 <article key={draft.id} className="rounded-lg border border-slate-700 bg-slate-900 p-3 space-y-3">
                   <div className="flex flex-wrap items-start justify-between gap-2">
