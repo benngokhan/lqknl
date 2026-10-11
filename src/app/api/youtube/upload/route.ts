@@ -68,7 +68,7 @@ export async function POST(req: Request) {
       .orderBy(desc(operations.id)).limit(500);
     const hasUserApproval = approvals.some((op) => {
       const meta = op.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {};
-      return Number(meta.contentId) === contentId && meta.approvedByUser === true;
+      return Number(meta.contentId) === contentId && meta.approvedByUser === true && meta.videoRequested === true;
     });
     if (!hasUserApproval) {
       return NextResponse.json({
