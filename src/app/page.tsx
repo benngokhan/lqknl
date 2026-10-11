@@ -115,6 +115,7 @@ export default function Home() {
   const [draftsLoading, setDraftsLoading] = useState(false);
   const [reviewBusyId, setReviewBusyId] = useState<number | null>(null);
   const [draftsError, setDraftsError] = useState('');
+  const [reviewNotice, setReviewNotice] = useState('');
   const [analysis, setAnalysis] = useState<DraftAnalysis | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
@@ -178,13 +179,14 @@ export default function Home() {
   async function reviewDraft(id: number, action: 'approve_video' | 'approve_text' | 'reject') {
     if (reviewBusyId !== null) return;
     const prompt = action === 'approve_video'
-      ? 'Bu içeriği onaylayıp video üretimini başlatmak istiyor musun? YouTube yayınlaması ayrıca güvenli yükleme akışına bağlıdır.'
+      ? 'Bu içeriği onaylayıp videoyu oluşturmayı ve YouTube kanalına gizli (private) olarak yüklemeyi başlatmak istiyor musun? İşlem birkaç dakika sürebilir.'
       : action === 'approve_text'
         ? 'Bu içeriği onaylayıp video üretmeden saklamak istiyor musun?'
         : 'Bu taslağı reddetmek istiyor musun?';
     if (!window.confirm(prompt)) return;
     setReviewBusyId(id);
     setDraftsError('');
+    setReviewNotice('');
     try {
       const res = await fetch('/api/content/review', {
         method: 'POST',
@@ -194,6 +196,39 @@ export default function Home() {
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || `İşlem başarısız (HTTP ${res.status}).`);
       setDrafts((current) => current.filter((draft) => draft.id !== id));
+
+      if (action !== 'approve_video') {
+        setReviewNotice(action === 'approve_text' ? 'Taslak onaylandı; video üretilmedi.' : 'Taslak reddedildi.');
+        return;
+      }
+
+      setReviewNotice('Onay kaydedildi. Video hazırlanıyor; bu işlem birkaç dakika sürebilir.');
+      try {
+        const produceRes = await fetch('/api/automation/produce', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contentId: id }),
+        });
+        const produced = await produceRes.json().catch(() => null);
+        if (!produceRes.ok || produced?.ok !== true || produced?.produced !== true) {
+          throw new Error(produced?.error || produced?.message || `Video üretimi başarısız (HTTP ${produceRes.status}).`);
+        }
+
+        setReviewNotice('Video hazır. YouTube kanalına gizli yükleme yapılıyor…');
+        const uploadRes = await fetch('/api/youtube/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contentId: id, privacy: 'private' }),
+        });
+        const uploaded = await uploadRes.json().catch(() => null);
+        if (!uploadRes.ok || uploaded?.ok !== true || uploaded?.published !== true) {
+          throw new Error(uploaded?.error || `YouTube yüklemesi başarısız (HTTP ${uploadRes.status}).`);
+        }
+        setReviewNotice(`Tamamlandı: video oluşturuldu ve YouTube'a gizli yüklendi. ${uploaded.url || ''}`.trim());
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Video üretim/yükleme işlemi tamamlanamadı.';
+        setReviewNotice(`Onay kaydedildi, ancak video hattı tamamlanmadı: ${message}`);
+      }
     } catch (error) {
       setDraftsError(error instanceof Error ? error.message : 'İşlem tamamlanamadı.');
     } finally {
@@ -574,6 +609,7 @@ export default function Home() {
               ))}
             </div>
           )}
+          {reviewNotice && <p className="mt-3 text-sm text-emerald-300" role="status">{reviewNotice}</p>}
         </section>
         {messages.length === 0 && (
           <p className="text-slate-400 text-center mt-10">
