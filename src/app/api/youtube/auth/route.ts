@@ -26,7 +26,8 @@ export async function GET(req: Request) {
   res.cookies.set("mira_yt_state", state, {
     httpOnly: true,
     secure: true,
-    sameSite: "lax",
+    // Google OAuth returns from another site; None supports browser/webview redirects.
+    sameSite: "none",
     path: "/",
     maxAge: 600,
   });
