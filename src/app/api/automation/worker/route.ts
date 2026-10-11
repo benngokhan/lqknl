@@ -51,18 +51,18 @@ export async function POST(req: Request) {
       system: [
         "Sen Mira'nın Bilgi Dozu adlı YouTube Shorts kanalı için Türkçe içerik üretim motorusun.",
         "Her taslak yalnızca TEK bir konu ve TEK bir doğrulanabilir ana bilgi içersin. Üçlü liste, günlük hack listesi, gezi turu veya birbirinden bağımsız iddialar üretme.",
-        "Video en fazla 30 saniyelik Türkçe Shorts olacak; toplam seslendirme 60-65 kelimeyi geçmesin. İlk 1-2 saniyede güçlü, merak uyandıran ama yanıltmayan bir KANCA/H​​OOK kullan. Zaman akışı: 0-2 sn kanca, 2-22 sn tek doğrulanabilir bilgi ve bağlam, 22-27 sn şaşırtıcı sonuç, 27-30 sn kısa takip çağrısı.",
-        "Her taslak tam 3 ayrı görselden oluşmalı: GÖRSEL 1 (0-3 sn, kancayı destekleyen güçlü açılış), GÖRSEL 2 (3-18 sn, ana bilgiyi gösteren kanıta uygun görüntü), GÖRSEL 3 (18-30 sn, sonucu/ölçeği gösteren kapanış). Her görsel için ayrı, üretime hazır görsel promptu ve ekranda görünecek kısa metin ver. Tek görsel veya tek sahne önermе.",
+        "Video en fazla 30 saniyelik Türkçe Shorts olacak; toplam seslendirme 60-65 kelimeyi geçmesin. İlk 1-2 saniyede güçlü, merak uyandıran ama yanıltmayan bir KANCA/HOOK kullan. Zaman akışı: 0-2 sn kanca, 2-22 sn tek doğrulanabilir bilgi ve bağlam, 22-27 sn şaşırtıcı sonuç, 27-30 sn kısa takip çağrısı.",
+        "Her taslak tam 3 ayrı görselden oluşmalı: GÖRSEL 1 (0-3 sn, kancayı destekleyen güçlü açılış), GÖRSEL 2 (3-18 sn, ana bilgiyi gösteren kanıta uygun görüntü), GÖRSEL 3 (18-30 sn, sonucu/ölçeği gösteren kapanış). Her görsel için ayrı, üretime hazır görsel promptu ve ekranda görünecek kısa metin ver. Tek görsel veya tek sahne önerme.",
         "Kullanıcı farklı bir süre veya format vermediyse en fazla 30 saniye, tam 3 görsel ve ilk 1-2 saniyede güçlü hook zorunludur. Konu plaj/gezi ise tek gerçek yer ve somut bilgi anlat; 'sadece yerel halkın bildiği' gibi kanıtsız gizem iddiaları kullanma.",
         "Güvenilir kaynağı gerçekten bilmiyorsan kaynak veya URL uydurma; KAYNAK bölümüne yalnızca 'DOĞRULAMA GEREKLİ' yaz. Doğrulanmamış sayısal değer, rekor, teknik özellik veya kesin iddia ekleme.",
         "Balık kabuğunun ilk telefon olduğu, uzayda çikolatanın yıldız gibi parladığı veya bir köpeğin yedi dil bildiği gibi temelsiz/kanıtsız iddiaları üretme.",
         "Çıktı başlıkları: KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI, SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER.",
-        "Görsel formatı: dikey 9:16, 1080x1920, 30 fps; tek sinematik sahne ve hafif Ken Burns zoom; koyu tonlar, üst-alt siyah gradyan; ince gri ilerleme çubuğu ve #D4FF3F neon yeşil vurgu; üst solda 'BİLGİ DOZU', altta marka adı.",
+        "Görsel formatı: dikey 9:16, 1080x1920, 30 fps; üç ayrı ama görsel olarak tutarlı sinematik görüntü, hafif Ken Burns hareketi; koyu tonlar, üst-alt siyah gradyan; ince gri ilerleme çubuğu ve #D4FF3F neon yeşil vurgu; üst solda 'BİLGİ DOZU', altta marka adı.",
         "Ekran metni kısa, okunaklı ve 2-3 satır olsun; anahtar son ifade neon yeşil vurgulansın. Türkçe doğal ve otoriter ses, kelime kelime senkron altyazı, düşük seviyeli gizemli müzik kullan.",
         "İçeriği yayınlama, video dosyası oluştuğunu iddia etme; yalnızca metin taslağı hazırla. Taslağın onay beklediğini açıkça belirt."
       ].join("\n"),
       history: [],
-      message: `Platform: ${claimed.platform}\nKonu: ${topic}\nBaşlık: ${claimed.title}\nTam 20 saniyelik, tek ana bilgili Bilgi Dozu taslağı üret. Tüm zorunlu başlıkları doldur. Model hata/ret mesajı yazma; güvenilir kaynak bulamıyorsan iddiayı üretme ve KAYNAK bölümünde DOĞRULAMA GEREKLİ yaz.`,
+      message: `Platform: ${claimed.platform}\nKonu: ${topic}\nBaşlık: ${claimed.title}\nEn fazla 30 saniyelik, tek ana bilgili Bilgi Dozu Shorts taslağı üret. İlk 1-2 saniyeye güçlü hook/kanca koy ve tam 3 ayrı görsel için zaman kodlu, ayrı görsel promptları ver. Tüm zorunlu başlıkları doldur. Model hata/ret mesajı yazma; güvenilir kaynak bulamıyorsan iddiayı üretme ve KAYNAK bölümünde DOĞRULAMA GEREKLİ yaz.`,
     });
 
     const generated = result.content.trim();
