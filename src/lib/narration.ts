@@ -14,7 +14,7 @@ export type NarrationResult = {
 };
 
 const EDGE_TTS_VOICE = process.env.EDGE_TTS_VOICE || "tr-TR-EmelNeural";
-const EDGE_TTS_RATE = process.env.EDGE_TTS_RATE || "+10%";
+const EDGE_TTS_RATE = process.env.EDGE_TTS_RATE || "+5%";
 const MAX_GROUPS = 24;
 const MAX_GROUP_CHARS = 44;
 const MAX_GROUP_WORDS = 4;
@@ -43,7 +43,7 @@ export async function generateWithElevenLabs(text: string): Promise<Uint8Array> 
         "Content-Type": "application/json",
         Accept: "audio/mpeg",
       },
-      body: JSON.stringify({ text, model_id: modelId, language_code: "tr", voice_settings: { speed: 1.1 } }),
+      body: JSON.stringify({ text, model_id: modelId, language_code: "tr", voice_settings: { speed: 1.05 } }),
       signal: AbortSignal.timeout(45000),
       cache: "no-store",
     },
