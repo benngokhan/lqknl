@@ -213,7 +213,7 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
       const segmentPath = path.join(workDir, `segment-${i + 1}.mp4`);
       const segStart = i * segment;
       const segCaptions = captionsForWindow(finalCaptions, segStart, segStart + segment);
-      let vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.0005,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,setsar=1";
+      let vf = "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=24,setsar=1";
       if (segCaptions.length) {
         const srtPath = path.join(workDir, `captions-${i + 1}.srt`);
         await writeFile(srtPath, buildSrt(segCaptions), "utf8");
@@ -221,9 +221,9 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
       }
       await runFfmpeg([
         "-hide_banner", "-loglevel", "warning", "-y",
-        "-loop", "1", "-framerate", "30", "-t", String(segment), "-i", imagePaths[i],
+        "-loop", "1", "-framerate", "24", "-t", String(segment), "-i", imagePaths[i],
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-crf", "25",
         "-pix_fmt", "yuv420p", "-an",
         segmentPath,
       ], 120_000, ffenv);
@@ -245,7 +245,7 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
       "-i", audioPath,
       "-map", "0:v", "-map", "1:a",
       "-c:v", "copy",
-      "-c:a", "aac", "-b:a", "128k", "-af", "apad",
+      "-c:a", "aac", "-b:a", "128k", "-af", "apad", "-threads", "1",
       "-t", String(duration), "-movflags", "+faststart",
       outputPath,
     ], 120_000, ffenv);
