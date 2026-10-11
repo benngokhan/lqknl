@@ -74,3 +74,14 @@ Kökteki test scriptleri (bu oturumda kullanıldı):
 - `scripts/test-render.cjs` — uçtan uca render (3 görsel + gerçek ses + altyazı)
 
 Çalıştırmak için: önce `npm run dev`, sonra `node scripts/test-render.cjs`.
+
+## 9. FFmpeg SIGKILL Çözümü — Segmentli Render (11 Ekim 2026)
+
+**Semptom:** Railway'de "MP4 birleştirme hatası: (exit=null, signal=SIGKILL)", 3 denemenin hepsi ~1sn'de ölüyor.
+
+**Teşhis zinciri:**
+1. `libass … ASS_FEATURE_WRAP_UNICODE` mesajı yalnızca UYARI (zararsız).
+2. `signal=SIGKILL` + ~1s = sistem seviyesinde öldürülme (RAM sınırı): tek pass'te 3×1080x1920 zoompan zinciri Railway container'ını aşıyordu.
+3. Çözüm denemelerinde ikinci bulgu: Node'dan spawn edilen bu ffmpeg-static build'i MPEG-TS segment dosyalarını okurken **deterministik SIGSEGV** veriyor (bash'te sorunsuz). Bu yüzden .ts yerine .mp4 segment kullanıldı.
+
+**Çözüm (test edildi):** 4 hafif çağrı: her görsel tek-başına .mp4 segment (düşük RAM) → concat demuxer + altyazı + ses tek geçişte. Produce mock ile uçtan uca: 15.85sn video, altyazı + sahne geçişleri kare kare doğrulandı; typecheck + build temiz.

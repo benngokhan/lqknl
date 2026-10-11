@@ -1,5 +1,10 @@
 // MP4 render çekirdeği: /api/video/render route'u ve üretim motoru (produce)
 // tarafından ortak kullanılır. Girdi/çıktı tamamen bellek içi Buffer'larla çalışır.
+//
+// Bellek notu (Railway SIGKILL sorunu): 3 görseli tek ffmpeg çağrısında aynı anda
+// işlemek 512MB-1GB container'ı OOM'a sürükleyebiliyordu. Bu yüzden akış 4 hafif
+// çağrıya bölündü: her görsel ayrı bir .mp4 segmenti olarak kodlanır, ardından
+// concat demuxer + altyazı + ses tek geçişte birleştirilir. Görsel çıktı aynı.
 
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -162,33 +167,9 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
     ).join("\n");
     await writeFile(srtPath, srt, "utf8");
 
-    const segment = duration / 3;
-    const filters = imagePaths.map((_, index) =>
-      `[${index}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.0005,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,setsar=1[v${index}]`
-    );
-    // libass'ın FontSize/MarginV değerleri PlayResY=288 birimindedir; 1080x1920'e ölçeklenir.
-    // fontsdir: Railway imajında sistem fontu bulunmayabileceğinden proje içi font klasörünü kullan.
-    const fontsDir = path.join(process.cwd(), "public", "fonts");
-    const subtitleStyle = "FontName=DejaVu Sans,FontSize=17,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=34";
-    filters.push(`[v0][v1][v2]concat=n=3:v=1:a=0,subtitles=${escapeFilterPath(srtPath)}:fontsdir='${escapeFilterPath(fontsDir)}':force_style='${subtitleStyle}'[vout]`);
-
-    const args = ["-hide_banner", "-loglevel", "warning", "-y"];
-    for (const imagePath of imagePaths) {
-      args.push("-loop", "1", "-framerate", "30", "-t", String(segment), "-i", imagePath);
-    }
-    args.push("-i", audioPath);
-    args.push(
-      "-filter_complex", filters.join(";"),
-      "-map", "[vout]", "-map", "3:a",
-      "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-      "-pix_fmt", "yuv420p", "-r", "30",
-      "-c:a", "aac", "-b:a", "128k", "-af", "apad",
-      "-t", String(duration), "-movflags", "+faststart",
-      outputPath,
-    );
-
     // libass Fontconfig'in varsayılan sistem yapılandırmasını bulamayabilir (Railway/Nixpacks).
     // Her render için geçici bir config üretip proje içindeki DejaVu fontlarını açıkça tanımla.
+    const fontsDir = path.join(process.cwd(), "public", "fonts");
     const fontconfigCacheDir = path.join(workDir, "fontconfig-cache");
     await mkdir(fontconfigCacheDir, { recursive: true });
     const fontconfigFile = path.join(workDir, "fonts.conf");
@@ -197,20 +178,61 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
       '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">',
       '<fontconfig>',
       `  <dir>${fontsDir}</dir>`,
-      '  <dir>/usr/share/fonts</dir>',
-      '  <dir>/usr/local/share/fonts</dir>',
+      "  <dir>/usr/share/fonts</dir>",
+      "  <dir>/usr/local/share/fonts</dir>",
       `  <cachedir>${fontconfigCacheDir}</cachedir>`,
-      '</fontconfig>',
-      '',
+      "</fontconfig>",
+      "",
     ].join("\n"), "utf8");
+    const ffenv = { FONTCONFIG_FILE: fontconfigFile, FONTCONFIG_PATH: workDir };
 
-    await runFfmpeg(args, 120_000, { FONTCONFIG_FILE: fontconfigFile, FONTCONFIG_PATH: workDir });
+    const segment = duration / 3;
+
+    // 1-3) Her görseli ayrı .mp4 segmentine çevir (tek görsel = düşük RAM;
+    // NOT: .ts segmentleri bu ffmpeg build'inde Node'dan spawn edildiğinde segfault
+    // veriyor — mp4 segmentleri bu yüzden bilinçli seçimdir).
+    const segmentPaths: string[] = [];
+    for (let i = 0; i < imagePaths.length; i++) {
+      const segmentPath = path.join(workDir, `segment-${i + 1}.mp4`);
+      await runFfmpeg([
+        "-hide_banner", "-loglevel", "warning", "-y",
+        "-loop", "1", "-framerate", "30", "-t", String(segment), "-i", imagePaths[i],
+        "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.0005,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,setsar=1",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-pix_fmt", "yuv420p", "-an",
+        segmentPath,
+      ], 120_000, ffenv);
+      segmentPaths.push(segmentPath);
+    }
+
+    // 4) concat demuxer: 3 segment + ses + altyazı tek geçişte
+    const concatListPath = path.join(workDir, "concat.txt");
+    await writeFile(
+      concatListPath,
+      segmentPaths.map((p) => `file '${p}'`).join("\n"),
+      "utf8",
+    );
+    // libass'ın FontSize/MarginV değerleri PlayResY=288 birimindedir; 1080x1920'e ölçeklenir.
+    const subtitleStyle = "FontName=DejaVu Sans,FontSize=17,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=34";
+    await runFfmpeg([
+      "-hide_banner", "-loglevel", "warning", "-y",
+      "-f", "concat", "-safe", "0", "-i", concatListPath,
+      "-i", audioPath,
+      "-vf", `subtitles=${escapeFilterPath(srtPath)}:fontsdir='${escapeFilterPath(fontsDir)}':force_style='${subtitleStyle}'`,
+      "-map", "0:v", "-map", "1:a",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+      "-pix_fmt", "yuv420p", "-r", "30",
+      "-c:a", "aac", "-b:a", "128k", "-af", "apad",
+      "-t", String(duration), "-movflags", "+faststart",
+      outputPath,
+    ], 120_000, ffenv);
+
     const video = await readFile(outputPath);
     if (video.length < 10_000 || video.subarray(4, 8).toString("ascii") !== "ftyp") {
       throw new Error("Üretilen dosya geçerli MP4 olarak doğrulanamadı");
     }
 
-    console.log("[Mira MP4] render success", JSON.stringify({
+    console.log("[Mira MP4] render success (segmented)", JSON.stringify({
       bytes: video.length,
       durationSeconds: duration,
       captions: finalCaptions.length,
