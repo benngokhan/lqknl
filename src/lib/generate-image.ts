@@ -123,7 +123,10 @@ export async function generateImage(prompt: string): Promise<GeneratedImage> {
     try {
       return await fn(prompt);
     } catch (error) {
-      errors.push(`${fn.name}: ${errMessage(error).slice(0, 200)}`);
+      const detail = errMessage(error).slice(0, 200);
+      errors.push(`${fn.name}: ${detail}`);
+      // Zincirin hangi halkasının neden patladığı Railway logunda görünür kalsın
+      console.error(`[Görsel] ${fn.name} başarısız; zincir devam ediyor: ${detail}`);
     }
   }
   throw new Error(`3 görsel sağlayıcısı da başarısız oldu → ${errors.join(" | ")}`);

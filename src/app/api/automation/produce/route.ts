@@ -7,8 +7,10 @@ import { generateWithFallback } from "@/lib/model-manager";
 import { generateNarration, type CaptionGroup } from "@/lib/narration";
 import { generateImage } from "@/lib/generate-image";
 import { renderShort, type RenderImage } from "@/lib/render-video";
-import { extractNarration, parseDraftScript } from "@/lib/script-parse";
+import { extractNarration, parseDraftScript, capNarrationForDuration } from "@/lib/script-parse";
 import { sendTelegramMessage } from "@/lib/telegram";
+import { spawn } from "node:child_process";
+import ffmpegPath from "ffmpeg-static";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,6 +74,37 @@ async function reportProgress(contentId: number, percentage: number, stage: stri
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const SILENT_THRESHOLD_DB = -45;
+
+// MP3 buffer'ının ortalama ses seviyesini ölç (ffmpeg volumedetect). Ölcülemezse null.
+async function measureMeanVolumeDb(mp3: Buffer | Uint8Array): Promise<number | null> {
+  const bin = ffmpegPath;
+  if (!bin) return null;
+  return new Promise((resolve) => {
+    const child = spawn(bin, ["-hide_banner", "-i", "pipe:0", "-af", "volumedetect", "-f", "null", "-"]);
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (c: string) => { stderr = (stderr + c).slice(-4000); });
+    child.on("error", () => resolve(null));
+    child.on("close", () => {
+      const m = stderr.match(/mean_volume:\s*(-?[\d.]+)\s*dB/);
+      resolve(m ? Number(m[1]) : null);
+    });
+    child.stdin.on("error", () => {});
+    child.stdin.end(mp3);
+  });
+}
+
+// TTS üret + ses gerçekten var mı diye doğrula; sessiz çıkarsa hata = retryStage yeniden dener.
+async function generateAudibleNarration(text: string) {
+  const narration = await generateNarration(text);
+  const meanDb = await measureMeanVolumeDb(narration.audio);
+  if (meanDb !== null && meanDb < SILENT_THRESHOLD_DB) {
+    throw new Error(`Seslendirme sessiz üretildi (mean ${meanDb} dB); yeniden denenecek`);
+  }
+  return { narration, meanDb };
+}
 
 async function retryStage<T>(
   contentId: number,
@@ -165,11 +198,12 @@ export async function POST(req: Request) {
   // --- MOCK MODU: DB/Civitai/LLM olmadan pipeline'ın gerçek kod yollarını test eder ---
   if (body.mock === true) {
     try {
-      const narrationText = typeof body.narrationText === "string" ? body.narrationText.trim() : "";
+      const rawNarrationText = typeof body.narrationText === "string" ? body.narrationText.trim() : "";
       const imageBase64 = Array.isArray(body.imageBase64) ? body.imageBase64 : [];
-      if (!narrationText || imageBase64.length !== 3) {
+      if (!rawNarrationText || imageBase64.length !== 3) {
         return NextResponse.json({ error: "mock modunda narrationText ve 3 imageBase64 gerekli" }, { status: 400 });
       }
+      const narrationText = capNarrationForDuration(rawNarrationText).text;
       const t0 = Date.now();
       const narration = await generateNarration(narrationText);
       const tNarration = Date.now() - t0;
@@ -282,9 +316,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, produced: false, message: "Taslak senaryosu bulunamadı; görev korunuyor ve tekrar denenebilir.", contentId: content.id });
     }
     const topic = content.topic?.trim() || content.title;
-    const narrationText = extractNarration(script, `${content.title}. ${topic}`);
+    const rawNarration = extractNarration(script, `${content.title}. ${topic}`);
+    const narrationCap = capNarrationForDuration(rawNarration);
+    const narrationText = narrationCap.text;
     const sections = parseDraftScript(script);
-    stages.script = { narrationChars: narrationText.length, sectionKeys: Object.keys(sections) };
+    stages.script = { narrationChars: rawNarration.length, narrationWords: narrationCap.words, wasCapped: narrationCap.wasCapped, sectionKeys: Object.keys(sections) };
     const checkpoints = await loadCheckpoints(content.id);
     await reportProgress(content.id, 15, "Senaryo ve önceki üretim kayıtları kontrol edildi");
 
@@ -312,22 +348,40 @@ export async function POST(req: Request) {
 
     await reportProgress(content.id, 30, "Görsel sahneler planlandı");
 
-    // 4) Seslendirme: daha önce kaydedildiyse tekrar üretme.
-    let narration: Awaited<ReturnType<typeof generateNarration>>;
+    // 4) Seslendirme: daha önce kaydedildiyse tekrar üretme — AMA checkpoint sessizse
+    // (veya 30sn kuralından önce üretilmiş uzun sürümse) bayat say, tazele.
+    let narration: Awaited<ReturnType<typeof generateNarration>> | null = null;
+    let narrationMeanDb: number | null = null;
+    let checkpointStaleReason = "";
     if (checkpoints.narrationAsset) {
       const meta = checkpoints.narrationAsset.meta && typeof checkpoints.narrationAsset.meta === "object"
         ? checkpoints.narrationAsset.meta as Record<string, unknown> : {};
-      narration = {
-        audio: Buffer.from(checkpoints.narrationAsset.data, "base64"),
-        provider: typeof meta.provider === "string" ? meta.provider : "saved-audio",
-        captions: Array.isArray(meta.captions) ? meta.captions as CaptionGroup[] : [],
-        durationSeconds: typeof meta.durationSeconds === "number" ? meta.durationSeconds : null,
-      };
-      stages.tts = { provider: narration.provider, reused: true };
-      await reportProgress(content.id, 50, "Kaydedilmiş seslendirme yeniden kullanılıyor");
-    } else {
-      await reportProgress(content.id, 40, "Seslendirme hazırlanıyor");
-      narration = await retryStage(content.id, "Seslendirme", 40, () => generateNarration(narrationText));
+      const savedSeconds = typeof meta.durationSeconds === "number" ? meta.durationSeconds : null;
+      if (savedSeconds !== null && savedSeconds > 34) {
+        checkpointStaleReason = `kaydedilmiş ses ${savedSeconds}sn (30sn kuralından önce üretilmiş)`;
+      } else {
+        const audio = Buffer.from(checkpoints.narrationAsset.data, "base64");
+        narrationMeanDb = await measureMeanVolumeDb(audio);
+        if (narrationMeanDb !== null && narrationMeanDb < SILENT_THRESHOLD_DB) {
+          checkpointStaleReason = `kaydedilmiş ses sessiz (mean ${narrationMeanDb} dB)`;
+        } else {
+          narration = {
+            audio,
+            provider: typeof meta.provider === "string" ? meta.provider : "saved-audio",
+            captions: Array.isArray(meta.captions) ? meta.captions as CaptionGroup[] : [],
+            durationSeconds: savedSeconds,
+          };
+          stages.tts = { provider: narration.provider, reused: true, meanVolumeDb: narrationMeanDb };
+          await reportProgress(content.id, 50, "Kaydedilmiş seslendirme yeniden kullanılıyor");
+        }
+      }
+    }
+    if (!narration) {
+      await reportProgress(content.id, 40,
+        checkpointStaleReason ? `Seslendirme hazırlanıyor (${checkpointStaleReason}; yeniden üretilecek)` : "Seslendirme hazırlanıyor");
+      const fresh = await retryStage(content.id, "Seslendirme", 40, () => generateAudibleNarration(narrationText));
+      narration = fresh.narration;
+      narrationMeanDb = fresh.meanDb;
       await db.insert(contentAssets).values({
         contentId: content.id,
         kind: "audio",
@@ -336,7 +390,7 @@ export async function POST(req: Request) {
         bytes: narration.audio.length,
         meta: { pipelineStage: "narration", provider: narration.provider, captions: narration.captions, durationSeconds: narration.durationSeconds },
       });
-      stages.tts = { provider: narration.provider, speechSeconds: narration.durationSeconds, checkpointSaved: true };
+      stages.tts = { provider: narration.provider, speechSeconds: narration.durationSeconds, checkpointSaved: true, meanVolumeDb: narrationMeanDb, regeneratedFromCheckpoint: Boolean(checkpointStaleReason) };
       await reportProgress(content.id, 50, "Seslendirme tamamlandı; görseller hazırlanıyor");
     }
 

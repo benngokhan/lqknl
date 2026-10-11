@@ -245,11 +245,14 @@ async function renderShortWithProfile(input: RenderInput, profile: RenderProfile
     const outputPath = path.join(workDir, "mira-short.mp4");
     await writeFile(audioPath, input.audio);
 
-    // Süre: parametre, yoksa ses dosyasından ölçüm, son çare 20s
+    // Süre: parametre, yoksa ses dosyasından ölçüm, son çare 20s.
+    // MIRA_MAX_VIDEO_SECONDS env'i varsayılanı (32) değiştirebilir — Shorts için
+    // 30sn üstünü istemiyoruz; TTS bütçesi hedefiyle tutarlı.
     const requested = Number(input.durationSeconds);
     const probed = await probeAudioDuration(audioPath);
     const base = Number.isFinite(requested) && requested > 0 ? requested : (probed ?? 20);
-    const duration = Math.max(4, Math.min(90, base + 0.4));
+    const maxVideoSeconds = Number(process.env.MIRA_MAX_VIDEO_SECONDS) > 0 ? Number(process.env.MIRA_MAX_VIDEO_SECONDS) : 30;
+    const duration = Math.max(4, Math.min(maxVideoSeconds, base + 0.4));
 
     const captions = safeCaptions(input.captions, duration);
     const finalCaptions = captions.length

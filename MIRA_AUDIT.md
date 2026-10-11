@@ -114,3 +114,11 @@ Kökteki test scriptleri (bu oturumda kullanıldı):
 ## 13b. Eş zamanlı ajanla birleşim: a33f389 → low profil içinde
 
 - Aynı saatlerde başka bir oturum da SIGKILL'a `a33f389` (720x1280 sabit, 24fps, threads=1, zoompan'sız, crf25) push'ladı. Tek seferde 1080p/zoom kaybı verir ve ölçüm/yedek içermiyordu; yaklaşımının yük-azaltma kısmı V3 merdiveninin **low profiline** (720x1280@24, threads=1, crf25) entegre edildi; hi profili (1080x1920@30, zoompan) çalışan ortamlarda korunuyor. Conflict çözümü: render-video.ts V3'te kaldı.
+
+## 14. İlk video üretildi (23:02) + üçüzlü rafine: süre/ses/filigran-log
+
+- Dönüm noktası: hat uçtan uca çalıştı, 54sn video üretildi (22:59-23:02). Kalan şikayetler: pollinations.ai filigranı, sessiz video, 30sn üstü süre.
+- **Süre**: `capNarrationForDuration` (script-parse.ts) — seslendirme metni cümle sınırında kırpılıyor (hedef 44, tavan 58 kelime; ölçülen hız ~1.8-2.2 kel/sn ≈ ≤27sn). `render-video`'da MIRA_MAX_VIDEO_SECONDS varsayılanı 30 (hard clamp; ses kırpmaz, TTS bütçesi zaten kısa tutar).
+- **Sessizlik**: sandıkta edge-tts volume -19.2dB ile açıkça okunur (volumedetect), kalıp verisi orijinal checkpoint şüphesini güçlendirdi. produce'a ffmpeg volumedetect probu eklendi: taze TTS sessizse (mean < -45dB) hata → retryStage 3 kez tazeler; sessiz veya >34sn kalmış checkpoint'ler "bayat" sayılıp otomatik yeniden üretilir. stages.tts.meanVolumeDb loglanır → sonraki sessizlik iddiasında veriyle konuşacağız.
+- **Filigran**: zincir hâlâ pollinations'a düşüyor → Tensor.Art VE Gemini patlıyor demektir. generate-image artık her sağlayıcı düşüşünü Railway loguna `[Görsel] <name> başarısız: <detay>` diye yazıyor — bir sonraki üretimde kök sebep görünecek (muhtemel: gemini-2.5-flash-image model adı/erişimi ya da Tensor.Art anahtarı hâlâ). Filigran ancak Gemini veya Tensor.Art çalışınca kalkar.
+- Testler: capNarration 3 senaryo (kısa/uzun/devasa); mock produce 69 kelimelik metinle → video 30.0s, speech -19.4dB, captions doğru; typecheck+build temiz.
