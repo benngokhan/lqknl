@@ -72,11 +72,17 @@ export async function POST(req: Request) {
       }, { status: 409 });
     }
 
-    // En yeni video varlığı
+    // Yalnızca gerçek MP4 video varlığını seç; görsel/ses dosyasını asla yükleme.
     const [asset] = await db.select().from(contentAssets)
-      .where(eq(contentAssets.contentId, contentId))
+      .where(and(
+        eq(contentAssets.contentId, contentId),
+        eq(contentAssets.kind, "video"),
+        eq(contentAssets.mime, "video/mp4"),
+      ))
       .orderBy(desc(contentAssets.id)).limit(1);
-    if (!asset) return NextResponse.json({ ok: false, error: "Bu içerik için üretilmiş video bulunamadı." }, { status: 409 });
+    if (!asset) {
+      return NextResponse.json({ ok: false, error: "Bu içerik için video/mp4 varlığı bulunamadı." }, { status: 409 });
+    }
 
     // Metadata: taslak senaryosundaki AÇIKLAMA/ETİKETLER varsa onlardan kur
     const draftOps = await db.select().from(operations)
@@ -89,7 +95,9 @@ export async function POST(req: Request) {
 
     const metadata = buildMetadata(content.title, content.topic, script);
     const video = Buffer.from(asset.data, "base64");
-    if (!video.length) throw new Error("Video varlığı boş");
+    if (video.length < 12 || video.toString("ascii", 4, 8) !== "ftyp") {
+      throw new Error("Video varlığı geçerli MP4 başlığı içermiyor; yükleme durduruldu.");
+    }
 
     const result = await uploadShort({
       title: metadata.title,
