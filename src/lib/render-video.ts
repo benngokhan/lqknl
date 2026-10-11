@@ -197,7 +197,7 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
       '',
     ].join("\n"), "utf8");
 
-    await runFfmpeg(args, 120_000, { FONTCONFIG_FILE: fontconfigFile });
+    await runFfmpeg(args, 120_000, { FONTCONFIG_FILE: fontconfigFile, FONTCONFIG_PATH: workDir });
     const video = await readFile(outputPath);
     if (video.length < 10_000 || video.subarray(4, 8).toString("ascii") !== "ftyp") {
       throw new Error("Üretilen dosya geçerli MP4 olarak doğrulanamadı");
