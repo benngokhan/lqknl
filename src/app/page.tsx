@@ -703,14 +703,7 @@ export default function Home() {
               </span>
               <span className="ml-auto text-slate-400" aria-hidden="true">{draftPanelOpen ? '▴' : '▾'}</span>
             </button>
-            <button
-              type="button"
-              onClick={() => void createTestDraft()}
-              disabled={testDraftLoading}
-              className="shrink-0 rounded-lg border border-emerald-500/50 bg-emerald-600/15 px-3 py-2 text-xs hover:bg-emerald-600/30 disabled:opacity-50"
-            >
-              {testDraftLoading ? 'İşçi çalışıyor…' : 'Örnek taslak üret'}
-            </button>
+
             <button
               type="button"
               onClick={() => void loadDrafts()}
