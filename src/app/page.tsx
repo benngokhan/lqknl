@@ -116,7 +116,7 @@ export default function Home() {
   const [reviewBusyId, setReviewBusyId] = useState<number | null>(null);
   const [draftsError, setDraftsError] = useState('');
   const [reviewNotice, setReviewNotice] = useState('');
-  const [videoProgress, setVideoProgress] = useState<{ contentId: number; percentage: number; stage: string; status: string } | null>(null);
+  const [videoProgress, setVideoProgress] = useState<{ contentId: number; title: string; percentage: number; stage: string; status: string } | null>(null);
   const [analysis, setAnalysis] = useState<DraftAnalysis | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
@@ -188,7 +188,7 @@ export default function Home() {
     setReviewBusyId(id);
     setDraftsError('');
     setReviewNotice('');
-    if (action === 'approve_video') setVideoProgress({ contentId: id, percentage: 2, stage: 'Video üretimi başlatılıyor', status: 'running' });
+    if (action === 'approve_video') setVideoProgress({ contentId: id, title: drafts.find((draft) => draft.id === id)?.title || `İçerik #${id}`, percentage: 2, stage: 'Video üretimi başlatılıyor', status: 'running' });
     let progressTimer: ReturnType<typeof setInterval> | undefined;
     try {
       const res = await fetch('/api/content/review', {
@@ -211,7 +211,7 @@ export default function Home() {
           const progressRes = await fetch(`/api/automation/produce-status?contentId=${id}`, { cache: 'no-store' });
           const progress = await progressRes.json().catch(() => null);
           if (progressRes.ok && progress && typeof progress.percentage === 'number') {
-            setVideoProgress({ contentId: id, percentage: progress.percentage, stage: String(progress.stage || 'Video hazırlanıyor'), status: String(progress.status || 'running') });
+            setVideoProgress({ contentId: id, title: drafts.find((draft) => draft.id === id)?.title || `İçerik #${id}`, percentage: progress.percentage, stage: String(progress.stage || 'Video hazırlanıyor'), status: String(progress.status || 'running') });
           }
         } catch {
           // Progress polling errors must not interrupt video production.
@@ -231,7 +231,7 @@ export default function Home() {
         }
 
         if (progressTimer) { clearInterval(progressTimer); progressTimer = undefined; }
-        setVideoProgress({ contentId: id, percentage: 100, stage: 'Video hazır; YouTube’a gizli yükleme yapılıyor', status: 'success' });
+        setVideoProgress({ contentId: id, title: drafts.find((draft) => draft.id === id)?.title || `İçerik #${id}`, percentage: 100, stage: 'Video hazır; YouTube’a gizli yükleme yapılıyor', status: 'success' });
         setReviewNotice('Video hazır. YouTube kanalına gizli yükleme yapılıyor…');
         const uploadRes = await fetch('/api/youtube/upload', {
           method: 'POST',
@@ -242,7 +242,7 @@ export default function Home() {
         if (!uploadRes.ok || uploaded?.ok !== true || uploaded?.published !== true) {
           throw new Error(uploaded?.error || `YouTube yüklemesi başarısız (HTTP ${uploadRes.status}).`);
         }
-        setVideoProgress({ contentId: id, percentage: 100, stage: 'Video YouTube’a gizli olarak yüklendi', status: 'success' });
+        setVideoProgress({ contentId: id, title: drafts.find((draft) => draft.id === id)?.title || `İçerik #${id}`, percentage: 100, stage: 'Video YouTube’a gizli olarak yüklendi', status: 'success' });
         setReviewNotice(`Tamamlandı: video oluşturuldu ve YouTube'a gizli yüklendi. ${uploaded.url || ''}`.trim());
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Video üretim/yükleme işlemi tamamlanamadı.';
@@ -636,16 +636,24 @@ export default function Home() {
             </div>
           )}
           {videoProgress && (
-            <div className="mt-3 rounded-xl border border-lime-400/25 bg-slate-950/70 p-3" role="status" aria-live="polite">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <span className="text-sm font-medium text-slate-100">Video oluşturma durumu</span>
-                <span className={`text-lg font-bold tabular-nums ${videoProgress.status === 'failed' ? 'text-red-300' : 'text-lime-300'}`}>{videoProgress.percentage}%</span>
+            <div className={`mt-3 rounded-xl border p-3 sm:p-4 ${videoProgress.status === 'failed' ? 'border-red-400/40 bg-red-950/20' : videoProgress.status === 'success' ? 'border-emerald-400/30 bg-emerald-950/15' : 'border-sky-400/30 bg-slate-950/80'}`} role="status" aria-live="polite">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] uppercase tracking-wider text-slate-400">Video üretim monitörü · #{videoProgress.contentId}</p>
+                  <h3 className="mt-1 break-words text-sm font-semibold text-white">{videoProgress.title}</h3>
+                  <p className="mt-1 text-xs text-slate-300">{videoProgress.stage}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${videoProgress.status === 'failed' ? 'bg-red-400/15 text-red-300' : videoProgress.status === 'success' ? 'bg-emerald-400/15 text-emerald-300' : 'bg-sky-400/15 text-sky-200'}`}>
+                    {videoProgress.status === 'failed' ? 'Hata' : videoProgress.status === 'success' ? 'Tamamlandı' : videoProgress.status === 'waiting' ? 'Bekliyor' : 'Çalışıyor'}
+                  </span>
+                  <p className={`mt-2 text-xl font-bold tabular-nums ${videoProgress.status === 'failed' ? 'text-red-300' : videoProgress.status === 'success' ? 'text-emerald-300' : 'text-sky-200'}`}>{videoProgress.percentage}%</p>
+                </div>
               </div>
-              <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-800">
-                <div className={`h-full rounded-full transition-all duration-500 ${videoProgress.status === 'failed' ? 'bg-red-400' : 'bg-lime-400'}`} style={{ width: `${videoProgress.percentage}%` }} />
+              <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-slate-800">
+                <div className={`h-full rounded-full transition-all duration-500 ${videoProgress.status === 'failed' ? 'bg-red-400' : videoProgress.status === 'success' ? 'bg-emerald-400' : 'bg-sky-400'}`} style={{ width: `${videoProgress.percentage}%` }} />
               </div>
-              <p className="mt-2 text-xs text-slate-300">{videoProgress.stage}</p>
-              {videoProgress.status === 'failed' && <p className="mt-1 text-xs text-red-300">Üretim bu aşamada başarısız oldu. Hata mesajı aşağıda gösteriliyor.</p>}
+              <p className="mt-2 text-[11px] text-slate-500">Aşama sunucudan düzenli olarak okunur. İlerleme değişmiyorsa işlem o adımda bekliyor olabilir.</p>
             </div>
           )}
           {reviewNotice && <p className="mt-3 text-sm text-emerald-300" role="status">{reviewNotice}</p>}
