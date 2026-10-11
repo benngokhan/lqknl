@@ -147,7 +147,9 @@ export async function POST(req: Request) {
   try {
     // Önceki çalışmada video üretildi ama YouTube yüklemesi başarısız olduysa yeniden dene.
     const readyItems = await db.select().from(contentItems)
-      .where(eq(contentItems.status, "ready"))
+      .where(hasId
+        ? and(eq(contentItems.id, requestedId), eq(contentItems.status, "ready"))
+        : eq(contentItems.status, "ready"))
       .orderBy(contentItems.id)
       .limit(50);
     if (readyItems.length) {
