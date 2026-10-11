@@ -5,7 +5,7 @@ import { contentAssets, contentItems, operations, tasks } from "@/db/schema";
 import { like } from "drizzle-orm";
 import { generateWithFallback } from "@/lib/model-manager";
 import { generateNarration, type CaptionGroup } from "@/lib/narration";
-import { generateTensorArtImage } from "@/lib/tensorart";
+import { generateImage } from "@/lib/generate-image";
 import { renderShort, type RenderImage } from "@/lib/render-video";
 import { extractNarration, parseDraftScript } from "@/lib/script-parse";
 import { sendTelegramMessage } from "@/lib/telegram";
@@ -24,33 +24,6 @@ function authorized(req: Request) {
 
 function decodeBase64Loose(value: string): Buffer {
   return Buffer.from(value.replace(/^data:[^;]+;base64,/i, "").replace(/\s/g, ""), "base64");
-}
-
-// Civitai orchestration yanıtının derinlerindeki görsel URL'lerini topla
-function collectImageUrls(value: unknown, found: string[] = []): string[] {
-  if (typeof value === "string") {
-    if (/^https?:\/\/\S+$/.test(value) && /\.(jpe?g|png|webp)(\?\S*)?$/i.test(value)) found.push(value);
-  } else if (Array.isArray(value)) {
-    for (const item of value) collectImageUrls(item, found);
-  } else if (value && typeof value === "object") {
-    for (const item of Object.values(value)) collectImageUrls(item, found);
-  }
-  return [...new Set(found)];
-}
-
-async function downloadImage(url: string): Promise<RenderImage> {
-  const res = await fetch(url, {
-    signal: AbortSignal.timeout(40_000),
-    headers: { "User-Agent": "MiraContentPipeline/1.0" },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`Görsel indirilemedi HTTP ${res.status}`);
-  const type = res.headers.get("content-type") || "";
-  if (!type.startsWith("image/")) throw new Error(`Görsel beklenirken ${type || "bilinmeyen tip"} geldi`);
-  const buffer = Buffer.from(await res.arrayBuffer());
-  if (!buffer.length || buffer.length > 8 * 1024 * 1024) throw new Error("Görsel boş veya çok büyük");
-  const extension = type.includes("png") ? "png" : type.includes("webp") ? "webp" : "jpg";
-  return { bytes: buffer, extension };
 }
 
 async function imagePromptsWithLlm(topic: string, script: string): Promise<string[]> {
@@ -79,10 +52,7 @@ async function imagePromptsWithLlm(topic: string, script: string): Promise<strin
 async function produceImages(prompts: string[], onImageReady?: (count: number) => Promise<void>) {
   const images: RenderImage[] = [];
   for (const prompt of prompts) {
-    const result = await generateTensorArtImage(prompt);
-    const urls = collectImageUrls(result);
-    if (!urls.length) throw new Error("Tensor.Art görsel URL'si döndürmedi");
-    images.push(await downloadImage(urls[0]));
+    images.push(await generateImage(prompt));
     if (onImageReady) await onImageReady(images.length);
   }
   return images;
@@ -380,10 +350,7 @@ export async function POST(req: Request) {
         continue;
       }
       const image = await retryStage(content.id, `${i + 1}. görsel üretimi`, [60, 70, 78][i], async () => {
-        const result = await generateTensorArtImage(prompts[i]);
-        const urls = collectImageUrls(result);
-        if (!urls.length) throw new Error("Tensor.Art görsel URL'si döndürmedi");
-        return downloadImage(urls[0]);
+        return generateImage(prompts[i]);
       });
       images.push(image);
       await db.insert(contentAssets).values({
@@ -392,9 +359,9 @@ export async function POST(req: Request) {
         mime: image.extension === "png" ? "image/png" : image.extension === "webp" ? "image/webp" : "image/jpeg",
         data: image.bytes.toString("base64"),
         bytes: image.bytes.length,
-        meta: { pipelineStage: "image", imageIndex: i, prompt: prompts[i] },
+        meta: { pipelineStage: "image", imageIndex: i, prompt: prompts[i], provider: image.provider },
       });
-      await reportProgress(content.id, [60, 70, 78][i], `${i + 1}/3 görsel hazırlandı ve kaydedildi`);
+      await reportProgress(content.id, [60, 70, 78][i], `${i + 1}/3 görsel hazırlandı ve kaydedildi (${image.provider})`);
     }
     stages.images = { count: images.length, bytes: images.map((i) => i.bytes.length), resumed: checkpoints.imageAssets.length > 0 };
 
