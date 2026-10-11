@@ -645,7 +645,7 @@ export default function Home() {
             >
               <span className="font-semibold text-white">İçerik Deposu · İşçi Taslakları</span>
               <span className="shrink-0 rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
-                {drafts.length} bekleyen
+                {drafts.length} içerik
               </span>
               <span className="ml-auto text-slate-400" aria-hidden="true">{draftPanelOpen ? '▴' : '▾'}</span>
             </button>
@@ -672,7 +672,9 @@ export default function Home() {
                       <h3 className="font-medium text-white">{draft.title}</h3>
                       <p className="text-xs text-slate-400">{draft.platform}{draft.topic ? ` · ${draft.topic}` : ''}</p>
                     </div>
-                    <span className="rounded-full bg-amber-500/10 px-2 py-1 text-xs text-amber-300">Onay bekliyor</span>
+                    <span className={`rounded-full px-2 py-1 text-xs ${draft.status === 'queued' ? 'bg-sky-500/10 text-sky-300' : draft.status === 'processing' ? 'bg-violet-500/10 text-violet-300' : 'bg-amber-500/10 text-amber-300'}`}>
+                      {draft.status === 'queued' ? 'Kuyrukta' : draft.status === 'processing' ? 'İşleniyor' : 'Analize hazır'}
+                    </span>
                   </div>
                   {draft.generatedScript ? (
                     <pre className="whitespace-pre-wrap break-words text-sm text-slate-200 font-sans">{draft.generatedScript}</pre>
