@@ -195,7 +195,7 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
       `  <cachedir>${fontconfigCacheDir}</cachedir>`,
       '</fontconfig>',
       '',
-    ].join("\\n"), "utf8");
+    ].join("\n"), "utf8");
 
     await runFfmpeg(args, 120_000, { FONTCONFIG_FILE: fontconfigFile });
     const video = await readFile(outputPath);
