@@ -46,11 +46,11 @@ export async function generateTensorArtImage(prompt: string) {
       Accept: "application/json",
     },
     body: JSON.stringify({
-      request_id: crypto.randomUUID(),
+      requestId: crypto.randomUUID(),
       stages: [
         {
           type: "INPUT_INITIALIZE",
-          input_initialize: { seed: 0, count: 1 },
+          inputInitialize: { seed: 0, count: 1 },
         },
         {
           type: "DIFFUSION",
@@ -58,10 +58,10 @@ export async function generateTensorArtImage(prompt: string) {
             width: 576,
             height: 1024,
             prompts: [{ text: prompt.slice(0, 5000), weight: 1 }],
-            negative_prompts: [{ text: "text, lettering, watermark, logo, blurry, low quality", weight: 1 }],
-            sd_model: modelId,
+            negativePrompts: [{ text: "text, lettering, watermark, logo, blurry, low quality", weight: 1 }],
+            sdModel: modelId,
             steps: 24,
-            cfg_scale: 7,
+            cfgScale: 7,
           },
         },
       ],
