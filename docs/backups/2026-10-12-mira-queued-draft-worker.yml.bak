@@ -1,0 +1,68 @@
+name: Mira Queued Draft Worker
+
+on:
+  schedule:
+    # Kuyrukta biriken içerikleri daha sık işle; her çağrı tek içerik işler.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mira-queued-draft-worker
+  cancel-in-progress: false
+
+jobs:
+  process-queued-drafts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Validate required secrets
+        env:
+          MIRA_BASE_URL: ${{ secrets.MIRA_BASE_URL }}
+          MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
+        run: |
+          test -n "$MIRA_BASE_URL" || (echo "Missing GitHub Actions secret: MIRA_BASE_URL" && exit 1)
+          test -n "$MIRA_AUTOMATION_SECRET" || (echo "Missing GitHub Actions secret: MIRA_AUTOMATION_SECRET" && exit 1)
+
+      - name: Process up to five queued drafts
+        env:
+          MIRA_BASE_URL: ${{ secrets.MIRA_BASE_URL }}
+          MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
+        shell: bash
+        run: |
+          set -u
+          for attempt in 1 2 3 4 5; do
+            echo "Draft worker attempt $attempt/5"
+            response_file="$(mktemp)"
+            status="$(curl --silent --show-error --max-time 75 \
+              -o "$response_file" -w "%{http_code}" \
+              -X POST "${MIRA_BASE_URL%/}/api/automation/worker" \
+              -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" \
+              -H "Content-Type: application/json" \
+              -d '{}' || true)"
+            cat "$response_file"
+            echo
+            if [ "$status" != "200" ]; then
+              echo "Worker returned HTTP $status; stopping this batch so the next scheduled run can retry."
+              rm -f "$response_file"
+              break
+            fi
+            if ! python - "$response_file" <<'PY'
+          import json, sys
+          try:
+              with open(sys.argv[1], encoding="utf-8") as f:
+                  data = json.load(f)
+          except Exception:
+              raise SystemExit(1)
+          if data.get("processed") is not True:
+              raise SystemExit(2)
+          PY
+            then
+              echo "No queued item was processed; stopping the batch."
+              rm -f "$response_file"
+              break
+            fi
+            rm -f "$response_file"
+          done
