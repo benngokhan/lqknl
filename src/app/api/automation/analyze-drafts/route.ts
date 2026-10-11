@@ -146,7 +146,7 @@ export async function POST(req: Request) {
       provider: result.provider,
       model: result.model,
       published: false,
-      draftsChanged: false,
+      draftsChanged: true,
     },
   }).returning();
 
@@ -182,6 +182,6 @@ export async function POST(req: Request) {
     model: result.model,
     operationId: saved.id,
     published: false,
-    draftsChanged: false,
+    draftsChanged: true,
   });
 }
