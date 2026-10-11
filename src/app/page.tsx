@@ -17,6 +17,8 @@ interface ContentDraft {
   status: string;
   generatedScript: string | null;
   generation: { provider?: string | null; model?: string | null } | null;
+  previewPath?: string;
+  hasVideo?: boolean;
 }
 
 interface DraftAnalysis {
@@ -127,6 +129,12 @@ export default function Home() {
   const [reviewNotice, setReviewNotice] = useState('');
   const [videoProgress, setVideoProgress] = useState<{ contentId: number; title: string; percentage: number; stage: string; status: string } | null>(null);
   const [videoEvents, setVideoEvents] = useState<VideoProgressEvent[]>([]);
+  const [readyVideos, setReadyVideos] = useState<ContentDraft[]>([]);
+  const [readyPanelOpen, setReadyPanelOpen] = useState(false);
+  const [readyLoading, setReadyLoading] = useState(false);
+  const [readyError, setReadyError] = useState('');
+  const [publishBusyId, setPublishBusyId] = useState<number | null>(null);
+  const [publishResult, setPublishResult] = useState('');
   const [analysis, setAnalysis] = useState<DraftAnalysis | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
@@ -209,6 +217,43 @@ export default function Home() {
       setDraftsError(error instanceof Error ? error.message : 'Taslaklar alınamadı.');
     } finally {
       setDraftsLoading(false);
+    }
+  }
+
+  async function loadReadyVideos() {
+    setReadyLoading(true);
+    setReadyError('');
+    try {
+      const res = await fetch('/api/content/review?status=ready', { cache: 'no-store' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Videolar alınamadı (HTTP ${res.status}).`);
+      setReadyVideos(Array.isArray(data) ? data : []);
+    } catch (error) {
+      setReadyError(error instanceof Error ? error.message : 'Videolar alınamadı.');
+    } finally {
+      setReadyLoading(false);
+    }
+  }
+
+  async function publishVideo(id: number) {
+    if (publishBusyId !== null) return;
+    if (!window.confirm('Bu video YouTube\'a yüklensin mi? Varsayılan gizlilik: private (sonradan public yapabilirsin).')) return;
+    setPublishBusyId(id);
+    setPublishResult('');
+    try {
+      const res = await fetch('/api/youtube/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentId: id }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Yükleme başarısız (HTTP ${res.status}).`);
+      setReadyVideos((current) => current.filter((item) => item.id !== id));
+      setPublishResult(`Yüklendi: ${data.url || 'link alınamadı'} (${data.privacyStatus || 'private'})`);
+    } catch (error) {
+      setReadyError(error instanceof Error ? error.message : 'Yükleme tamamlanamadı.');
+    } finally {
+      setPublishBusyId(null);
     }
   }
 
@@ -360,6 +405,7 @@ export default function Home() {
     if (entered) {
       void loadDrafts();
       void loadAnalysis();
+      void loadReadyVideos();
     }
   }, [entered]);
 
@@ -779,6 +825,80 @@ export default function Home() {
             </div>
           )}
           {reviewNotice && <p className="mt-3 text-sm text-emerald-300" role="status">{reviewNotice}</p>}
+        </section>
+        <section className="rounded-xl border border-lime-400/30 bg-slate-800/80 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setReadyPanelOpen((open) => !open)}
+              aria-expanded={readyPanelOpen}
+              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            >
+              <span className="font-semibold text-white">Üretilen Videolar</span>
+              <span className="shrink-0 rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
+                {readyVideos.length} onay bekliyor
+              </span>
+              <span className="ml-auto text-slate-400" aria-hidden="true">{readyPanelOpen ? '▴' : '▾'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void loadReadyVideos()}
+              disabled={readyLoading}
+              className="shrink-0 rounded-lg border border-slate-600 px-3 py-2 text-xs hover:bg-slate-700 disabled:opacity-50"
+            >
+              {readyLoading ? 'Yükleniyor…' : 'Yenile'}
+            </button>
+          </div>
+          {readyPanelOpen && (
+            <div className="mt-3 space-y-4">
+              <p className="text-xs text-slate-400">Yayınla dediğinde video YouTube'a <b className="text-slate-300">private</b> olarak yüklenir; kanalında görüp onayladıktan sonra public yaparsın.</p>
+              {publishResult && <p className="text-sm text-lime-300 break-all">{publishResult}</p>}
+              {readyError && <p className="text-sm text-red-300" role="alert">{readyError}</p>}
+              {!readyLoading && readyVideos.length === 0 && !readyError && (
+                <p className="text-sm text-slate-400">Onay bekleyen üretilmiş video yok. Bir taslağı videolu onaylayıp üretim bittiğinde burada belirecek.</p>
+              )}
+              {readyVideos.map((item) => (
+                <article key={item.id} className="rounded-lg border border-slate-700 bg-slate-900 p-3 space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h3 className="font-medium text-white">{item.title}</h3>
+                      <p className="text-xs text-slate-400">{item.platform}{item.topic ? ` · ${item.topic}` : ''} · #{item.id}</p>
+                    </div>
+                    <span className="rounded-full bg-lime-500/10 px-2 py-1 text-xs text-lime-300">Yayın onayı bekliyor</span>
+                  </div>
+                  {item.hasVideo && item.previewPath ? (
+                    <video
+                      controls
+                      playsInline
+                      preload="metadata"
+                      src={item.previewPath}
+                      className="mx-auto w-full max-w-[240px] rounded-lg border border-slate-700 bg-black"
+                    />
+                  ) : (
+                    <p className="text-sm text-slate-400">Bu içerik için video varlığı bulunamadı (üretim tamamlanmamış olabilir).</p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void publishVideo(item.id)}
+                      disabled={publishBusyId !== null || !item.hasVideo}
+                      className="flex-1 rounded-lg bg-lime-500/90 px-3 py-2.5 text-sm font-semibold text-black hover:bg-lime-400 disabled:opacity-50"
+                    >
+                      {publishBusyId === item.id ? 'Yükleniyor…' : 'YouTube\'a Yayınla'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void reviewDraft(item.id, 'reject').then(() => loadReadyVideos())}
+                      disabled={publishBusyId !== null}
+                      className="rounded-lg bg-red-900/80 px-3 py-2.5 text-sm font-medium hover:bg-red-800 disabled:opacity-50"
+                    >
+                      Reddet
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
         {messages.length === 0 && (
           <p className="text-slate-400 text-center mt-10">

@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { contentItems, operations } from "@/db/schema";
+import { contentAssets, contentItems, operations } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -13,15 +13,31 @@ export async function GET(req: Request) {
   if (!authorized(req)) return NextResponse.json({ error: "Giriş gerekli." }, { status: 401 });
 
   const status = new URL(req.url).searchParams.get("status");
+  const isReady = status === "ready";
   const rows = await db.select().from(contentItems)
-    .where(status === "approved" || status === "rejected"
-      ? eq(contentItems.status, status)
-      : inArray(contentItems.status, ["queued", "processing", "draft"]))
+    .where(isReady
+      ? eq(contentItems.status, "ready")
+      : status === "approved" || status === "rejected"
+        ? eq(contentItems.status, status)
+        : inArray(contentItems.status, ["queued", "processing", "draft"]))
     .orderBy(desc(contentItems.updatedAt))
     .limit(50);
 
   if (!rows.length) return NextResponse.json([]);
   const ids = rows.map((row) => row.id);
+
+  // ready içerikler için en yeni video varlığını bul (onay ekranındaki oynatıcı buna bağlanır)
+  const previewByContentId = new Map<number, number>();
+  if (isReady) {
+    const assets = await db.select().from(contentAssets)
+      .where(inArray(contentAssets.contentId, ids))
+      .orderBy(desc(contentAssets.id)).limit(500);
+    for (const asset of assets) {
+      if (asset.kind === "video" && !previewByContentId.has(asset.contentId)) {
+        previewByContentId.set(asset.contentId, asset.id);
+      }
+    }
+  }
   const draftOps = await db.select().from(operations)
     .where(and(eq(operations.action, "autonomous_content_draft"), inArray(operations.status, ["success", "failed"])))
     .orderBy(desc(operations.id))
@@ -37,10 +53,12 @@ export async function GET(req: Request) {
   return NextResponse.json(rows.map((row) => {
     const op = latestById.get(row.id);
     const metadata = op?.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {};
+    const assetId = previewByContentId.get(row.id);
     return {
       ...row,
       generatedScript: typeof metadata.script === "string" ? metadata.script : null,
       generation: op ? { provider: metadata.provider ?? null, model: metadata.model ?? null } : null,
+      ...(isReady ? (assetId ? { previewPath: `/api/video/asset/${assetId}`, hasVideo: true } : { hasVideo: false }) : {}),
     };
   }));
 }
@@ -55,17 +73,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Geçersiz istek." }, { status: 400 });
   }
 
+  // Reddetme, üretilmiş (ready) videoları da kapsar; onaylama yalnızca taslak içindir.
+  const allowedStatus = action === "reject" ? ["draft", "ready"] as const : ["draft"] as const;
   const [draft] = await db.select().from(contentItems)
-    .where(and(eq(contentItems.id, id), eq(contentItems.status, "draft")))
+    .where(and(eq(contentItems.id, id), inArray(contentItems.status, [...allowedStatus])))
     .limit(1);
 
-  if (!draft) return NextResponse.json({ error: "Taslak bulunamadı veya daha önce değerlendirilmiş." }, { status: 409 });
+  if (!draft) return NextResponse.json({ error: "Kayıt bulunamadı veya daha önce değerlendirilmiş." }, { status: 409 });
 
   const nextStatus = action === "reject" ? "rejected" : "approved";
   const videoRequested = action === "approve_video";
   const [row] = await db.update(contentItems)
     .set({ status: nextStatus, updatedAt: new Date() })
-    .where(and(eq(contentItems.id, id), eq(contentItems.status, "draft")))
+    .where(and(eq(contentItems.id, id), eq(contentItems.status, draft.status)))
     .returning();
 
   if (!row) {
