@@ -50,7 +50,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const id = Number(body.id);
   const action = body.action;
-  if (!Number.isInteger(id) || id <= 0 || !["approve", "reject"].includes(action)) {
+  if (!Number.isInteger(id) || id <= 0 || !["approve_video", "approve_text", "reject"].includes(action)) {
     return NextResponse.json({ error: "Geçersiz istek." }, { status: 400 });
   }
 
@@ -60,7 +60,8 @@ export async function POST(req: Request) {
 
   if (!draft) return NextResponse.json({ error: "Taslak bulunamadı veya daha önce değerlendirilmiş." }, { status: 409 });
 
-  const nextStatus = action === "approve" ? "approved" : "rejected";
+  const nextStatus = action === "reject" ? "rejected" : "approved";
+  const videoRequested = action === "approve_video";
   const [row] = await db.update(contentItems)
     .set({ status: nextStatus, updatedAt: new Date() })
     .where(and(eq(contentItems.id, id), eq(contentItems.status, "draft")))
@@ -75,17 +76,20 @@ export async function POST(req: Request) {
   }
 
   await db.insert(operations).values({
-    action: action === "approve" ? "content_approved" : "content_rejected",
-    summary: action === "approve"
-      ? `İçerik taslağı kullanıcı tarafından onaylandı: ${row.title}`
-      : `İçerik taslağı reddedildi: ${row.title}`,
+    action: action === "reject" ? "content_rejected" : "content_approved",
+    summary: action === "reject"
+      ? `İçerik taslağı kullanıcı tarafından reddedildi: ${row.title}`
+      : videoRequested
+        ? `İçerik onaylandı; video üretimi istendi: ${row.title}`
+        : `İçerik onaylandı; video üretimi istenmedi: ${row.title}`,
     status: "success",
     platform: row.platform,
     externalId: row.externalId,
     metadata: {
       contentId: row.id,
       contentStatus: nextStatus,
-      approvedByUser: true,
+      approvedByUser: action !== "reject",
+      videoRequested,
       n8nTriggered: false,
       published: false,
     },
@@ -96,9 +100,11 @@ export async function POST(req: Request) {
     status: nextStatus,
     n8nTriggered: false,
     published: false,
-    message: action === "approve"
-      ? "Taslak onaylandı. Video üretimi ve yayınlama bu işlem tarafından başlatılmadı; ayrıca gerçekleştirilip doğrulanmalı."
-      : "Taslak reddedildi.",
+    message: action === "reject"
+      ? "Taslak reddedildi."
+      : videoRequested
+        ? "Taslak onaylandı; video üretim kuyruğuna alındı. Sonuç Telegram'a bildirilecekse Telegram bağlantısı yapılandırılmış olmalı."
+        : "Taslak onaylandı; video üretilmeyecek.",
     content: row,
   });
 }
