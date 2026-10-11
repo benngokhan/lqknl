@@ -1,8 +1,10 @@
 name: Mira Continuous Content Intake Worker
 
-# PAUSED: automatic schedule and manual dispatch disabled while content workers are stopped.
 on:
-  workflow_call:
+  schedule:
+    # Her saat çalışır; mevcut video üretim akışından ayrı tutulur.
+    - cron: "23 * * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
