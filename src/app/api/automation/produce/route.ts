@@ -76,15 +76,29 @@ async function imagePromptsWithLlm(topic: string, script: string): Promise<strin
   return prompts;
 }
 
-async function produceImages(prompts: string[]) {
+async function produceImages(prompts: string[], onImageReady?: (count: number) => Promise<void>) {
   const images: RenderImage[] = [];
   for (const prompt of prompts) {
     const result = await generateCivitaiImage({ prompt, aspectRatio: "9:16", size: "medium" });
     const urls = collectImageUrls(result);
     if (!urls.length) throw new Error("Civitai görsel URL'si döndürmedi");
     images.push(await downloadImage(urls[0]));
+    if (onImageReady) await onImageReady(images.length);
   }
   return images;
+}
+
+async function reportProgress(contentId: number, percentage: number, stage: string, status = "running") {
+  try {
+    await db.insert(operations).values({
+      action: "content_produce_progress",
+      summary: stage,
+      status,
+      metadata: { contentId, percentage, stage, updatedAt: new Date().toISOString() },
+    });
+  } catch (error) {
+    console.error("[Produce] progress write failed:", error instanceof Error ? error.message : String(error));
+  }
 }
 
 export async function GET() {
@@ -190,6 +204,8 @@ export async function POST(req: Request) {
       }
     }
 
+    if (hasId) await reportProgress(requestedId, 5, "Onaylı içerik ve senaryo kontrol ediliyor");
+
     // 1) İçeriği bul: yalnızca kullanıcı tarafından onaylanmış içerik üretilebilir.
     const candidateRows = hasId
       ? await db.select().from(contentItems)
@@ -224,6 +240,7 @@ export async function POST(req: Request) {
     const narrationText = extractNarration(script, `${content.title}. ${topic}`);
     const sections = parseDraftScript(script);
     stages.script = { narrationChars: narrationText.length, sectionKeys: Object.keys(sections) };
+    await reportProgress(content.id, 15, "Senaryo hazırlandı");
 
     // 3) 3 görsel promptu (LLM; başarısızsa görsel tasarım bölümünden degrade)
     let prompts: string[];
@@ -241,15 +258,23 @@ export async function POST(req: Request) {
       stages.prompts = { source: "fallback", llmError: String(error).slice(0, 200) };
     }
 
+    await reportProgress(content.id, 30, "Görsel sahneler planlandı");
+
     // 4) Seslendirme + senkron altyazı
+    await reportProgress(content.id, 40, "Seslendirme hazırlanıyor");
     const narration = await generateNarration(narrationText);
     stages.tts = { provider: narration.provider, speechSeconds: narration.durationSeconds };
+    await reportProgress(content.id, 50, "Seslendirme tamamlandı; görseller üretiliyor");
 
     // 5) Civitai ile 3 görsel
-    const images = await produceImages(prompts);
+    const images = await produceImages(prompts, async (count) => {
+      const percentage = count === 1 ? 60 : count === 2 ? 70 : 78;
+      await reportProgress(content.id, percentage, `${count}/3 görsel hazırlandı`);
+    });
     stages.images = { count: images.length, bytes: images.map((i) => i.bytes.length) };
 
     // 6) MP4 render
+    await reportProgress(content.id, 82, "Görseller tamamlandı; MP4 video oluşturuluyor");
     const { video, durationSeconds, captionsUsed } = await renderShort({
       images,
       audio: Buffer.from(narration.audio),
@@ -258,6 +283,8 @@ export async function POST(req: Request) {
       durationSeconds: narration.durationSeconds ?? undefined,
     });
     stages.render = { durationSeconds, bytes: video.length, captions: captionsUsed };
+
+    await reportProgress(content.id, 93, "Video oluşturuldu; dosya kaydediliyor");
 
     // 7) Varlığı Postgres'e yaz, içeriği 'ready' yap (insan onayı öncesi)
     const [asset] = await db.insert(contentAssets).values({
@@ -291,6 +318,7 @@ export async function POST(req: Request) {
       `✅ Mira video üretimini tamamladı\n\nBaşlık: ${content.title}\nİçerik ID: ${content.id}\nSüre: ${durationSeconds} sn\nDurum: Video hazır; YouTube'a otomatik yükleme bu bildirimin parçası değildir.\nÖnizleme: ${previewUrl}`
     );
     stages.telegram = telegram;
+    await reportProgress(content.id, 100, "Video hazır", "success");
 
     return NextResponse.json({
       ok: true,
@@ -306,6 +334,7 @@ export async function POST(req: Request) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[Produce] failed:", message);
     if (hasId) {
+      await reportProgress(requestedId, 0, `Hata: ${message.slice(0, 300)}`, "failed");
       // Hata durumunda içerik 'approved' kalır (tekrar denenebilir); işlem kayıtlarına yaz.
       await db.insert(operations).values({
         action: "content_produce",
