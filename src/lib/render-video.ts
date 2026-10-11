@@ -1,10 +1,12 @@
 // MP4 render çekirdeği: /api/video/render route'u ve üretim motoru (produce)
 // tarafından ortak kullanılır. Girdi/çıktı tamamen bellek içi Buffer'larla çalışır.
 //
-// Bellek notu (Railway SIGKILL sorunu): 3 görseli tek ffmpeg çağrısında aynı anda
-// işlemek 512MB-1GB container'ı OOM'a sürükleyebiliyordu. Bu yüzden akış 4 hafif
-// çağrıya bölündü: her görsel ayrı bir .mp4 segmenti olarak kodlanır, ardından
-// concat demuxer + altyazı + ses tek geçişte birleştirilir. Görsel çıktı aynı.
+// Bellek notu (Railway SIGKILL sorunu, 2. perde): V1'de segmentler kodlanıyordu ama son
+// geçişte 3 segment concat edilip VİDEO BAŞTAN SONA YENİDEN x264 ile kodlanıyordu
+// (altyazı yakma filtresi zorunlu kılıyordu) — 1080x1920 tam süre re-encode küçük
+// Railway container'ında yine SIGKILL yiyordu. V2: altyazı segment başına yakılıyor
+// (zaman penceresi kaydırılmış SRT), son geçiş concat demuxer + `-c:v copy` ile saf
+// mux'a indi: video hiç çözülüp yeniden kodlanmıyor → bellek yükü ihmal edilebilir.
 
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -68,6 +70,22 @@ function estimateCaptions(text: string, duration: number): Caption[] {
     cursor += duration * Math.max(1, phrase.length) / total;
     return { start, end: Math.min(duration, cursor), text: phrase };
   });
+}
+
+// Küresel zamanlı altyazıları bir segment penceresine taşı: kesişimi al, pencere
+// başlangıcını çıkar. Sınırı aşan altyazı iki segmentte de görünür (ikisinde de kırpılır).
+function captionsForWindow(captions: Caption[], start: number, end: number): Caption[] {
+  return captions.flatMap((c) => {
+    const a = Math.max(c.start, start);
+    const b = Math.min(c.end, end);
+    return b - a > 0.05 ? [{ start: a - start, end: b - start, text: c.text }] : [];
+  });
+}
+
+function buildSrt(captions: Caption[]) {
+  return captions.map((caption, index) =>
+    `${index + 1}\n${srtTime(caption.start)} --> ${srtTime(caption.end)}\n${caption.text}\n`
+  ).join("\n");
 }
 
 function probeAudioDuration(filePath: string): Promise<number | null> {
@@ -145,7 +163,6 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
       imagePaths.push(imagePath);
     }
     const audioPath = path.join(workDir, "voice.mp3");
-    const srtPath = path.join(workDir, "captions.srt");
     const outputPath = path.join(workDir, "mira-short.mp4");
     await writeFile(audioPath, input.audio);
 
@@ -162,10 +179,6 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
     if (!finalCaptions.length) {
       throw new Error("Altyazı için captions zamanları veya narrationText gerekli");
     }
-    const srt = finalCaptions.map((caption, index) =>
-      `${index + 1}\n${srtTime(caption.start)} --> ${srtTime(caption.end)}\n${caption.text}\n`
-    ).join("\n");
-    await writeFile(srtPath, srt, "utf8");
 
     // libass Fontconfig'in varsayılan sistem yapılandırmasını bulamayabilir (Railway/Nixpacks).
     // Her render için geçici bir config üretip proje içindeki DejaVu fontlarını açıkça tanımla.
@@ -176,7 +189,7 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
     await writeFile(fontconfigFile, [
       '<?xml version="1.0"?>',
       '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">',
-      '<fontconfig>',
+      "<fontconfig>",
       `  <dir>${fontsDir}</dir>`,
       "  <dir>/usr/share/fonts</dir>",
       "  <dir>/usr/local/share/fonts</dir>",
@@ -186,18 +199,30 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
     ].join("\n"), "utf8");
     const ffenv = { FONTCONFIG_FILE: fontconfigFile, FONTCONFIG_PATH: workDir };
 
+    // libass'ın FontSize/MarginV değerleri PlayResY=288 birimindedir; 1080x1920'e ölçeklenir.
+    const subtitleStyle = "FontName=DejaVu Sans,FontSize=17,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=34";
+
     const segment = duration / 3;
 
-    // 1-3) Her görseli ayrı .mp4 segmentine çevir (tek görsel = düşük RAM;
-    // NOT: .ts segmentleri bu ffmpeg build'inde Node'dan spawn edildiğinde segfault
-    // veriyor — mp4 segmentleri bu yüzden bilinçli seçimdir).
+    // 1-3) Her görsel ayrı .mp4 segmentine kodlanır; o segmentin zaman penceresine düşen
+    // altyazılar da burada yakılır. Tek görsel + kısa süre = düşük RAM.
+    // (NOT: .ts segmentleri bu ffmpeg build'inde Node'dan spawn edilince segfault veriyordu
+    // — mp4 segmentleri bu yüzden bilinçli seçimdir.)
     const segmentPaths: string[] = [];
     for (let i = 0; i < imagePaths.length; i++) {
       const segmentPath = path.join(workDir, `segment-${i + 1}.mp4`);
+      const segStart = i * segment;
+      const segCaptions = captionsForWindow(finalCaptions, segStart, segStart + segment);
+      let vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.0005,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,setsar=1";
+      if (segCaptions.length) {
+        const srtPath = path.join(workDir, `captions-${i + 1}.srt`);
+        await writeFile(srtPath, buildSrt(segCaptions), "utf8");
+        vf += `,subtitles=${escapeFilterPath(srtPath)}:fontsdir='${escapeFilterPath(fontsDir)}':force_style='${subtitleStyle}'`;
+      }
       await runFfmpeg([
         "-hide_banner", "-loglevel", "warning", "-y",
         "-loop", "1", "-framerate", "30", "-t", String(segment), "-i", imagePaths[i],
-        "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.0005,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,setsar=1",
+        "-vf", vf,
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         "-pix_fmt", "yuv420p", "-an",
         segmentPath,
@@ -205,23 +230,21 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
       segmentPaths.push(segmentPath);
     }
 
-    // 4) concat demuxer: 3 segment + ses + altyazı tek geçişte
+    // 4) Final: concat demuxer ile 3 segmenti birleştir + ses muxla.
+    // VİDEO YENİDEN KODLANMIYOR (-c:v copy) → bu geçiş neredeyse belleksiz çalışır;
+    // Railway'de SIGKILL yaratan tam-süre re-encode ortadan kalktı.
     const concatListPath = path.join(workDir, "concat.txt");
     await writeFile(
       concatListPath,
       segmentPaths.map((p) => `file '${p}'`).join("\n"),
       "utf8",
     );
-    // libass'ın FontSize/MarginV değerleri PlayResY=288 birimindedir; 1080x1920'e ölçeklenir.
-    const subtitleStyle = "FontName=DejaVu Sans,FontSize=17,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=34";
     await runFfmpeg([
       "-hide_banner", "-loglevel", "warning", "-y",
       "-f", "concat", "-safe", "0", "-i", concatListPath,
       "-i", audioPath,
-      "-vf", `subtitles=${escapeFilterPath(srtPath)}:fontsdir='${escapeFilterPath(fontsDir)}':force_style='${subtitleStyle}'`,
       "-map", "0:v", "-map", "1:a",
-      "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-      "-pix_fmt", "yuv420p", "-r", "30",
+      "-c:v", "copy",
       "-c:a", "aac", "-b:a", "128k", "-af", "apad",
       "-t", String(duration), "-movflags", "+faststart",
       outputPath,
@@ -232,7 +255,7 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
       throw new Error("Üretilen dosya geçerli MP4 olarak doğrulanamadı");
     }
 
-    console.log("[Mira MP4] render success (segmented)", JSON.stringify({
+    console.log("[Mira MP4] render success (segmented, copy-merge)", JSON.stringify({
       bytes: video.length,
       durationSeconds: duration,
       captions: finalCaptions.length,

@@ -93,3 +93,11 @@ Kökteki test scriptleri (bu oturumda kullanıldı):
 - `src/lib/generate-image.ts` (yeni): üretim artık `generateImage(prompt)` üzerinden zincirleme: 1) Tensor.Art 2) Gemini 2.5 Flash Image (yalnızca `GEMINI_API_KEY` varsa; 9:16 `imageConfig`) 3) Pollinations (anahtarsız, 576x1024 flux). Tümü hata verirse tek birleşik hata mesajı döner; başarıda `provider` adı asset metadata'sına yazılır.
 - Pollinations gerçekleri (canlı testlerle): `safe=true` parametresi artık 402 döndürüyor (premium'a taşınmış, kaldırıldı); anonim kademe hız aşımını **402/500** olarak yansıtıyor; bu yüzden sağlayıcı içi minimum 25sn çağrı aralığı + 402/429/5xx'te 45sn soğumayla en fazla 5 deneme var (402→402→200 senaryosu mock testle geçti).
 - Dayanıklılık notu: Günde ~12-16 görsel için zincir fazlasıyla yeterli. Görsel patlaması (aynı video içinde 3 art arda üretim) için kalıcı çözüm = Railway'e ücretsiz `GEMINI_API_KEY` (AI Studio; ~500 görsel/gün) eklemek; Pollinations yalnızca son-kale yedeğidir.
+
+## 11. Railway SIGKILL, 2. perde: son geçiş re-encode kaldırıldı (copy-merge)
+
+- Belirti (canlı, 11 Ekim 21:48): %82 "MP4 birleştirme" aşamasında her denemede 5-7 saniyede `(exit=null, signal=SIGKILL)`; ayrıca bir koşuda sayfa yenilenip üretim ekranı kayboldu (konteyner OOM-killer Node/Next sürecini de vurdu). V1 segmentli pipeline segmentleri kodluyordu ama SON GEÇİŞ 3 segmenti concat + altyazı yakma ile **tüm videoyu 1080x1920'de baştan x264 encode** ediyordu — küçük konteynerde OOM asıl buradan geliyordu.
+- Çözüm (V2, `render-video.ts`): altyazılar artık segment başına yakılıyor (`captionsForWindow` ile zaman penceresi kaydırılmış SRT; sınırı aşan altyazı iki segmentte de kırpılarak gösterilir); son geçiş `-c:v copy` ile saf mux (audio AAC encode yalnız). Video hiç çözülüp yeniden kodlanmıyor.
+- Test (mock produce, route üstünden, 2x): edge-tts 14.4s + 8 caption + render ~8.0-8.4s (önceki 11.4s; final pass neredeyse bedava); çıktı h264 1080x1920 yuv420p 30fps + AAC; 2s ve 11s karelerinde segmente özel doğru altyazılar doğrulandı (Türkçe karakterler temiz).
+- Beklenen canlı log: `[Mira MP4] render success (segmented, copy-merge)`.
+- Yedek kaldıraç (segment bile SIGKILL yerse): 720x1280 düşük profil — şimdilik eklenmedi, gerekirse tek seferde eklenecek.
