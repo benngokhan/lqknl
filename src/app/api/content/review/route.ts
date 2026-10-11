@@ -13,9 +13,10 @@ export async function GET(req: Request) {
   if (!authorized(req)) return NextResponse.json({ error: "Giriş gerekli." }, { status: 401 });
 
   const status = new URL(req.url).searchParams.get("status");
-  const allowedStatus = status === "approved" || status === "rejected" ? status : "draft";
   const rows = await db.select().from(contentItems)
-    .where(eq(contentItems.status, allowedStatus))
+    .where(status === "approved" || status === "rejected"
+      ? eq(contentItems.status, status)
+      : inArray(contentItems.status, ["queued", "processing", "draft"]))
     .orderBy(desc(contentItems.updatedAt))
     .limit(50);
 
