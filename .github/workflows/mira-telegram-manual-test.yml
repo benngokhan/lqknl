@@ -1,0 +1,32 @@
+name: Mira Telegram Manual Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  send-test-notification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Validate required secrets
+        env:
+          MIRA_BASE_URL: ${{ secrets.MIRA_BASE_URL }}
+          MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
+        run: |
+          test -n "$MIRA_BASE_URL" || (echo "Missing GitHub Actions secret: MIRA_BASE_URL" && exit 1)
+          test -n "$MIRA_AUTOMATION_SECRET" || (echo "Missing GitHub Actions secret: MIRA_AUTOMATION_SECRET" && exit 1)
+
+      - name: Send Telegram test notification
+        env:
+          MIRA_BASE_URL: ${{ secrets.MIRA_BASE_URL }}
+          MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --max-time 20 \
+            -X POST "${MIRA_BASE_URL%/}/api/automation/telegram-test" \
+            -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d '{}'
