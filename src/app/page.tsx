@@ -124,7 +124,6 @@ export default function Home() {
   const [drafts, setDrafts] = useState<ContentDraft[]>([]);
   const [draftPanelOpen, setDraftPanelOpen] = useState(false);
   const [draftsLoading, setDraftsLoading] = useState(false);
-  const [testDraftLoading, setTestDraftLoading] = useState(false);
   const [reviewBusyId, setReviewBusyId] = useState<number | null>(null);
   const [draftsError, setDraftsError] = useState('');
   const [reviewNotice, setReviewNotice] = useState('');
@@ -178,31 +177,6 @@ export default function Home() {
       setAnalysisError(error instanceof Error ? error.message : 'Taslak analizi tamamlanamadı.');
     } finally {
       setAnalysisRunLoading(false);
-    }
-  }
-
-  async function createTestDraft() {
-    if (testDraftLoading) return;
-    setTestDraftLoading(true);
-    setDraftsError('');
-    setReviewNotice('');
-    try {
-      const res = await fetch('/api/automation/test-draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: 'Ahtapotlar çevrelerini nasıl algılar?' }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok || data?.ok !== true) {
-        throw new Error(data?.error || data?.message || `Test taslağı üretilemedi (HTTP ${res.status}).`);
-      }
-      setReviewNotice(`İşçi taslağı hazırladı: ${data.title || 'Ahtapotlar çevrelerini nasıl algılar?'} · İçerik #${data.contentId}. ${data.notification?.sent ? 'Telegram bildirimi gönderildi.' : 'Telegram bildirimi doğrulanmadı.'} Video üretilmedi, yayın yapılmadı.`);
-      setDraftPanelOpen(true);
-      await loadDrafts();
-    } catch (error) {
-      setDraftsError(error instanceof Error ? error.message : 'Test taslağı üretilemedi.');
-    } finally {
-      setTestDraftLoading(false);
     }
   }
 
@@ -748,11 +722,7 @@ export default function Home() {
           </div>
           {draftPanelOpen && (
             <div className="mt-3 space-y-3">
-              <p className="text-xs text-slate-400">İşçilerin topladığı içerikler burada birikir. Senaryosu olmayanı önce <b className="text-slate-300">Senaryoyu oluştur</b> ile hazırlat; <b className="text-slate-300">Onayla ve video üret</b> üretimi hemen başlatır. Aynı başlığın eski kopyaları otomatik temizlenir.</p>
-              {draftsError && <p className="text-sm text-red-300" role="alert">{draftsError}</p>}
-              {reviewNotice && <p className="text-sm text-emerald-300" role="status">{reviewNotice}</p>}
-              {!draftsLoading && drafts.length === 0 && !draftsError && (
-                <p className="text-sm text-slate-400">Bekleyen taslak yok. Yeni taslaklar burada görünecek.</p>
+              <p className="text-xs text-slate-400">İşçilerin topladığı içerikler burada birikir. Senaryosu olmayanı önce <b className="text-slate-300">Senaryoyu oluştur</b> ile hazırlat; <b className="text-slate-300">Onayla ve video üret</b> üretimi heaslak yok. Yeni taslaklar burada görünecek.</p>
               )}
               {drafts.map((draft) => (
                 <article key={draft.id} className="rounded-lg border border-slate-700 bg-slate-900 p-3 space-y-3">
