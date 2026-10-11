@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { gte } from "drizzle-orm";
 import { db } from "@/db";
 import { contentItems, operations, tasks } from "@/db/schema";
+import { normalizeTitleKey } from "@/lib/dedupe-content";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +24,27 @@ export async function POST(req: Request) {
 
   if (!topic) {
     return NextResponse.json({ error: "topic gerekli" }, { status: 400 });
+  }
+
+  // Kopya koruması: son 30 günde aynı normalize başlık/konu varsa yeni kayıt açma.
+  const dupWindow = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const recent = await db.select({ id: contentItems.id, title: contentItems.title, topic: contentItems.topic, status: contentItems.status })
+    .from(contentItems)
+    .where(gte(contentItems.createdAt, dupWindow))
+    .limit(400);
+  const newKey = normalizeTitleKey(title);
+  const topicKey = normalizeTitleKey(topic);
+  const duplicate = recent.find((row) =>
+    (newKey && normalizeTitleKey(row.title) === newKey) ||
+    (topicKey && normalizeTitleKey(row.topic) === topicKey) ||
+    (topicKey && normalizeTitleKey(row.title) === topicKey));
+  if (duplicate) {
+    return NextResponse.json({
+      ok: false,
+      error: `Aynı başlık/konu zaten kayıtlı (#${duplicate.id}, durum: ${duplicate.status}); yeni kopya açılmadı.`,
+      existingId: duplicate.id,
+      existingStatus: duplicate.status,
+    }, { status: 409 });
   }
 
   const [content] = await db.insert(contentItems).values({

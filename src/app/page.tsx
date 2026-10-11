@@ -258,13 +258,15 @@ export default function Home() {
     }
   }
 
-  async function reviewDraft(id: number, action: 'approve_video' | 'approve_text' | 'reject') {
+  async function reviewDraft(id: number, action: 'approve_video' | 'approve_text' | 'reject' | 'generate_script') {
     if (reviewBusyId !== null) return;
     const prompt = action === 'approve_video'
       ? 'Bu içeriği onaylayıp video üretimini başlatmak istiyor musun? Bu testte YouTube yüklemesi otomatik yapılmayacak.'
       : action === 'approve_text'
         ? 'Bu içeriği onaylayıp video üretmeden saklamak istiyor musun?'
-        : 'Bu taslağı reddetmek istiyor musun?';
+        : action === 'generate_script'
+          ? 'Bu taslak için senaryoyu şimdi üretmek istiyor musun? 1-2 dakika sürebilir.'
+          : 'Bu taslağı reddetmek istiyor musun?';
     if (!window.confirm(prompt)) return;
     setReviewBusyId(id);
     setDraftsError('');
@@ -282,6 +284,11 @@ export default function Home() {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || `İşlem başarısız (HTTP ${res.status}).`);
+      if (action === 'generate_script') {
+        setReviewNotice(data?.message || 'Senaryo oluşturuldu; taslak kartı güncelleniyor.');
+        void loadDrafts();
+        return;
+      }
       setDrafts((current) => current.filter((draft) => draft.id !== id));
 
       if (action !== 'approve_video') {
@@ -741,7 +748,7 @@ export default function Home() {
           </div>
           {draftPanelOpen && (
             <div className="mt-3 space-y-3">
-              <p className="text-xs text-slate-400">İşçilerin topladığı ve hazırladığı içerikler burada birikir. Bu bölümde onay veya ret işlemi yapılmaz; kararlar Analizler bölümündedir.</p>
+              <p className="text-xs text-slate-400">İşçilerin topladığı içerikler burada birikir. Senaryosu olmayanı önce <b className="text-slate-300">Senaryoyu oluştur</b> ile hazırlat; <b className="text-slate-300">Onayla ve video üret</b> üretimi hemen başlatır. Aynı başlığın eski kopyaları otomatik temizlenir.</p>
               {draftsError && <p className="text-sm text-red-300" role="alert">{draftsError}</p>}
               {reviewNotice && <p className="text-sm text-emerald-300" role="status">{reviewNotice}</p>}
               {!draftsLoading && drafts.length === 0 && !draftsError && (
@@ -755,7 +762,7 @@ export default function Home() {
                       <p className="text-xs text-slate-400">{draft.platform}{draft.topic ? ` · ${draft.topic}` : ''}</p>
                     </div>
                     <span className={`rounded-full px-2 py-1 text-xs ${draft.status === 'queued' ? 'bg-sky-500/10 text-sky-300' : draft.status === 'processing' ? 'bg-violet-500/10 text-violet-300' : 'bg-amber-500/10 text-amber-300'}`}>
-                      {draft.status === 'queued' ? 'Kuyrukta' : draft.status === 'processing' ? 'İşleniyor' : 'Analize hazır'}
+                      {draft.status === 'queued' ? 'Senaryo bekliyor' : draft.status === 'processing' ? 'Senaryo yazılıyor…' : draft.generatedScript ? 'Onaya hazır' : 'Senaryo eksik'}
                     </span>
                   </div>
                   {draft.generatedScript ? (
@@ -765,6 +772,49 @@ export default function Home() {
                   )}
                   {draft.generation?.provider && (
                     <p className="text-[11px] text-slate-500">Model: {draft.generation.provider}{draft.generation.model ? ` / ${draft.generation.model}` : ''}</p>
+                  )}
+                  {/* Her kartın kendi işlemi: duruma göre tek birincil buton */}
+                  {draft.status !== 'processing' && (
+                    <div className="flex flex-wrap gap-2">
+                      {draft.status === 'queued' && (
+                        <button
+                          type="button"
+                          onClick={() => void reviewDraft(draft.id, 'generate_script')}
+                          disabled={reviewBusyId !== null}
+                          className="rounded-lg bg-sky-700 px-3 py-2 text-xs font-medium hover:bg-sky-600 disabled:opacity-50"
+                        >
+                          {reviewBusyId === draft.id ? 'Senaryo yazılıyor…' : 'Senaryoyu şimdi oluştur'}
+                        </button>
+                      )}
+                      {draft.status === 'draft' && draft.generatedScript && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void reviewDraft(draft.id, 'approve_video')}
+                            disabled={reviewBusyId !== null}
+                            className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-medium hover:bg-emerald-600 disabled:opacity-50"
+                          >
+                            {reviewBusyId === draft.id ? 'İşleniyor…' : 'Onayla ve video üret'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void reviewDraft(draft.id, 'approve_text')}
+                            disabled={reviewBusyId !== null}
+                            className="rounded-lg border border-slate-600 px-3 py-2 text-xs font-medium hover:bg-slate-700 disabled:opacity-50"
+                          >
+                            Onayla, videosuz
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void reviewDraft(draft.id, 'reject')}
+                        disabled={reviewBusyId !== null}
+                        className="rounded-lg bg-red-900/80 px-3 py-2 text-xs font-medium hover:bg-red-800 disabled:opacity-50"
+                      >
+                        Reddet
+                      </button>
+                    </div>
                   )}
 
                 </article>

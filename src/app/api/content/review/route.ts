@@ -2,6 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { contentAssets, contentItems, operations } from "@/db/schema";
+import { splitDuplicateRows } from "@/lib/dedupe-content";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,8 @@ export async function GET(req: Request) {
 
   const status = new URL(req.url).searchParams.get("status");
   const isReady = status === "ready";
-  const rows = await db.select().from(contentItems)
+  const isDefaultView = !isReady && status !== "approved" && status !== "rejected";
+  let rows = await db.select().from(contentItems)
     .where(isReady
       ? eq(contentItems.status, "ready")
       : status === "approved" || status === "rejected"
@@ -22,6 +24,31 @@ export async function GET(req: Request) {
         : inArray(contentItems.status, ["queued", "processing", "draft"]))
     .orderBy(desc(contentItems.updatedAt))
     .limit(50);
+
+  // Varsayılan listede aynı başlığın kopyaları birikebiliyor (research günlük penceresi
+  // yüzünden tarih farklı türlerinin tekrarı). En yenisini tut, eskileri reddet; liste kendini iyileştirir.
+  if (isDefaultView && rows.length > 1) {
+    const { keep, duplicates } = splitDuplicateRows(rows);
+    if (duplicates.length) {
+      rows = keep;
+      for (const dup of duplicates) {
+        try {
+          await db.update(contentItems)
+            .set({ status: "rejected", updatedAt: new Date() })
+            .where(eq(contentItems.id, dup.id));
+          await db.insert(operations).values({
+            action: "duplicate_cleanup",
+            summary: `Kopya taslak otomatik reddedildi: ${dup.title}`,
+            status: "success",
+            platform: dup.platform,
+            metadata: { contentId: dup.id, reason: "same_title_duplicate" },
+          });
+        } catch (error) {
+          console.error("[Review] kopya temizliği yazılamadı:", error instanceof Error ? error.message : String(error));
+        }
+      }
+    }
+  }
 
   if (!rows.length) return NextResponse.json([]);
   const ids = rows.map((row) => row.id);
@@ -69,12 +96,52 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const id = Number(body.id);
   const action = body.action;
-  if (!Number.isInteger(id) || id <= 0 || !["approve_video", "approve_text", "reject"].includes(action)) {
+  if (!Number.isInteger(id) || id <= 0 || !["approve_video", "approve_text", "reject", "generate_script"].includes(action)) {
     return NextResponse.json({ error: "Geçersiz istek." }, { status: 400 });
   }
 
-  // Reddetme, üretilmiş (ready) videoları da kapsar; onaylama yalnızca taslak içindir.
-  const allowedStatus = action === "reject" ? ["draft", "ready"] as const : ["draft"] as const;
+  // Kuyruktaki kayıt için senaryoyu yerinde üret: sunucu tarafında worker'ı çağır.
+  if (action === "generate_script") {
+    const [queued] = await db.select().from(contentItems)
+      .where(and(eq(contentItems.id, id), inArray(contentItems.status, ["queued", "processing"])))
+      .limit(1);
+    if (!queued) {
+      return NextResponse.json({ error: "Kayıt kuyrukta değil; senaryoyu zaten üretilmiş olabilir. Listeyi yenile." }, { status: 409 });
+    }
+    const origin = new URL(req.url).origin;
+    const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
+    let workerData: { error?: string; message?: string; processed?: boolean } | null = null;
+    try {
+      const res = await fetch(`${origin}/api/automation/worker?contentId=${id}`, {
+        method: "POST",
+        headers: { "x-mira-key": secret },
+        cache: "no-store",
+        signal: AbortSignal.timeout(95_000),
+      });
+      workerData = await res.json().catch(() => null);
+      if (!res.ok) {
+        return NextResponse.json({ error: workerData?.error || `Senaryo üretilemedi (worker HTTP ${res.status})` }, { status: 502 });
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return NextResponse.json({ error: `Senaryo üretilemedi: ${detail.slice(0, 200)}` }, { status: 502 });
+    }
+    await db.insert(operations).values({
+      action: "script_generated_on_demand",
+      summary: `Senaryo kullanıcı isteğiyle üretildi: ${queued.title}`,
+      status: workerData?.processed === false ? "failed" : "success",
+      platform: queued.platform,
+      metadata: { contentId: id, worker: workerData },
+    });
+    return NextResponse.json({
+      ok: true,
+      worker: workerData,
+      message: "Senaryo oluşturuldu. Listeyi yenilediğinde onay butonları aktif olacak.",
+    });
+  }
+
+  // Reddetme taslak/kuyruk/üretilmiş videoları kapsar; onaylama yalnızca senaryosu hazır taslak içindir.
+  const allowedStatus = action === "reject" ? ["draft", "queued", "ready"] as const : ["draft"] as const;
   const [draft] = await db.select().from(contentItems)
     .where(and(eq(contentItems.id, id), inArray(contentItems.status, [...allowedStatus])))
     .limit(1);

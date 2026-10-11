@@ -60,9 +60,12 @@ export async function POST(req: Request) {
     });
   }
 
+  // Kopya koruması 30 güne genişletildi: eskiden yalnızca bugünkü kayıtlara bakılıyordu,
+  // bu yüzden aynı konu her gün yeniden "queued" olarak ekleniyor ve panel kopya doluyordu.
+  const dupWindow = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const existing = await db.select({ title: contentItems.title, topic: contentItems.topic })
     .from(contentItems)
-    .where(gte(contentItems.createdAt, start));
+    .where(gte(contentItems.createdAt, dupWindow));
 
   const feedResponse = await fetch("https://trends.google.com/trending/rss?geo=TR", {
     headers: { "User-Agent": "MiraContentResearch/1.0" },
