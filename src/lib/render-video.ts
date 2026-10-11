@@ -2,7 +2,7 @@
 // tarafından ortak kullanılır. Girdi/çıktı tamamen bellek içi Buffer'larla çalışır.
 
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import ffmpegPath from "ffmpeg-static";
@@ -88,10 +88,10 @@ function escapeFilterPath(value: string) {
   return value.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
-function runFfmpeg(args: string[], timeoutMs = 120_000) {
+function runFfmpeg(args: string[], timeoutMs = 120_000, env: NodeJS.ProcessEnv = {}) {
   return new Promise<void>((resolve, reject) => {
     if (!ffmpegPath) return reject(new Error("FFmpeg çalıştırılabilir dosyası bulunamadı"));
-    const child = spawn(ffmpegPath, args, { stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(ffmpegPath, args, { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, ...env } });
     let stderr = "";
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
@@ -180,7 +180,24 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
       outputPath,
     );
 
-    await runFfmpeg(args);
+    // libass Fontconfig'in varsayılan sistem yapılandırmasını bulamayabilir (Railway/Nixpacks).
+    // Her render için geçici bir config üretip proje içindeki DejaVu fontlarını açıkça tanımla.
+    const fontconfigCacheDir = path.join(workDir, "fontconfig-cache");
+    await mkdir(fontconfigCacheDir, { recursive: true });
+    const fontconfigFile = path.join(workDir, "fonts.conf");
+    await writeFile(fontconfigFile, [
+      '<?xml version="1.0"?>',
+      '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">',
+      '<fontconfig>',
+      `  <dir>${fontsDir}</dir>`,
+      '  <dir>/usr/share/fonts</dir>',
+      '  <dir>/usr/local/share/fonts</dir>',
+      `  <cachedir>${fontconfigCacheDir}</cachedir>`,
+      '</fontconfig>',
+      '',
+    ].join("\\n"), "utf8");
+
+    await runFfmpeg(args, 120_000, { FONTCONFIG_FILE: fontconfigFile });
     const video = await readFile(outputPath);
     if (video.length < 10_000 || video.subarray(4, 8).toString("ascii") !== "ftyp") {
       throw new Error("Üretilen dosya geçerli MP4 olarak doğrulanamadı");
