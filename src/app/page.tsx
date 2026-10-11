@@ -175,11 +175,13 @@ export default function Home() {
     }
   }
 
-  async function reviewDraft(id: number, action: 'approve' | 'reject') {
+  async function reviewDraft(id: number, action: 'approve_video' | 'approve_text' | 'reject') {
     if (reviewBusyId !== null) return;
-    const prompt = action === 'approve'
-      ? 'Bu taslağı onaylamak istiyor musun? Bu işlem içeriği yayınlamaz.'
-      : 'Bu taslağı reddetmek istiyor musun?';
+    const prompt = action === 'approve_video'
+      ? 'Bu içeriği onaylayıp video üretimini başlatmak istiyor musun? YouTube yayınlaması ayrıca güvenli yükleme akışına bağlıdır.'
+      : action === 'approve_text'
+        ? 'Bu içeriği onaylayıp video üretmeden saklamak istiyor musun?'
+        : 'Bu taslağı reddetmek istiyor musun?';
     if (!window.confirm(prompt)) return;
     setReviewBusyId(id);
     setDraftsError('');
@@ -545,17 +547,25 @@ export default function Home() {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => void reviewDraft(draft.id, 'approve')}
+                      onClick={() => void reviewDraft(draft.id, 'approve_video')}
                       disabled={reviewBusyId !== null}
                       className="flex-1 rounded-lg bg-emerald-700 px-3 py-2.5 text-sm font-medium hover:bg-emerald-600 disabled:opacity-50"
                     >
-                      {reviewBusyId === draft.id ? 'İşleniyor…' : 'Onayla'}
+                      {reviewBusyId === draft.id ? 'İşleniyor…' : 'Onayla + video oluştur'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void reviewDraft(draft.id, 'approve_text')}
+                      disabled={reviewBusyId !== null}
+                      className="flex-1 rounded-lg border border-slate-600 px-3 py-2.5 text-sm font-medium hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      Onayla, videosuz
                     </button>
                     <button
                       type="button"
                       onClick={() => void reviewDraft(draft.id, 'reject')}
                       disabled={reviewBusyId !== null}
-                      className="flex-1 rounded-lg bg-red-900/80 px-3 py-2.5 text-sm font-medium hover:bg-red-800 disabled:opacity-50"
+                      className="rounded-lg bg-red-900/80 px-3 py-2.5 text-sm font-medium hover:bg-red-800 disabled:opacity-50"
                     >
                       Reddet
                     </button>
