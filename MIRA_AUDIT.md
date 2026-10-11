@@ -101,3 +101,16 @@ Kökteki test scriptleri (bu oturumda kullanıldı):
 - Test (mock produce, route üstünden, 2x): edge-tts 14.4s + 8 caption + render ~8.0-8.4s (önceki 11.4s; final pass neredeyse bedava); çıktı h264 1080x1920 yuv420p 30fps + AAC; 2s ve 11s karelerinde segmente özel doğru altyazılar doğrulandı (Türkçe karakterler temiz).
 - Beklenen canlı log: `[Mira MP4] render success (segmented, copy-merge)`.
 - Yedek kaldıraç (segment bile SIGKILL yerse): 720x1280 düşük profil — şimdilik eklenmedi, gerekirse tek seferde eklenecek.
+
+## 13. Railway SIGKILL, 3. perde: profil merdiveni + ffmpeg RSS probu
+
+- Belirti (canlı, 22:29): V2 copy-merge deploy'lu hâlde segment aşaması ~1 saniyede `(exit=null, signal=SIGKILL)` gördü (stderr `Parsed_subtitles_4` = segmentteki altyazı filtresi; V2'nin çalıştığının kanıtı). Final re-encode gitmişti; segment+libass bile konteyneri tetikliyor.
+- Çözüm (V3, `render-video.ts`):
+  - **Profil merdiveni**: önce `hi` (1080x1920, ultrafast, crf23), kill-benzeri hata (SIGKILL/SIGSEGV/SIGABRT/ENOMEM/killed/zaman aşımı — `isRetryableKillError`) olursa otomatik `low` (720x1280, crf24, font size orantılı). MIRA_RENDER_PROFILE=hi|low ile zorlanabilir. Argüman/veri hatalarında (kod bugı) merdiven yürümez — doğru davranış.
+  - **ffmpeg RSS probu**: çocuk sürecin /proc/<pid>/status VmRSS'i 250ms'de örneklenir; tepe değer hata mesajına ve `[Mira MP4] render success` loguna yazılır. Railway logları artık gerçek RAM rakamını gösterecek.
+- Test (lokal): `isRetryableKillError` 5 senaryo geçti; low profil uçtan uca render **4.9s, tepe RSS 92MB**, 720x1280 + 3/3 segment altyazısı doğru (6s karesi "Kalabalıktan kaçarlar"); typecheck+build temiz. Merdivenin hi→low düşüş dalı lokalin belleği bol olduğu için canlı görünmedi; Railway logundaki `profil düşürüldü` satırı doğrulayacak.
+- Sonraki kaldıraçlar (low da ölürse): libass yerine drawtext (fontconfig/libass yok), ya da Railway plan RAM artışı. RSS logları hangi kaldıracın gerekli olduğunu söyleyecek.
+
+## 13b. Eş zamanlı ajanla birleşim: a33f389 → low profil içinde
+
+- Aynı saatlerde başka bir oturum da SIGKILL'a `a33f389` (720x1280 sabit, 24fps, threads=1, zoompan'sız, crf25) push'ladı. Tek seferde 1080p/zoom kaybı verir ve ölçüm/yedek içermiyordu; yaklaşımının yük-azaltma kısmı V3 merdiveninin **low profiline** (720x1280@24, threads=1, crf25) entegre edildi; hi profili (1080x1920@30, zoompan) çalışan ortamlarda korunuyor. Conflict çözümü: render-video.ts V3'te kaldı.

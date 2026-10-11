@@ -367,14 +367,14 @@ export async function POST(req: Request) {
 
     // 6) MP4 render
     await reportProgress(content.id, 82, "Görseller tamamlandı; MP4 video oluşturuluyor");
-    const { video, durationSeconds, captionsUsed } = await retryStage(content.id, "MP4 birleştirme", 82, () => renderShort({
+    const { video, durationSeconds, captionsUsed, profile } = await retryStage(content.id, "MP4 birleştirme", 82, () => renderShort({
       images,
       audio: Buffer.from(narration.audio),
       captions: narration.captions,
       narrationText,
       durationSeconds: narration.durationSeconds ?? undefined,
     }));
-    stages.render = { durationSeconds, bytes: video.length, captions: captionsUsed };
+    stages.render = { durationSeconds, bytes: video.length, captions: captionsUsed, profile };
 
     await reportProgress(content.id, 93, "Video oluşturuldu; dosya kaydediliyor");
 

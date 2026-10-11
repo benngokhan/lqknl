@@ -4,9 +4,14 @@
 // Bellek notu (Railway SIGKILL sorunu, 2. perde): V1'de segmentler kodlanıyordu ama son
 // geçişte 3 segment concat edilip VİDEO BAŞTAN SONA YENİDEN x264 ile kodlanıyordu
 // (altyazı yakma filtresi zorunlu kılıyordu) — 1080x1920 tam süre re-encode küçük
-// Railway container'ında yine SIGKILL yiyordu. V2: altyazı segment başına yakılıyor
+// Railway container'ında SIGKILL yiyordu. V2: altyazı segment başına yakılıyor
 // (zaman penceresi kaydırılmış SRT), son geçiş concat demuxer + `-c:v copy` ile saf
-// mux'a indi: video hiç çözülüp yeniden kodlanmıyor → bellek yükü ihmal edilebilir.
+// mux'a indi.
+//
+// 3. perde (dumpartan gözlem: segment bile ~1sn'de SIGKILL): artık çözünürlük
+// merdiveni var — önce 1080x1920, kill-benzeri hata (SIGKILL/SIGSEGV/ENOMEM/zaman aşımı)
+// olursa otomatik 720x1280'e düşer. MIRA_RENDER_PROFILE=hi|low ile profil sürülebilir.
+// Ayrıca ffmpeg'in gerçek tepe RSS'i (Linux /proc) ölçülüp log ve hata mesajına yazılır.
 
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -30,7 +35,37 @@ export type RenderOutput = {
   video: Buffer;
   durationSeconds: number;
   captionsUsed: number;
+  profile: string;
 };
+
+type RenderProfile = {
+  name: string;
+  width: number;
+  height: number;
+  preset: string;
+  crf: number;
+  fontSize: number;
+  fps: number;
+  threads: number;
+};
+
+function buildProfiles(): RenderProfile[] {
+  const hi: RenderProfile = { name: "hi", width: 1080, height: 1920, preset: "ultrafast", crf: 23, fontSize: 17, fps: 30, threads: 0 };
+  // low: 720x1280 + 24fps + tek iş parçacığı — a33f389'daki yük azaltma yaklaşımının korunan kısmı;
+  // zoompan merdiven gereği niche gerekli küçük krediyle korunur (bellekte ölçülü fark)
+  const low: RenderProfile = { name: "low", width: 720, height: 1280, preset: "ultrafast", crf: 25, fontSize: 11, fps: 24, threads: 1 };
+  const forced = (process.env.MIRA_RENDER_PROFILE || "").trim().toLowerCase();
+  if (forced === "low") return [low];
+  if (forced === "hi") return [hi];
+  return [hi, low];
+}
+
+/** SIGKILL/SIGSEGV/ENOMEM/zaman aşımı gibi ortam kaynaklı ölümlerde düşük profil denemeye değer;
+ *  argüman/veri hatalarında tekrar tekrar denemek anlamsız. */
+export function isRetryableKillError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /signal=(SIGKILL|SIGSEGV|SIGABRT)|ENOMEM|out of memory|killed|zaman aşımı/i.test(msg);
+}
 
 function srtTime(seconds: number) {
   const ms = Math.max(0, Math.round(seconds * 1000));
@@ -111,18 +146,38 @@ function escapeFilterPath(value: string) {
   return value.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
+async function sampleRssKb(pid: number): Promise<number | null> {
+  try {
+    const status = await readFile(`/proc/${pid}/status`, "utf8");
+    const match = status.match(/VmRSS:\s*(\d+)\s*kB/);
+    return match ? Number(match[1]) : null;
+  } catch {
+    return null; // süreç bitti ya da Linux dışı ortam
+  }
+}
+
 function runFfmpeg(args: string[], timeoutMs = 120_000, env: Partial<NodeJS.ProcessEnv> = process.env) {
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<{ peakRssMb: number | null }>((resolve, reject) => {
     if (!ffmpegPath) return reject(new Error("FFmpeg çalıştırılabilir dosyası bulunamadı"));
     const child = spawn(ffmpegPath, args, { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, ...env } });
     let stderr = "";
     let settled = false;
+    let peakKb = 0;
+    // Gerçek RAM kullanımını gör: her 250ms'de çocuğun RSS'ini örnekle (Railway OOM teşhisi için)
+    const rssTimer = setInterval(() => {
+      if (!child.pid) return;
+      void sampleRssKb(child.pid).then((kb) => {
+        if (kb && kb > peakKb) peakKb = kb;
+      });
+    }, 250);
+    const peakRss = (): number | null => (peakKb > 0 ? Math.round(peakKb / 1024) : null);
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearInterval(rssTimer);
       if (error) reject(error);
-      else resolve();
+      else resolve({ peakRssMb: peakRss() });
     };
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
@@ -130,7 +185,7 @@ function runFfmpeg(args: string[], timeoutMs = 120_000, env: Partial<NodeJS.Proc
     });
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      finish(new Error(`FFmpeg zaman aşımı: ${timeoutMs}ms; son çıktı: ${stderr.slice(-2500) || "(stderr boş)"}`));
+      finish(new Error(`FFmpeg zaman aşımı: ${timeoutMs}ms; tepe RSS≈${peakRss() ?? "?"}MB; son çıktı: ${stderr.slice(-2500) || "(stderr boş)"}`));
     }, timeoutMs);
     child.on("error", (error) => {
       finish(new Error(`FFmpeg başlatılamadı: ${error.message}; binary=${ffmpegPath}`));
@@ -138,12 +193,32 @@ function runFfmpeg(args: string[], timeoutMs = 120_000, env: Partial<NodeJS.Proc
     child.on("close", (code, signal) => {
       if (code === 0) return finish();
       const output = stderr.trim() || "(FFmpeg stderr boş)";
-      finish(new Error(`FFmpeg hata verdi (exit=${String(code)}, signal=${String(signal)}): ${output.slice(-2500)}`));
+      finish(new Error(`FFmpeg hata verdi (exit=${String(code)}, signal=${String(signal)}; tepe RSS≈${peakRss() ?? "?"}MB): ${output.slice(-2500)}`));
     });
   });
 }
 
 export async function renderShort(input: RenderInput): Promise<RenderOutput> {
+  const profiles = buildProfiles();
+  let lastError: unknown = null;
+  for (const profile of profiles) {
+    try {
+      const result = await renderShortWithProfile(input, profile);
+      if (profile.name !== profiles[0].name) {
+        console.log(`[Mira MP4] profil düşürüldü: ${profiles[0].name} başarısız olduğu için ${profile.name} ile üretildi`);
+      }
+      return result;
+    } catch (error) {
+      lastError = error;
+      const killish = isRetryableKillError(error);
+      console.error(`[Mira MP4] profil=${profile.name} başarısız (retryable=${killish}):`, error instanceof Error ? error.message.slice(0, 400) : String(error));
+      if (!killish || profile === profiles[profiles.length - 1]) throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+async function renderShortWithProfile(input: RenderInput, profile: RenderProfile): Promise<RenderOutput> {
   if (!Array.isArray(input.images) || input.images.length !== 3) {
     throw new Error("Tam olarak 3 görsel gerekli");
   }
@@ -153,6 +228,10 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
   if (!input.audio || !input.audio.length) throw new Error("Ses verisi boş");
 
   let workDir = "";
+  let peakRssMb: number | null = null;
+  const notePeak = (value: number | null) => {
+    if (value !== null && (peakRssMb === null || value > peakRssMb)) peakRssMb = value;
+  };
   try {
     workDir = await mkdtemp(path.join(tmpdir(), "mira-mp4-"));
     const imagePaths: string[] = [];
@@ -199,10 +278,11 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
     ].join("\n"), "utf8");
     const ffenv = { FONTCONFIG_FILE: fontconfigFile, FONTCONFIG_PATH: workDir };
 
-    // libass'ın FontSize/MarginV değerleri PlayResY=288 birimindedir; 1080x1920'e ölçeklenir.
-    const subtitleStyle = "FontName=DejaVu Sans,FontSize=17,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=34";
+    // libass'ın FontSize/MarginV değerleri PlayResY=288 birimindedir; çerçeve yüksekliğine ölçeklenir.
+    const subtitleStyle = `FontName=DejaVu Sans,FontSize=${profile.fontSize},Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=34`;
 
     const segment = duration / 3;
+    const { width, height, fps } = profile;
 
     // 1-3) Her görsel ayrı .mp4 segmentine kodlanır; o segmentin zaman penceresine düşen
     // altyazılar da burada yakılır. Tek görsel + kısa süre = düşük RAM.
@@ -213,42 +293,48 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
       const segmentPath = path.join(workDir, `segment-${i + 1}.mp4`);
       const segStart = i * segment;
       const segCaptions = captionsForWindow(finalCaptions, segStart, segStart + segment);
-      let vf = "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=24,setsar=1";
+      let vf = `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},zoompan=z='min(zoom+0.0005,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps},setsar=1`;
       if (segCaptions.length) {
         const srtPath = path.join(workDir, `captions-${i + 1}.srt`);
         await writeFile(srtPath, buildSrt(segCaptions), "utf8");
         vf += `,subtitles=${escapeFilterPath(srtPath)}:fontsdir='${escapeFilterPath(fontsDir)}':force_style='${subtitleStyle}'`;
       }
-      await runFfmpeg([
+      const encodeArgs = [
+        "-c:v", "libx264", "-preset", profile.preset, "-crf", String(profile.crf),
+        "-pix_fmt", "yuv420p",
+        ...(profile.threads > 0 ? ["-threads", String(profile.threads)] : []),
+        "-an",
+      ];
+      const run = await runFfmpeg([
         "-hide_banner", "-loglevel", "warning", "-y",
-        "-loop", "1", "-framerate", "24", "-t", String(segment), "-i", imagePaths[i],
+        "-loop", "1", "-framerate", String(fps), "-t", String(segment), "-i", imagePaths[i],
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1", "-crf", "25",
-        "-pix_fmt", "yuv420p", "-an",
+        ...encodeArgs,
         segmentPath,
       ], 120_000, ffenv);
+      notePeak(run.peakRssMb);
       segmentPaths.push(segmentPath);
     }
 
     // 4) Final: concat demuxer ile 3 segmenti birleştir + ses muxla.
-    // VİDEO YENİDEN KODLANMIYOR (-c:v copy) → bu geçiş neredeyse belleksiz çalışır;
-    // Railway'de SIGKILL yaratan tam-süre re-encode ortadan kalktı.
+    // VİDEO YENİDEN KODLANMIYOR (-c:v copy) → bu geçiş neredeyse belleksiz çalışır.
     const concatListPath = path.join(workDir, "concat.txt");
     await writeFile(
       concatListPath,
       segmentPaths.map((p) => `file '${p}'`).join("\n"),
       "utf8",
     );
-    await runFfmpeg([
+    const muxRun = await runFfmpeg([
       "-hide_banner", "-loglevel", "warning", "-y",
       "-f", "concat", "-safe", "0", "-i", concatListPath,
       "-i", audioPath,
       "-map", "0:v", "-map", "1:a",
       "-c:v", "copy",
-      "-c:a", "aac", "-b:a", "128k", "-af", "apad", "-threads", "1",
+      "-c:a", "aac", "-b:a", "128k", "-af", "apad",
       "-t", String(duration), "-movflags", "+faststart",
       outputPath,
     ], 120_000, ffenv);
+    notePeak(muxRun.peakRssMb);
 
     const video = await readFile(outputPath);
     if (video.length < 10_000 || video.subarray(4, 8).toString("ascii") !== "ftyp") {
@@ -256,11 +342,14 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
     }
 
     console.log("[Mira MP4] render success (segmented, copy-merge)", JSON.stringify({
+      profile: profile.name,
+      resolution: `${width}x${height}@${fps}`,
+      ffmpegPeakMb: peakRssMb,
       bytes: video.length,
       durationSeconds: duration,
       captions: finalCaptions.length,
     }));
-    return { video, durationSeconds: duration, captionsUsed: finalCaptions.length };
+    return { video, durationSeconds: duration, captionsUsed: finalCaptions.length, profile: profile.name };
   } finally {
     if (workDir) await rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
