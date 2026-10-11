@@ -59,14 +59,26 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{}'
 
-      - name: Produce one video for review (does not publish)
+      - name: Produce one approved video and upload privately
         env:
           MIRA_BASE_URL: ${{ secrets.MIRA_BASE_URL }}
           MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
         run: |
-          curl --fail-with-body --silent --show-error \
+          RESPONSE=$(curl --fail-with-body --silent --show-error \
             --max-time 300 \
             -X POST "${MIRA_BASE_URL%/}/api/automation/produce" \
             -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" \
             -H "Content-Type: application/json" \
-            -d '{}'
+            -d '{}')
+          echo "$RESPONSE"
+          CONTENT_ID=$(printf '%s' "$RESPONSE" | python -c 'import json,sys; d=json.load(sys.stdin); print(d.get("contentId","") if d.get("produced") is True else "")')
+          if [ -n "$CONTENT_ID" ]; then
+            curl --fail-with-body --silent --show-error \
+              --max-time 300 \
+              -X POST "${MIRA_BASE_URL%/}/api/youtube/upload" \
+              -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" \
+              -H "Content-Type: application/json" \
+              -d "{\"contentId\": $CONTENT_ID, \"privacy\": \"private\"}"
+          else
+            echo "No approved content produced; nothing uploaded."
+          fi
