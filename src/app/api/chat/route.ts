@@ -5,6 +5,7 @@ import { desc, eq, ilike, sql } from 'drizzle-orm';
 import { formatMemoriesForContext, getRelevantMemories, generateForgetApprovalMessage, generateSaveApprovalMessage, parseConfirmationResponse, parseMemoryCommand } from '@/lib/memory-chat';
 import { remember } from '@/lib/memory';
 import { NextResponse } from 'next/server';
+import { sendTelegramMessage } from '@/lib/telegram';
 
 const PRIVATE_MODE_COOKIE = 'mira_private_mode';
 const ENTRY_COOKIE = 'mira_entry';
@@ -418,6 +419,7 @@ export async function POST(req: Request) {
     // This never publishes content; the review panel remains the approval gate.
     const asksForContentDraft =
       /(?:taslak|shorts|reels|video|içerik).{0,100}(?:oluştur|hazırla|üret|yaz)|(?:oluştur|hazırla|üret|yaz).{0,100}(?:taslak|shorts|reels|video|içerik)/iu.test(message);
+    const asksForTelegramNotification = /telegram|bildirim|haber ver|bilgi ver/iu.test(message);
     const hasUsableDraftReply =
       typeof result.reply === "string" &&
       result.reply.trim().length > 40 &&
@@ -456,6 +458,25 @@ export async function POST(req: Request) {
         });
 
         result.reply += `\n\n✅ Taslak onay paneline kaydedildi. Taslak no: ${savedDraft.id}. Yayınlanmadı; yayın için ayrı bir işlem ve senin onayın gerekir.`;
+
+        if (asksForTelegramNotification) {
+          try {
+            const telegram = await sendTelegramMessage(
+              `📋 Mira yeni bir taslak kaydetti\n\nTaslak no: ${savedDraft.id}\nBaşlık: ${savedDraft.title}\nDurum: Taslak kaydedildi. Video üretilmedi ve yayınlanmadı.`
+            );
+            if (telegram.sent) {
+              result.reply += `\n\n✅ Telegram bildirimi gönderildi. Taslak no: ${savedDraft.id}.`;
+            } else {
+              console.error("[Chat] Telegram draft notification failed:", telegram.reason, telegram.reason === "send_failed" ? telegram.error : "");
+              result.reply += telegram.reason === "not_configured"
+                ? "\n\n⚠️ Taslak kaydedildi ancak Telegram bildirimi gönderilemedi: Telegram bot/chat ayarları yapılandırılmamış."
+                : "\n\n⚠️ Taslak kaydedildi ancak Telegram bildirimi gönderilemedi. Telegram API başarısız döndü.";
+            }
+          } catch (telegramError) {
+            console.error("[Chat] Telegram draft notification error:", telegramError instanceof Error ? telegramError.message : String(telegramError));
+            result.reply += "\n\n⚠️ Taslak kaydedildi ancak Telegram bildiriminin gönderildiği doğrulanamadı.";
+          }
+        }
       } catch (saveError) {
         console.error("Mira content draft save failed:", saveError);
         result.reply += "\n\n⚠️ Taslağı onay paneline kaydedemedim. Kayıt doğrulanmadığı için kaydedildi diyemem; içerik yayımlanmadı.";
