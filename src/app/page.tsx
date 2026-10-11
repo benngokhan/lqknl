@@ -268,6 +268,53 @@ export default function Home() {
       setReviewBusyId(null);
     }
   }
+  async function resumeVideoProduction(contentId: number, title: string) {
+    if (reviewBusyId !== null) return;
+    setReviewBusyId(contentId);
+    setVideoProgress({ contentId, title, percentage: 2, stage: 'Kaydedilmiş aşamalar kontrol ediliyor; üretime devam ediliyor', status: 'running' });
+    setVideoEvents((current) => [...current, { id: Date.now(), stage: 'Kaldığı yerden devam etme isteği gönderildi', status: 'running', percentage: 2, createdAt: new Date().toISOString() }]);
+    setReviewNotice('');
+    let timer: ReturnType<typeof setInterval> | undefined;
+    try {
+      const refresh = async () => {
+        try {
+          const progressRes = await fetch(`/api/automation/produce-status?contentId=${contentId}`, { cache: 'no-store' });
+          const progress = await progressRes.json().catch(() => null);
+          if (progressRes.ok && progress && typeof progress.percentage === 'number') {
+            setVideoProgress({ contentId, title, percentage: progress.percentage, stage: String(progress.stage || 'Video hazırlanıyor'), status: String(progress.status || 'running') });
+          }
+          const eventsRes = await fetch(`/api/automation/produce-events?contentId=${contentId}`, { cache: 'no-store' });
+          const data = await eventsRes.json().catch(() => null);
+          if (eventsRes.ok && Array.isArray(data?.events)) setVideoEvents(data.events as VideoProgressEvent[]);
+        } catch {
+          // Görüntüleme hatası üretim isteğini kesmez.
+        }
+      };
+      void refresh();
+      timer = setInterval(() => { void refresh(); }, 1200);
+      const res = await fetch('/api/automation/produce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentId }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || data?.ok !== true || data?.produced !== true) {
+        throw new Error(data?.error || data?.message || `Üretim yeniden başlatılamadı (HTTP ${res.status}).`);
+      }
+      setVideoProgress({ contentId, title, percentage: 100, stage: 'Video üretimi tamamlandı; YouTube yüklemesi yapılmadı', status: 'success' });
+      setReviewNotice('Video üretimi tamamlandı. YouTube’a yükleme yapılmadı; Telegram video/onay akışı ayrıca doğrulanacak.');
+      await refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Üretim yeniden başlatılamadı.';
+      setVideoProgress({ contentId, title, percentage: 0, stage: `Beklemede; sorun çözüldüğünde tekrar devam edilebilir: ${message}`, status: 'waiting' });
+      setVideoEvents((current) => [...current, { id: Date.now(), stage: `Yeniden deneme sonucu: ${message}`, status: 'waiting', percentage: 0, createdAt: new Date().toISOString() }]);
+      setReviewNotice(`Görev korunuyor. Yeniden deneme sonucu: ${message}`);
+    } finally {
+      if (timer) clearInterval(timer);
+      setReviewBusyId(null);
+    }
+  }
+
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -660,7 +707,17 @@ export default function Home() {
               <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-slate-800">
                 <div className={`h-full rounded-full transition-all duration-500 ${videoProgress.status === 'failed' ? 'bg-red-400' : videoProgress.status === 'success' ? 'bg-emerald-400' : 'bg-sky-400'}`} style={{ width: `${videoProgress.percentage}%` }} />
               </div>
-              <p className="mt-2 text-[11px] text-slate-500">Aşamalar sunucudan düzenli okunur. İlerleme değişmiyorsa işlem o adımda bekliyor olabilir.</p>
+              <p className="mt-2 text-[11px] text-slate-500">Aşamalar sunucudan düzenli okunur. Başarısız aşamalar kaydedilir; yeniden deneme önceki kayıtlı görsel ve ses dosyalarını kullanır.</p>
+              {(videoProgress.status === 'waiting' || videoProgress.status === 'failed') && (
+                <button
+                  type="button"
+                  onClick={() => void resumeVideoProduction(videoProgress.contentId, videoProgress.title)}
+                  disabled={reviewBusyId !== null}
+                  className="mt-3 w-full rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-200 hover:bg-amber-500/20 disabled:opacity-50"
+                >
+                  {reviewBusyId === videoProgress.contentId ? 'Devam ediliyor…' : 'Kaldığı yerden yeniden dene'}
+                </button>
+              )}
               <div className="mt-4 border-t border-slate-700 pt-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">Canlı işlem günlüğü</h4>
