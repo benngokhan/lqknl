@@ -483,6 +483,26 @@ export async function POST(req: Request) {
       }
     }
 
+    // A direct Telegram troubleshooting request must perform a real API check,
+    // not let the language model simulate checking phone notification settings.
+    if (asksForTelegramNotification && !asksForContentDraft) {
+      try {
+        const telegram = await sendTelegramMessage(
+          "🔔 Mira Telegram bağlantı testi\n\nBu mesaj, Mira sunucusunun Telegram Bot API üzerinden gerçek bir bildirim gönderebildiğini kontrol etmek için gönderildi."
+        );
+        if (telegram.sent) {
+          result.reply = "Telegram bağlantısını gerçek bir mesaj göndererek test ettim: Telegram API mesajı kabul etti. Bu, Mira sunucusundan Telegram'a gönderimin çalıştığını doğrular; telefonundaki ses/titreşim izinlerini buradan göremem. Mesaj telefona düştüyse ancak ses çıkmadıysa Telegram ve Android bildirim ayarlarını kontrol etmek gerekir.";
+        } else if (telegram.reason === "not_configured") {
+          result.reply = "Telegram testi başarısız: Railway'de TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID eksik. Bu nedenle gerçek mesaj gönderilemedi. Telefonun ses/titreşim ayarları bu hatanın nedeni değil; önce sunucu bağlantısı yapılandırılmalı.";
+        } else {
+          result.reply = `Telegram testi başarısız: Telegram API mesajı kabul etmedi. Hata: ${telegram.error || "Açıklama dönmedi"}. Bu bir gerçek gönderim denemesinin sonucudur; telefon bildirim ayarlarını henüz kontrol etmiyoruz.`;
+        }
+      } catch (telegramError) {
+        const detail = telegramError instanceof Error ? telegramError.message : String(telegramError);
+        result.reply = `Telegram testinde sunucu hatası oluştu: ${detail.slice(0, 300)}. Gerçek bildirim gönderimi doğrulanamadı.`;
+      }
+    }
+
     try {
       await db.insert(messages).values([
         { role: "user", content: message, emotion: "focused" },
