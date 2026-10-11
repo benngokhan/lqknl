@@ -468,13 +468,13 @@ export async function POST(req: Request) {
               result.reply += `\n\n✅ Telegram bildirimi gönderildi. Taslak no: ${savedDraft.id}.`;
             } else {
               console.error("[Chat] Telegram draft notification failed:", telegram.reason, telegram.reason === "send_failed" ? telegram.error : "");
-              result.reply += telegram.reason === "not_configured"
-                ? "\n\n⚠️ Taslak kaydedildi ancak Telegram bildirimi gönderilemedi: Telegram bot/chat ayarları yapılandırılmamış."
-                : "\n\n⚠️ Taslak kaydedildi ancak Telegram bildirimi gönderilemedi. Telegram API başarısız döndü.";
+              result.reply = telegram.reason === "not_configured"
+                ? `Taslak no: ${savedDraft.id} kaydedildi. Video üretilmedi ve yayınlanmadı. Telegram bildirimi GÖNDERİLMEDİ: bot/chat ayarları yapılandırılmamış.`
+                : `Taslak no: ${savedDraft.id} kaydedildi. Video üretilmedi ve yayınlanmadı. Telegram bildirimi GÖNDERİLMEDİ: Telegram API başarısız döndü.`;
             }
           } catch (telegramError) {
             console.error("[Chat] Telegram draft notification error:", telegramError instanceof Error ? telegramError.message : String(telegramError));
-            result.reply += "\n\n⚠️ Taslak kaydedildi ancak Telegram bildiriminin gönderildiği doğrulanamadı.";
+            result.reply = `Taslak no: ${savedDraft.id} kaydedildi. Video üretilmedi ve yayınlanmadı. Telegram bildiriminin gönderildiği DOĞRULANAMADI.`;
           }
         }
       } catch (saveError) {
