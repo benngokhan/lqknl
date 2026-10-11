@@ -264,6 +264,12 @@ export default function Home() {
         return;
       }
       setDrafts((current) => current.filter((draft) => draft.id !== id));
+      if (action === 'reject' || action === 'approve_text' || action === 'approve_video') {
+        setAnalysis((current) => current ? {
+          ...current,
+          titles: current.titles.filter((item) => item.id !== id),
+        } : current);
+      }
 
       if (action !== 'approve_video') {
         setReviewNotice(action === 'approve_text' ? 'Taslak onaylandı; video üretilmedi.' : 'Taslak reddedildi.');
