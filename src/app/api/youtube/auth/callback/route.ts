@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { exchangeCodeForTokens, getMyChannel, saveYoutubeTokens } from "@/lib/youtube";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ function page(title: string, body: string, ok: boolean) {
   );
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -23,9 +23,9 @@ export async function GET(req: Request) {
   if (errorParam) {
     return page("Bağlantı reddedildi", `Google hata döndürdü: <b>${errorParam}</b>. İzin ekranında devam etmeniz gerekiyor.`, false);
   }
-  const cookieState = req.headers.get("cookie")
-    ?.split(";").map((p) => p.trim()).find((p) => p.startsWith("mira_yt_state="))
-    ?.slice("mira_yt_state=".length);
+
+  // Use Next.js cookie parsing instead of manually parsing the Cookie header.
+  const cookieState = req.cookies.get("mira_yt_state")?.value;
   if (!code || !state || !cookieState || state !== cookieState) {
     return page("Geçersiz oturum", "Doğrulama durumu (state) uyuşmadı. <a href=\"/api/youtube/auth\">Baştan başla</a>.", false);
   }
