@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { operations } from "@/db/schema";
+import { contentItems, operations } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -23,10 +23,27 @@ export async function GET(req: Request) {
     ? latest.metadata as Record<string, unknown>
     : {};
 
+  // Only show items explicitly kept by analysis and still awaiting user review.
+  // Rejected/approved/deleted items must not reappear from this historical report.
+  const keptIds = new Set(
+    Array.isArray(meta.keptContentIds)
+      ? meta.keptContentIds.map(Number).filter((id) => Number.isInteger(id) && id > 0)
+      : [],
+  );
+  const liveDrafts = await db.select({ id: contentItems.id }).from(contentItems)
+    .where(eq(contentItems.status, "draft"));
+  const liveDraftIds = new Set(liveDrafts.map((item) => item.id));
+  const titles = Array.isArray(meta.titles)
+    ? (meta.titles as Array<{ id?: unknown; title?: unknown }>).filter((item) => {
+        const id = Number(item?.id);
+        return Number.isInteger(id) && keptIds.has(id) && liveDraftIds.has(id);
+      })
+    : [];
+
   return NextResponse.json({
     report: typeof meta.report === "string" ? meta.report : null,
     createdAt: latest.createdAt,
-    titles: Array.isArray(meta.titles) ? meta.titles : [],
+    titles,
     provider: typeof meta.provider === "string" ? meta.provider : null,
     model: typeof meta.model === "string" ? meta.model : null,
     published: false,
