@@ -101,6 +101,81 @@ async function reportProgress(contentId: number, percentage: number, stage: stri
   }
 }
 
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function retryStage<T>(
+  contentId: number,
+  label: string,
+  percentage: number,
+  operation: () => Promise<T>,
+  attempts = 3,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      if (attempt > 1) {
+        await reportProgress(contentId, percentage, `${label}: ${attempt}. deneme başlıyor`, "retrying");
+      }
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      const detail = error instanceof Error ? error.message : String(error);
+      if (attempt < attempts) {
+        await reportProgress(
+          contentId,
+          percentage,
+          `${label} hatası: ${detail.slice(0, 180)} — otomatik düzeltme/yeniden deneme ${attempt}/${attempts - 1}`,
+          "retrying",
+        );
+        await wait(1000 * attempt);
+      }
+    }
+  }
+  const detail = lastError instanceof Error ? lastError.message : String(lastError);
+  await reportProgress(contentId, percentage, `${label} başarısız: ${detail.slice(0, 220)} — görev silinmedi, kaldığı yerden devam etmek üzere beklemede`, "waiting");
+  throw lastError instanceof Error ? lastError : new Error(detail);
+}
+
+async function loadCheckpoints(contentId: number) {
+  const [checkpointOps, savedAssets] = await Promise.all([
+    db.select().from(operations)
+      .where(and(eq(operations.action, "content_produce_checkpoint"), eq(operations.status, "success")))
+      .orderBy(desc(operations.id)).limit(100),
+    db.select().from(contentAssets)
+      .where(eq(contentAssets.contentId, contentId))
+      .orderBy(contentAssets.id),
+  ]);
+  const checkpoint = checkpointOps.find((op) => {
+    const meta = op.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {};
+    return Number(meta.contentId) === contentId && Array.isArray(meta.prompts);
+  });
+  const checkpointMeta = checkpoint?.metadata && typeof checkpoint.metadata === "object"
+    ? checkpoint.metadata as Record<string, unknown> : {};
+  const prompts = Array.isArray(checkpointMeta.prompts)
+    ? checkpointMeta.prompts.filter((p): p is string => typeof p === "string") : [];
+  const narrationAsset = [...savedAssets].reverse().find((asset) => {
+    const meta = asset.meta && typeof asset.meta === "object" ? asset.meta as Record<string, unknown> : {};
+    return asset.kind === "audio" && meta.pipelineStage === "narration";
+  });
+  const imageAssets = savedAssets.filter((asset) => {
+    const meta = asset.meta && typeof asset.meta === "object" ? asset.meta as Record<string, unknown> : {};
+    return asset.kind === "image" && meta.pipelineStage === "image";
+  }).filter((asset) => {
+    const meta = asset.meta as Record<string, unknown>;
+    return Number.isInteger(Number(meta.imageIndex));
+  }).sort((a, b) => Number((a.meta as Record<string, unknown>).imageIndex) - Number((b.meta as Record<string, unknown>).imageIndex));
+  return { prompts, narrationAsset, imageAssets };
+}
+
+async function savePromptCheckpoint(contentId: number, prompts: string[]) {
+  await db.insert(operations).values({
+    action: "content_produce_checkpoint",
+    summary: "Görsel istemleri kaydedildi",
+    status: "success",
+    metadata: { contentId, prompts, savedAt: new Date().toISOString() },
+  });
+}
+
 export async function GET() {
   return NextResponse.json({
     ok: true,
@@ -226,7 +301,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, produced: false, message: "Video üretimi için onaylanmış içerik yok." });
     }
 
-    // 2) Senaryo metnini al
+    // 2) Senaryo metni ve kalıcı ara kayıtlar
     const draftOps = await db.select().from(operations)
       .where(and(eq(operations.action, "autonomous_content_draft"), eq(operations.status, "success")))
       .orderBy(desc(operations.id)).limit(200);
@@ -234,54 +309,104 @@ export async function POST(req: Request) {
       .map((op) => (op.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {}))
       .find((meta) => Number(meta.contentId) === content.id && typeof meta.script === "string")?.script;
     if (typeof script !== "string" || !script.trim()) {
-      return NextResponse.json({ ok: true, produced: false, message: "Taslak senaryosu bulunamadı (worker çalışmadı mı?).", contentId: content.id });
+      return NextResponse.json({ ok: true, produced: false, message: "Taslak senaryosu bulunamadı; görev korunuyor ve tekrar denenebilir.", contentId: content.id });
     }
     const topic = content.topic?.trim() || content.title;
     const narrationText = extractNarration(script, `${content.title}. ${topic}`);
     const sections = parseDraftScript(script);
     stages.script = { narrationChars: narrationText.length, sectionKeys: Object.keys(sections) };
-    await reportProgress(content.id, 15, "Senaryo hazırlandı");
+    const checkpoints = await loadCheckpoints(content.id);
+    await reportProgress(content.id, 15, "Senaryo ve önceki üretim kayıtları kontrol edildi");
 
-    // 3) 3 görsel promptu (LLM; başarısızsa görsel tasarım bölümünden degrade)
-    let prompts: string[];
-    try {
-      prompts = await imagePromptsWithLlm(topic, script);
-      stages.prompts = { source: "llm" };
-    } catch (error) {
-      const fallback = (sections["GÖRSEL TASARIMI"] || topic)
-        .split(/\n|\.|;/).map((s) => s.trim()).filter((s) => s.length > 12).slice(0, 3);
-      prompts = [
-        `Cinematic vertical scene about ${topic}, dark tones, neon green accent, no text`,
-        fallback[0] || `Close-up cinematic detail related to ${topic}, moody lighting, no text`,
-        fallback[1] || `Wide cinematic establishing shot related to ${topic}, dark tones, no text`,
-      ];
-      stages.prompts = { source: "fallback", llmError: String(error).slice(0, 200) };
+    // 3) Görsel istemlerini kaydet; yeniden denemede aynı istemler kullanılır.
+    let prompts = checkpoints.prompts;
+    if (prompts.length !== 3) {
+      try {
+        prompts = await retryStage(content.id, "Görsel sahne planlama", 25, () => imagePromptsWithLlm(topic, script));
+        stages.prompts = { source: "llm" };
+      } catch (error) {
+        const fallback = (sections["GÖRSEL TASARIMI"] || topic)
+          .split(/\n|\.|;/).map((s) => s.trim()).filter((s) => s.length > 12).slice(0, 3);
+        prompts = [
+          `Cinematic vertical scene about ${topic}, dark tones, neon green accent, no text`,
+          fallback[0] || `Close-up cinematic detail related to ${topic}, moody lighting, no text`,
+          fallback[1] || `Wide cinematic establishing shot related to ${topic}, dark tones, no text`,
+        ];
+        stages.prompts = { source: "fallback", llmError: String(error).slice(0, 200) };
+      }
+      await savePromptCheckpoint(content.id, prompts);
+    } else {
+      stages.prompts = { source: "saved-checkpoint", reused: true };
+      await reportProgress(content.id, 30, "Önceden kaydedilmiş görsel planı yeniden kullanılıyor");
     }
 
     await reportProgress(content.id, 30, "Görsel sahneler planlandı");
 
-    // 4) Seslendirme + senkron altyazı
-    await reportProgress(content.id, 40, "Seslendirme hazırlanıyor");
-    const narration = await generateNarration(narrationText);
-    stages.tts = { provider: narration.provider, speechSeconds: narration.durationSeconds };
-    await reportProgress(content.id, 50, "Seslendirme tamamlandı; görseller üretiliyor");
+    // 4) Seslendirme: daha önce kaydedildiyse tekrar üretme.
+    let narration: Awaited<ReturnType<typeof generateNarration>>;
+    if (checkpoints.narrationAsset) {
+      const meta = checkpoints.narrationAsset.meta && typeof checkpoints.narrationAsset.meta === "object"
+        ? checkpoints.narrationAsset.meta as Record<string, unknown> : {};
+      narration = {
+        audio: Buffer.from(checkpoints.narrationAsset.data, "base64"),
+        provider: typeof meta.provider === "string" ? meta.provider : "saved-audio",
+        captions: Array.isArray(meta.captions) ? meta.captions as CaptionGroup[] : [],
+        durationSeconds: typeof meta.durationSeconds === "number" ? meta.durationSeconds : null,
+      };
+      stages.tts = { provider: narration.provider, reused: true };
+      await reportProgress(content.id, 50, "Kaydedilmiş seslendirme yeniden kullanılıyor");
+    } else {
+      await reportProgress(content.id, 40, "Seslendirme hazırlanıyor");
+      narration = await retryStage(content.id, "Seslendirme", 40, () => generateNarration(narrationText));
+      await db.insert(contentAssets).values({
+        contentId: content.id,
+        kind: "audio",
+        mime: "audio/mpeg",
+        data: Buffer.from(narration.audio).toString("base64"),
+        bytes: narration.audio.length,
+        meta: { pipelineStage: "narration", provider: narration.provider, captions: narration.captions, durationSeconds: narration.durationSeconds },
+      });
+      stages.tts = { provider: narration.provider, speechSeconds: narration.durationSeconds, checkpointSaved: true };
+      await reportProgress(content.id, 50, "Seslendirme tamamlandı; görseller hazırlanıyor");
+    }
 
-    // 5) Civitai ile 3 görsel
-    const images = await produceImages(prompts, async (count) => {
-      const percentage = count === 1 ? 60 : count === 2 ? 70 : 78;
-      await reportProgress(content.id, percentage, `${count}/3 görsel hazırlandı`);
-    });
-    stages.images = { count: images.length, bytes: images.map((i) => i.bytes.length) };
+    // 5) Görselleri tek tek üretip hemen kalıcı kaydet; hata olursa hazır görseller kaybolmaz.
+    const images: RenderImage[] = [];
+    for (let i = 0; i < 3; i++) {
+      const existing = checkpoints.imageAssets.find((asset) => Number((asset.meta as Record<string, unknown>).imageIndex) === i);
+      if (existing) {
+        images.push({ bytes: Buffer.from(existing.data, "base64"), extension: existing.mime.includes("png") ? "png" : existing.mime.includes("webp") ? "webp" : "jpg" });
+        await reportProgress(content.id, [60, 70, 78][i], `Kaydedilmiş ${i + 1}/3 görsel yeniden kullanılıyor`);
+        continue;
+      }
+      const image = await retryStage(content.id, `${i + 1}. görsel üretimi`, [60, 70, 78][i], async () => {
+        const result = await generateCivitaiImage({ prompt: prompts[i], aspectRatio: "9:16", size: "medium" });
+        const urls = collectImageUrls(result);
+        if (!urls.length) throw new Error("Civitai görsel URL'si döndürmedi");
+        return downloadImage(urls[0]);
+      });
+      images.push(image);
+      await db.insert(contentAssets).values({
+        contentId: content.id,
+        kind: "image",
+        mime: image.extension === "png" ? "image/png" : image.extension === "webp" ? "image/webp" : "image/jpeg",
+        data: image.bytes.toString("base64"),
+        bytes: image.bytes.length,
+        meta: { pipelineStage: "image", imageIndex: i, prompt: prompts[i] },
+      });
+      await reportProgress(content.id, [60, 70, 78][i], `${i + 1}/3 görsel hazırlandı ve kaydedildi`);
+    }
+    stages.images = { count: images.length, bytes: images.map((i) => i.bytes.length), resumed: checkpoints.imageAssets.length > 0 };
 
     // 6) MP4 render
     await reportProgress(content.id, 82, "Görseller tamamlandı; MP4 video oluşturuluyor");
-    const { video, durationSeconds, captionsUsed } = await renderShort({
+    const { video, durationSeconds, captionsUsed } = await retryStage(content.id, "MP4 birleştirme", 82, () => renderShort({
       images,
       audio: Buffer.from(narration.audio),
       captions: narration.captions,
       narrationText,
       durationSeconds: narration.durationSeconds ?? undefined,
-    });
+    }));
     stages.render = { durationSeconds, bytes: video.length, captions: captionsUsed };
 
     await reportProgress(content.id, 93, "Video oluşturuldu; dosya kaydediliyor");
@@ -334,18 +459,18 @@ export async function POST(req: Request) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[Produce] failed:", message);
     if (hasId) {
-      await reportProgress(requestedId, 0, `Hata: ${message.slice(0, 300)}`, "failed");
-      // Hata durumunda içerik 'approved' kalır (tekrar denenebilir); işlem kayıtlarına yaz.
+      // Görev iptal edilmez: onaylı kalır ve kaydedilmiş ara çıktılar sonraki denemede kullanılır.
+      await reportProgress(requestedId, 0, `Hata kaydedildi: ${message.slice(0, 240)} — görev beklemede, tekrar denenebilir`, "waiting");
       await db.insert(operations).values({
         action: "content_produce",
-        summary: `Video üretimi başarısız oldu`,
-        status: "failed",
-        metadata: { contentId: requestedId, error: message.slice(0, 1500), stages },
+        summary: `Video üretimi geçici olarak beklemede; yeniden denenebilir`,
+        status: "retryable",
+        metadata: { contentId: requestedId, error: message.slice(0, 1500), stages, retryable: true, checkpointsPreserved: true },
       }).catch(() => {});
       const [failedContent] = await db.select({ title: contentItems.title }).from(contentItems)
         .where(eq(contentItems.id, requestedId)).limit(1).catch(() => []);
       await sendTelegramMessage(
-        `❌ Mira video üretimini tamamlayamadı\n\nBaşlık: ${failedContent?.title || "İçerik #" + requestedId}\nHata: ${message.slice(0, 1000)}\nDurum: İçerik tekrar denenmek üzere onaylı bırakıldı.`
+        `⚠️ Mira video üretiminde bir engelle karşılaştı\n\nBaşlık: ${failedContent?.title || "İçerik #" + requestedId}\nHata: ${message.slice(0, 700)}\nDurum: Görev iptal edilmedi. Kaydedilmiş aşamalar korunuyor; aynı contentId ile yeniden başlatıldığında kaldığı yerden devam etmeyi deneyecek.`
       ).catch(() => ({ sent: false as const, reason: "send_failed" as const }));
     }
     return NextResponse.json({ ok: false, produced: false, error: message.slice(0, 600), stages }, { status: 500 });
