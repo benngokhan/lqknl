@@ -21,9 +21,37 @@ export async function GET(req: Request) {
       ? eq(contentItems.status, "ready")
       : status === "approved" || status === "rejected"
         ? eq(contentItems.status, status)
-        : inArray(contentItems.status, ["queued", "processing", "draft"]))
+        : eq(contentItems.status, "draft"))
     .orderBy(desc(contentItems.updatedAt))
     .limit(50);
+
+  // Ham/kuyruktaki içerikler panelde gösterilmez. Yalnızca Mira'nın KEEP seçtiği ve
+  // sonradan silinmemiş içerikler kullanıcı onay listesine çıkar.
+  if (isDefaultView && rows.length) {
+    const analysisOps = await db.select().from(operations)
+      .where(eq(operations.action, "content_draft_analysis"))
+      .orderBy(desc(operations.id))
+      .limit(200);
+    const keptIds = new Set<number>();
+    const deletedIds = new Set<number>();
+    for (const operation of analysisOps) {
+      const metadata = operation.metadata && typeof operation.metadata === "object"
+        ? operation.metadata as Record<string, unknown> : {};
+      if (Array.isArray(metadata.keptContentIds)) {
+        for (const value of metadata.keptContentIds) {
+          const id = Number(value);
+          if (Number.isInteger(id) && id > 0) keptIds.add(id);
+        }
+      }
+      if (Array.isArray(metadata.deletedContentIds)) {
+        for (const value of metadata.deletedContentIds) {
+          const id = Number(value);
+          if (Number.isInteger(id) && id > 0) deletedIds.add(id);
+        }
+      }
+    }
+    rows = rows.filter((row) => keptIds.has(row.id) && !deletedIds.has(row.id));
+  }
 
   // Varsayılan listede aynı başlığın kopyaları birikebiliyor (research günlük penceresi
   // yüzünden tarih farklı türlerinin tekrarı). En yenisini tut, eskileri reddet; liste kendini iyileştirir.
