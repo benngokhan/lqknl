@@ -81,7 +81,7 @@ async function produceImages(prompts: string[], onImageReady?: (count: number) =
   for (const prompt of prompts) {
     const result = await generateTensorArtImage(prompt);
     const urls = collectImageUrls(result);
-    if (!urls.length) throw new Error("Civitai görsel URL'si döndürmedi");
+    if (!urls.length) throw new Error("Tensor.Art görsel URL'si döndürmedi");
     images.push(await downloadImage(urls[0]));
     if (onImageReady) await onImageReady(images.length);
   }
@@ -380,9 +380,9 @@ export async function POST(req: Request) {
         continue;
       }
       const image = await retryStage(content.id, `${i + 1}. görsel üretimi`, [60, 70, 78][i], async () => {
-        const result = await generateCivitaiImage({ prompt: prompts[i], aspectRatio: "9:16", size: "medium" });
+        const result = await generateTensorArtImage(prompts[i]);
         const urls = collectImageUrls(result);
-        if (!urls.length) throw new Error("Civitai görsel URL'si döndürmedi");
+        if (!urls.length) throw new Error("Tensor.Art görsel URL'si döndürmedi");
         return downloadImage(urls[0]);
       });
       images.push(image);
