@@ -8,6 +8,7 @@ import { generateNarration, type CaptionGroup } from "@/lib/narration";
 import { generateCivitaiImage } from "@/lib/civitai";
 import { renderShort, type RenderImage } from "@/lib/render-video";
 import { extractNarration, parseDraftScript } from "@/lib/script-parse";
+import { sendTelegramMessage } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -282,6 +283,13 @@ export async function POST(req: Request) {
       .set({ status: "done", updatedAt: new Date() })
       .where(like(tasks.notes, `%"contentId":${content.id}%`));
 
+    const baseUrl = (process.env.NEXT_PUBLIC_MIRA_BASE_URL || "https://aimira.up.railway.app").replace(/\/$/, "");
+    const previewUrl = `${baseUrl}/api/video/asset/${asset.id}`;
+    const telegram = await sendTelegramMessage(
+      `✅ Mira video üretimini tamamladı\n\nBaşlık: ${content.title}\nİçerik ID: ${content.id}\nSüre: ${durationSeconds} sn\nDurum: Video hazır; YouTube'a otomatik yükleme bu bildirimin parçası değildir.\nÖnizleme: ${previewUrl}`
+    );
+    stages.telegram = telegram;
+
     return NextResponse.json({
       ok: true,
       produced: true,
@@ -289,6 +297,7 @@ export async function POST(req: Request) {
       assetId: asset.id,
       status: updated.status,
       previewPath: `/api/video/asset/${asset.id}`,
+      telegram,
       stages,
     });
   } catch (error) {
@@ -302,6 +311,11 @@ export async function POST(req: Request) {
         status: "failed",
         metadata: { contentId: requestedId, error: message.slice(0, 1500), stages },
       }).catch(() => {});
+      const [failedContent] = await db.select({ title: contentItems.title }).from(contentItems)
+        .where(eq(contentItems.id, requestedId)).limit(1).catch(() => []);
+      await sendTelegramMessage(
+        `❌ Mira video üretimini tamamlayamadı\n\nBaşlık: ${failedContent?.title || "İçerik #" + requestedId}\nHata: ${message.slice(0, 1000)}\nDurum: İçerik tekrar denenmek üzere onaylı bırakıldı.`
+      ).catch(() => ({ sent: false as const, reason: "send_failed" as const }));
     }
     return NextResponse.json({ ok: false, produced: false, error: message.slice(0, 600), stages }, { status: 500 });
   }
