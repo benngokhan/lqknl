@@ -27,6 +27,14 @@ interface DraftAnalysis {
   model: string | null;
 }
 
+interface VideoProgressEvent {
+  id: number;
+  stage: string;
+  status: string;
+  percentage: number;
+  createdAt: string;
+}
+
 const COMMANDS = [
   { command: '/yardım', description: 'Mira komutlarını gösterir' },
   { command: '/durum', description: 'Mira ve veritabanı durumunu kontrol eder' },
@@ -117,6 +125,7 @@ export default function Home() {
   const [draftsError, setDraftsError] = useState('');
   const [reviewNotice, setReviewNotice] = useState('');
   const [videoProgress, setVideoProgress] = useState<{ contentId: number; title: string; percentage: number; stage: string; status: string } | null>(null);
+  const [videoEvents, setVideoEvents] = useState<VideoProgressEvent[]>([]);
   const [analysis, setAnalysis] = useState<DraftAnalysis | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
@@ -188,7 +197,10 @@ export default function Home() {
     setReviewBusyId(id);
     setDraftsError('');
     setReviewNotice('');
-    if (action === 'approve_video') setVideoProgress({ contentId: id, title: drafts.find((draft) => draft.id === id)?.title || `İçerik #${id}`, percentage: 2, stage: 'Video üretimi başlatılıyor', status: 'running' });
+    if (action === 'approve_video') {
+      setVideoProgress({ contentId: id, title: drafts.find((draft) => draft.id === id)?.title || `İçerik #${id}`, percentage: 2, stage: 'Video üretimi başlatılıyor', status: 'running' });
+      setVideoEvents([{ id: Date.now(), stage: 'Video üretimi başlatılıyor', status: 'running', percentage: 2, createdAt: new Date().toISOString() }]);
+    }
     let progressTimer: ReturnType<typeof setInterval> | undefined;
     try {
       const res = await fetch('/api/content/review', {
@@ -212,6 +224,11 @@ export default function Home() {
           const progress = await progressRes.json().catch(() => null);
           if (progressRes.ok && progress && typeof progress.percentage === 'number') {
             setVideoProgress({ contentId: id, title: drafts.find((draft) => draft.id === id)?.title || `İçerik #${id}`, percentage: progress.percentage, stage: String(progress.stage || 'Video hazırlanıyor'), status: String(progress.status || 'running') });
+          }
+          const eventsRes = await fetch(`/api/automation/produce-events?contentId=${id}`, { cache: 'no-store' });
+          const eventData = await eventsRes.json().catch(() => null);
+          if (eventsRes.ok && Array.isArray(eventData?.events)) {
+            setVideoEvents(eventData.events as VideoProgressEvent[]);
           }
         } catch {
           // Progress polling errors must not interrupt video production.
@@ -247,6 +264,7 @@ export default function Home() {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Video üretim/yükleme işlemi tamamlanamadı.';
         setVideoProgress((current) => current?.contentId === id ? { ...current, status: 'failed', stage: `İşlem durdu: ${message}` } : current);
+        setVideoEvents((current) => [...current, { id: Date.now(), stage: `HATA: ${message}`, status: 'failed', percentage: 0, createdAt: new Date().toISOString() }]);
         setReviewNotice(`Onay kaydedildi, ancak video hattı tamamlanmadı: ${message}`);
       } finally {
         if (progressTimer) { clearInterval(progressTimer); progressTimer = undefined; }
@@ -653,7 +671,30 @@ export default function Home() {
               <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-slate-800">
                 <div className={`h-full rounded-full transition-all duration-500 ${videoProgress.status === 'failed' ? 'bg-red-400' : videoProgress.status === 'success' ? 'bg-emerald-400' : 'bg-sky-400'}`} style={{ width: `${videoProgress.percentage}%` }} />
               </div>
-              <p className="mt-2 text-[11px] text-slate-500">Aşama sunucudan düzenli olarak okunur. İlerleme değişmiyorsa işlem o adımda bekliyor olabilir.</p>
+              <p className="mt-2 text-[11px] text-slate-500">Aşamalar sunucudan düzenli okunur. İlerleme değişmiyorsa işlem o adımda bekliyor olabilir.</p>
+              <div className="mt-4 border-t border-slate-700 pt-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">Canlı işlem günlüğü</h4>
+                  <span className="text-[10px] text-slate-500">{videoEvents.length} olay</span>
+                </div>
+                {videoEvents.length === 0 ? (
+                  <p className="text-xs text-slate-500">Sunucudan ilk aşama kaydı bekleniyor…</p>
+                ) : (
+                  <ol className="space-y-2">
+                    {videoEvents.map((event) => (
+                      <li key={event.id} className="flex items-start gap-2 text-xs">
+                        <span className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${event.status === 'failed' || /^hata:/i.test(event.stage) ? 'bg-red-500/20 text-red-300' : event.status === 'success' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-sky-500/20 text-sky-300'}`}>
+                          {event.status === 'failed' || /^hata:/i.test(event.stage) ? '!' : event.status === 'success' ? '✓' : '·'}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className={`break-words ${event.status === 'failed' || /^hata:/i.test(event.stage) ? 'text-red-300' : 'text-slate-200'}`}>{event.stage}</p>
+                          <p className="mt-0.5 text-[10px] text-slate-500">{new Date(event.createdAt).toLocaleTimeString('tr-TR')} · %{event.percentage}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
             </div>
           )}
           {reviewNotice && <p className="mt-3 text-sm text-emerald-300" role="status">{reviewNotice}</p>}
