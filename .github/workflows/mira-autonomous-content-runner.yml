@@ -12,7 +12,7 @@ permissions:
 jobs:
   run-one-content:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 12
     steps:
       - name: Validate required secrets
         env:
@@ -55,6 +55,18 @@ jobs:
           curl --fail-with-body --silent --show-error \
             --max-time 75 \
             -X POST "${MIRA_BASE_URL%/}/api/automation/analyze-drafts" \
+            -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d '{}'
+
+      - name: Produce one video for review (does not publish)
+        env:
+          MIRA_BASE_URL: ${{ secrets.MIRA_BASE_URL }}
+          MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --max-time 300 \
+            -X POST "${MIRA_BASE_URL%/}/api/automation/produce" \
             -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" \
             -H "Content-Type: application/json" \
             -d '{}'
