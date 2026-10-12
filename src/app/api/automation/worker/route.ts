@@ -15,10 +15,10 @@ function authorized(req: Request) {
   return req.headers.get("cookie")?.split(";").some((part) => part.trim() === "mira_entry=1") ?? (!expected && process.env.NODE_ENV !== "production");
 }
 
-async function reportScriptProgress(contentId: number, percentage: number, stage: string, status = "running") {
+async function reportScriptProgress(contentId: number, percentage: number, stage: string, status = "running", detail?: string, nextAction?: string) {
   await db.insert(operations).values({
     action: "content_produce_progress", summary: stage, status, platform: "youtube",
-    metadata: { contentId, percentage, stage, updatedAt: new Date().toISOString(), workflow: "manual_script" },
+    metadata: { contentId, percentage, stage, status, detail, nextAction, updatedAt: new Date().toISOString(), workflow: "manual_script" },
   }).catch((error) => console.error("[Worker] progress write failed:", error instanceof Error ? error.message : String(error)));
 }
 type FactGateResult = { ok: true; sourceUrls: string[]; reason: string } | { ok: false; sourceUrls: string[]; reason: string };
@@ -171,7 +171,7 @@ export async function POST(req: Request) {
   after(async () => {
     try {
       const topic = claimed.topic?.trim() || claimed.title;
-      await reportScriptProgress(claimed.id, 8, "Konu analizi yapılıyor…");
+      await reportScriptProgress(claimed.id, 8, "Konu analizi yapılıyor…", "running", "Konu tek bir ana bilgiye indirgeniyor; belirsiz veya çok geniş noktalar ayıklanıyor.", "Uygun kapsam belirlenince senaryo taslağını oluşturacağım.");
       let signalDirective: Record<string, unknown> | null = null;
       try {
         signalDirective = await loadLatestSignalDirective();
@@ -179,7 +179,7 @@ export async function POST(req: Request) {
         console.error("[Worker] Kanal sinyal direktifi okunamadı; normal üretim devam edecek:",
           signalError instanceof Error ? signalError.message : String(signalError));
       }
-      await reportScriptProgress(claimed.id, 18, "Senaryo hazırlanıyor…");
+      await reportScriptProgress(claimed.id, 18, "Senaryo hazırlanıyor…", "running", "Zorunlu bölümler, üç ayrı görsel ve kısa seslendirme hazırlanıyor.", "Taslak biçimini denetleyip eksik bölüm varsa otomatik düzeltmeyi deneyeceğim.");
       const result = await generateWithFallback({
         system: [
           "Sen Mira'nın Bilgi Dozu adlı YouTube Shorts kanalı için Türkçe içerik üretim motorusun.",
@@ -219,7 +219,7 @@ export async function POST(req: Request) {
 
       // Bir başlık eksikse hemen işi düşürme: aynı model zinciriyle tek bir düzeltme denemesi yap.
       if (missingHeadings.length > 0) {
-        await reportScriptProgress(claimed.id, 32, `Eksik senaryo bölümleri tamamlanıyor: ${missingHeadings.join(", ")}…`);
+        await reportScriptProgress(claimed.id, 32, `Eksik senaryo bölümleri tamamlanıyor: ${missingHeadings.join(", ")}…`, "running", "İlk taslak zorunlu başlıkların tümünü içermedi; kaydetmeden önce aynı konu ve iddiaları koruyarak biçimi düzeltiyorum.", "Düzeltilmiş taslağı yeniden denetleyeceğim; hâlâ eksikse taslağı hatalı diye işaretleyip kaydetmeyeceğim.");
         const repaired = await generateWithFallback({
           system: [
             "Sen Mira'nın taslak biçimi düzeltme motorusun.",
@@ -272,8 +272,8 @@ export async function POST(req: Request) {
         }
       }
 
-      await reportScriptProgress(claimed.id, 58, "Kaynak araştırılıyor…");
-      await reportScriptProgress(claimed.id, 68, "Bilgilerin doğruluğu kontrol ediliyor…");
+      await reportScriptProgress(claimed.id, 58, "Kaynak araştırılıyor…", "running", "Senaryodaki kaynak bölümünden gerçek HTTPS adresleri çıkarılıp erişilebilirlik kontrolü yapılacak.", "Okunabilen kaynak metnini ana iddialarla karşılaştıracağım.");
+      await reportScriptProgress(claimed.id, 68, "Bilgilerin doğruluğu kontrol ediliyor…", "running", "Kaynak sayfasında bulunmayan veya desteklenmeyen iddialar kabul edilmeyecek.", "Sonucu kaydedip senaryoyu onayına sunacağım; doğrulama başarısızsa nedeni açıkça göstereceğim.");
       const rawNarration = extractNarration(scriptText, `${claimed.title}. ${topic}`);
       const factCheck = await verifyScriptSources(scriptText, rawNarration);
       await db.insert(operations).values({
@@ -282,7 +282,7 @@ export async function POST(req: Request) {
         status: factCheck.ok ? "success" : "failed", platform: claimed.platform,
         metadata: { contentId: claimed.id, sourceUrls: factCheck.sourceUrls, reason: factCheck.reason, gate: "source_reachability_and_claim_support", videoCreated: false },
       });
-      await reportScriptProgress(claimed.id, 82, "Senaryo ve kaynak analizi tamamlanıyor…");
+      await reportScriptProgress(claimed.id, 82, "Senaryo ve kaynak analizi tamamlanıyor…", "running", "Senaryo metni, kullanılan model ve kaynak kontrolü sonucu kayıt altına alınıyor.", "Taslağı onay bekleyen duruma getireceğim; bu adım video üretmez veya YouTube’a yüklemez.");
       const [savedOperation] = await db.insert(operations).values({
         action: "autonomous_content_draft",
         summary: `Mira otomatik içerik taslağı hazırladı: ${claimed.title}`,
@@ -375,11 +375,11 @@ export async function POST(req: Request) {
         // Tek bir kullanıcı isteği yalnızca seçilen içeriği işler; kuyruğu zincirleme tüketmez.
       }
 
-      await reportScriptProgress(claimed.id, factCheck.ok ? 100 : 92, factCheck.ok ? "Videoya hazır — senaryo onayını bekliyor." : `Kaynak/doğruluk kontrolü tamamlandı ancak doğrulanamadı: ${factCheck.reason}`, factCheck.ok ? "success" : "failed");
+      await reportScriptProgress(claimed.id, factCheck.ok ? 100 : 92, factCheck.ok ? "Senaryo hazır — onayını bekliyor." : `Kaynak/doğruluk kontrolü tamamlandı ancak doğrulanamadı: ${factCheck.reason}`, factCheck.ok ? "success" : "failed", factCheck.ok ? "Senaryo kaydedildi ve kaynak kontrolü geçti." : `Taslak kaydedildi; ancak kaynak/doğruluk kontrolü geçmedi. ${factCheck.reason}`, factCheck.ok ? "Senaryoyu inceleyip onaylayabilirsin. Video üretimi ayrı onay gerektirir." : "Kaynağı/iddiaları düzeltip yeniden doğrulama yapmadan video üretimine geçme.");
       console.log(`[Worker] Senaryo tamamlandı (arka plan): #${updated.id} "${updated.title}" — model ${scriptProvider.provider}/${scriptProvider.model}, ${narrationWords} kelime, op #${savedOperation.id}.`);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      await reportScriptProgress(claimed.id, 0, `İşlem başarısız: ${reason.slice(0, 240)}`, "failed");
+      await reportScriptProgress(claimed.id, 0, `İşlem başarısız: ${reason.slice(0, 240)}`, "failed", "İşlem bu aşamada tamamlanamadı; hata kaydı korunuyor.", "Mira hatayı ve eksik koşulu gösterecek. Sorun otomatik düzeltme kapsamındaysa yeniden denenecek; değilse kaynağı veya model çıktısını düzeltmek gerekecek.");
       await db.update(contentItems)
         .set({ status: "failed", updatedAt: new Date() })
         .where(eq(contentItems.id, claimed.id));
