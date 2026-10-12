@@ -11,19 +11,28 @@ Kimlik doğrulama:
   - İlk çalıştırmada tarayıcıdan onay alınır, token.json'a kaydedilir
   - Test modundaki Google projelerinde token 7 günde bir yenilenir
 """
-import argparse, json, os, re, subprocess, sys, unicodedata
+import argparse, json, os, re, shutil, subprocess, sys, unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def _find_ff():
     p = os.path.join(os.path.dirname(HERE), "ffmpeg_path.txt")
-    if os.path.exists(p):
+    if os.path.isfile(p):
         try:
-            return open(p).read().strip()
-        except Exception:
+            configured = open(p, encoding="utf-8").read().strip()
+            if configured:
+                return configured
+        except OSError:
             pass
-    return "ffmpeg"       # sistem ffmpeg'i (varsa)
+    system_ffmpeg = shutil.which("ffmpeg")
+    if system_ffmpeg:
+        return system_ffmpeg
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except ImportError:
+        return "ffmpeg"
 
 
 FF = _find_ff()
