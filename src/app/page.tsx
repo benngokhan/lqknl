@@ -229,6 +229,29 @@ export default function Home() {
     }
   }
 
+  async function startManualProduction(item: QueueItem) {
+    if (queueBusyId !== null) return;
+    if (!window.confirm(`“${item.title}” konusu için Mira şimdi senaryo ve video üretimini başlatsın mı? Bu işlem planlı saat ayarlarını değiştirmez ve YouTube'a otomatik yükleme yapmaz.`)) return;
+    setQueueBusyId(item.id);
+    setManualTopicResult(`#${item.id} için manuel video üretimi başlatılıyor. Planlı saat ayarları değiştirilmiyor; YouTube'a otomatik yükleme yapılmayacak.`);
+    try {
+      const res = await fetch(`/api/automation/worker?contentId=${item.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manualProduce: true }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Video üretimi başlatılamadı (HTTP ${res.status}).`);
+      setQueueItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'processing' } : entry));
+      setManualTopicResult(`#${item.id} için manuel üretim başlatıldı. Bu tıklama planlı saatleri değiştirmez. Üretimin tamamlandığı ve private YouTube yüklemesi ayrıca doğrulanmalı.`);
+    } catch (error) {
+      setManualTopicResult(error instanceof Error ? error.message : 'Video üretimi başlatılamadı.');
+    } finally {
+      setQueueBusyId(null);
+      void loadManualQueue();
+    }
+  }
+
   async function addManualTopic() {
     const topic = manualTopic.trim();
     if (!topic || manualTopicLoading) return;
@@ -748,8 +771,8 @@ export default function Home() {
           {manualTopicResult && <p className="mt-1 text-xs text-sky-300">{manualTopicResult}</p>}
           <div className="mt-3 rounded-lg border border-sky-500/20 bg-slate-900/70 p-3">
             <div className="mb-2 flex items-center justify-between gap-2"><p className="text-sm font-semibold text-white">Manuel konu kuyruğu</p><button type="button" onClick={() => void loadManualQueue()} disabled={queueLoading} className="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-700 disabled:opacity-50">{queueLoading ? 'Yükleniyor…' : 'Kuyruğu yenile'}</button></div>
-            <p className="mb-3 text-xs text-slate-400">Sıfır cron: konular otomatik başlamaz. Önce “Senaryo hazırla” ile araştırma ve taslak oluşturulur; taslağı kontrol edip ayrıca onaylayınca video üretimi başlar. Kaynaklar doğrulanmadan kesin bilgi kullanılmaz.</p>
-            {queueItems.length === 0 ? <p className="text-xs text-slate-500">Bekleyen manuel konu yok.</p> : <div className="space-y-2">{queueItems.map((item) => <div key={item.id} className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-950/70 p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="break-words text-sm font-medium text-white">{item.title}</p><p className="mt-1 text-xs text-slate-400">#{item.id} · {item.status === 'queued' ? 'Sırada' : item.status === 'processing' ? 'İşleniyor' : 'Hata / yeniden denenebilir'}</p></div><button type="button" onClick={() => void startManualVideo(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="shrink-0 rounded-lg border border-emerald-400/50 bg-emerald-600/20 px-3 py-2 text-xs font-medium hover:bg-emerald-600/40 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '✍ Senaryo hazırla'}</button></div>)}</div>}
+            <p className="mb-3 text-xs text-slate-400">Konular kendiliğinden başlamaz. “Senaryo hazırla” araştırma ve taslak oluşturur; “Bu videoyu şimdi üret” seçeneği manuel üretimi başlatır. Buton planlı saat ayarlarını değiştirmez. YouTube'a otomatik yükleme yapılmaz; kaynaklar doğrulanmadan kesin bilgi kullanılmaz.</p>
+            {queueItems.length === 0 ? <p className="text-xs text-slate-500">Bekleyen manuel konu yok.</p> : <div className="space-y-2">{queueItems.map((item) => <div key={item.id} className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-950/70 p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="break-words text-sm font-medium text-white">{item.title}</p><p className="mt-1 text-xs text-slate-400">#{item.id} · {item.status === 'queued' ? 'Sırada' : item.status === 'processing' ? 'İşleniyor' : 'Hata / yeniden denenebilir'}</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void startManualVideo(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="rounded-lg border border-slate-500 px-3 py-2 text-xs font-medium hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '✍ Senaryo hazırla'}</button><button type="button" onClick={() => void startManualProduction(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="rounded-lg border border-emerald-400/50 bg-emerald-600/20 px-3 py-2 text-xs font-semibold hover:bg-emerald-600/40 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '▶ Bu videoyu şimdi üret'}</button></div></div>)}</div>}
           </div>
           {analysisOpen && (
             <div className="mt-3 space-y-2">
