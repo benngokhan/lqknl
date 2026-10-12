@@ -933,7 +933,7 @@ export default function Home() {
                     {analysis?.provider ? ` · ${analysis?.provider}` : ''}
                     {analysis?.model ? ` / ${analysis?.model}` : ''}
                   </p>
-                  <div className="space-y-3 rounded-lg border border-slate-700 bg-slate-900 p-3 text-sm leading-relaxed">{analysis?.report ? renderAnalysisReport(analysis.report) : null}</div>
+                  <div className="space-y-3 rounded-lg border border-slate-700 bg-slate-900 p-3 text-sm leading-relaxed">{analysis && analysis.report ? renderAnalysisReport(analysis.report) : null}</div>
                   <div className="rounded-lg border border-emerald-500/20 bg-emerald-950/10 p-3 space-y-3">
                     <p className="text-xs text-emerald-200">Karar alanı: yalnızca bu raporda analiz edilmiş içerikler burada onaylanır veya reddedilir. Taslak deposundaki kayıtlar bu kararlardan etkilenmeden önce burada değerlendirilir. Kaynak doğrulaması ayrıca yapılmalıdır.</p>
                     {(analysis?.titles ?? []).length === 0 ? (
