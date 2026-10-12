@@ -412,47 +412,51 @@ export async function POST(req: Request) {
     let narrationText = narrationCap.text;
     const sections = parseDraftScript(script);
 
-    // Fact-check before TTS, image generation, or MP4 rendering.
-    // Kapı KARARI işçide (worker) verilir; burası kararı OKUR, kaynağı yeniden dövmez.
-    // Kullanıcı onayı saygı görür: manuel koruma (manualGrace) veya kayıt-yok (eski içerik,
-    // kullanıcı panelden bilinçli onayladı) → üretim SÜRER, uyarı düşülür.
-    // Sert duvar yalnızca otomatik akışın blok kararına kalır.
-    const priorCheckOps = await db.select().from(operations).where(inArray(operations.action, ["fact_check_passed", "fact_check_blocked"])).orderBy(desc(operations.id)).limit(500);
-    const priorCheck = priorCheckOps.find((op) => { const meta = op.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {}; return Number(meta.contentId) === content.id; });
-    const priorMeta = priorCheck?.metadata && typeof priorCheck.metadata === "object" ? priorCheck.metadata as Record<string, unknown> : {};
-    const factGate: FactGateResult = priorCheck ? { ok: priorCheck.action === "fact_check_passed" && priorCheck.status === "success", sourceUrls: Array.isArray(priorMeta.sourceUrls) ? priorMeta.sourceUrls.filter((url): url is string => typeof url === "string") : [], reason: typeof priorMeta.reason === "string" ? priorMeta.reason : "Kayıtlı kaynak kontrolü." } : { ok: false, sourceUrls: [], reason: "Senaryo aşamasında kaynak kontrolü bulunamadı; senaryoyu yeniden hazırla." };
+    // Kapı KARARI tek yerde: işçinin `autonomous_content_draft` kaydı (factCheck bloğu).
+    // Bu rotanın kendi bıraktığı "fact_check_*" damgaları YANKIDIR — karar değildir
+    // (aksi halde sistem ilk blok damgasını okuyup kendini sonsuz loop'a sokar).
     const priorDraftOps = await db.select().from(operations).where(eq(operations.action, "autonomous_content_draft")).orderBy(desc(operations.id)).limit(500);
     const priorDraft = priorDraftOps.find((op) => { const meta = op.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {}; return Number(meta.contentId) === content.id && op.status !== "failed"; });
     const draftMeta = priorDraft?.metadata && typeof priorDraft.metadata === "object" ? priorDraft.metadata as Record<string, unknown> : {};
     const draftFact = draftMeta.factCheck && typeof draftMeta.factCheck === "object" ? draftMeta.factCheck as Record<string, unknown> : {};
+    const hasDraftVerdict = Boolean(priorDraft);
+    const draftOk = draftFact.ok === true;
     const manualGrace = draftFact.manualGrace === true;
-    const gateEffective = factGate.ok || manualGrace || !priorCheck;
-    const gateMode = factGate.ok ? "doğrulandı" : manualGrace ? "manuel koruma" : !priorCheck ? "kayıt yok (eski içerik, kullanıcı onayı)" : "BLOK";
+    // Karar: taslak kaydı varsa o SAYILIR (bilinçli otomatik blok hariç geçer) —
+    // yoksa eski içeriktir, paneldeki kullanıcı ONAYI kapının yerini tutar.
+    const gateEffective = !hasDraftVerdict || draftOk || manualGrace;
+    const gateMode = hasDraftVerdict
+      ? draftOk ? "işçi: doğrulandı" : manualGrace ? "işçi: manuel koruma" : "işçi: BLOK (otomatik akış)"
+      : "işçi kaydı yok (eski içerik — panel onayı)";
+    const gateReason = typeof draftFact.reason === "string" && draftFact.reason
+      ? draftFact.reason
+      : "Senaryo aşamasında kaynak kontrolü kaydı yok.";
+    const gateSources = Array.isArray(draftFact.sourceUrls) ? draftFact.sourceUrls.filter((u): u is string => typeof u === "string") : [];
+    // Yankı damgası: karar değildir, analiz amaçlı iz'dir (sonraki çağrılar bunu YOK sayar).
     await db.insert(operations).values({
-      action: factGate.ok ? "fact_check_passed" : gateEffective ? "fact_check_passed" : "fact_check_blocked",
-      summary: gateEffective
-        ? `Kaynak kontrolü üretime geçirdi (${gateMode}): ${content.title}`
-        : `❌ Doğruluğu ispatlanamadı, video oluşturulamıyor. ${content.title}`,
+      action: "fact_check_echo",
+      summary: `Produce kapısı ${gateEffective ? "yeşil yaktı" : "engelledi"} (${gateMode}): ${content.title}`,
       status: gateEffective ? "success" : "failed",
       platform: content.platform,
-      metadata: { contentId: content.id, sourceUrls: factGate.sourceUrls, reason: factGate.reason, gate: "worker_voice_relay", gateMode, manualGrace, hadPriorRecord: Boolean(priorCheck), videoCreated: false },
+      metadata: { contentId: content.id, sourceUrls: gateSources, reason: gateReason, gate: "produce_voice_relay", gateMode, manualGrace, hadDraftVerdict: hasDraftVerdict, videoCreated: false },
     });
     if (!gateEffective) {
-      await reportProgress(content.id, 8, `❌ Doğruluğu ispatlanamadı, video oluşturulamıyor. ${factGate.reason}`, "waiting");
-      await logEvent({ level: "error", source: "produce/gate", message: `Video kapıda durdu (otomatik akışın blok kararı) #${content.id}: ${factGate.reason.slice(0, 280)}`, meta: { contentId: content.id, title: content.title } });
+      await reportProgress(content.id, 8, `❌ Doğruluğu ispatlanamadı, video oluşturulamıyor. ${gateReason}`, "waiting");
+      await logEvent({ level: "error", source: "produce/gate", message: `Video kapıda durdu (otomatik akışın blok kararı) #${content.id}: ${gateReason.slice(0, 280)}`, meta: { contentId: content.id, title: content.title, gateMode } });
       return NextResponse.json({
         ok: true, produced: false, blocked: true, contentId: content.id,
         error: "❌ Doğruluğu ispatlanamadı, video oluşturulamıyor.",
-        reason: factGate.reason, sourceUrls: factGate.sourceUrls,
+        reason: gateReason, sourceUrls: gateSources, gateMode,
       }, { status: 200 });
     }
-    if (!factGate.ok && gateEffective) {
-      await reportProgress(content.id, 8, `⚠️ Kaynak kontrolü tam doğrulanamadı (${gateMode}); üretim kullanıcı onayıyla sürüyor…`, "running");
-      await logEvent({ level: "warn", source: "produce/gate", message: `Kapı uyardı ama engellemedi #${content.id} — ${gateMode}: ${factGate.reason.slice(0, 220)}`, meta: { contentId: content.id, gateMode } });
+    if (gateMode !== "işçi: doğrulandı") {
+      await reportProgress(content.id, 8, `⚠️ Kaynak kontrolü sınırlı (${gateMode}); üretim kullanıcı onayıyla sürüyor…`, "running");
+      await logEvent({ level: "warn", source: "produce/gate", message: `Kapı uyardı ama engellemedi #${content.id} — ${gateMode}: ${gateReason.slice(0, 220)}`, meta: { contentId: content.id, gateMode } });
     } else {
       await logEvent({ level: "info", source: "produce/gate", message: `Kaynak kontrolü doğrulandı, üretime geçiliyor #${content.id}`, meta: { contentId: content.id } });
     }
-    stages.factCheck = { ok: gateEffective, rawWorkerOk: factGate.ok, gateMode, sourceUrls: factGate.sourceUrls, reason: factGate.reason };
+    stages.factCheck = { ok: gateEffective, gateMode, sourceUrls: gateSources, reason: gateReason };
+
     stages.script = { narrationChars: rawNarration.length, narrationWords: narrationCap.words, wasCapped: narrationCap.wasCapped, sectionKeys: Object.keys(sections) };
 
     // Anlatı çok kısaysa (<32 kelime ≈ <15sn) üretim anında bir kez uzat:
