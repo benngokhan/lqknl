@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { contentAssets, contentItems, operations, tasks } from "@/db/schema";
 import { like } from "drizzle-orm";
