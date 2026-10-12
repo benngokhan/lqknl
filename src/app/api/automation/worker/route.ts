@@ -534,13 +534,34 @@ export async function POST(req: Request) {
           });
           autopilot.approveHttp = review.status;
           if (review.ok) {
-            // Üretim uzun sürer; yanıtı beklemeden arka planda tetikle.
-            fetch(`${origin}/api/automation/produce`, {
+            // Üretim uzun sürer ama kör fire-and-forget BIRAKMA: bekle, hata kodunu görünür kıl.
+            // Red/502/timeout gibi hallerde produce zaten Telegram atar; burada asıl amaç
+            // "hiçbir şey olmadı" (sessiz ağ/early-401/kelime host) vakasını kayıt altına almak.
+            autopilot.produceTriggered = updated.id;
+            const produceRes = await fetch(`${origin}/api/automation/produce`, {
               method: "POST",
               headers: { "content-type": "application/json", "x-mira-key": secret },
               body: JSON.stringify({ contentId: updated.id }),
-            }).catch((e) => console.error("[Worker] Otopilot üretim tetiklemesi başarısız:", e));
-            autopilot.produceTriggered = updated.id;
+              signal: AbortSignal.timeout(480_000),
+            }).catch((err) => ({ error: err instanceof Error ? err.message.slice(0, 140) : String(err) } as const));
+            if ("error" in produceRes) {
+              autopilot.produceHttp = -1;
+              console.error("[Worker] Otopilot üretim çağrısı yerine ulaşamadı:", produceRes.error);
+              await sendTelegramMessage(
+                `<b>⚠️ MİRA | Otopilot Üretim Çalıştırılamadı</b>\n\n🆔 <b>İçerik:</b> #${updated.id}\n🔗 <b>Sorun:</b> ${tgEsc(produceRes.error)}\n\nÜretim isteği sunucuya varmadan patladı; paneldeki "Onayla ve video üret" tuşuyla tekrar dene.`,
+                { parseMode: "HTML" }
+              ).catch(() => {});
+            } else {
+              autopilot.produceHttp = produceRes.status;
+              if (!produceRes.ok) {
+                const bodyText = (await produceRes.text().catch(() => "")).slice(0, 180);
+                console.error(`[Worker] Otopilot produce HTTP ${produceRes.status}:`, bodyText);
+                await sendTelegramMessage(
+                  `<b>⚠️ MİRA | Otopilot Üretim Reddedildi</b>\n\n🆔 <b>İçerik:</b> #${updated.id}\n🔗 <b>HTTP:</b> ${produceRes.status}\n📝 ${tgEsc(bodyText || "yanıt yok")}\n\nAyrıntılar paneldeki üretim durumunda görülebilir.`,
+                  { parseMode: "HTML" }
+                ).catch(() => {});
+              }
+            }
           }
         } catch (error) {
           autopilot.error = error instanceof Error ? error.message.slice(0, 120) : String(error);
