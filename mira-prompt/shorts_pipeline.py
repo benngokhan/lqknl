@@ -21,7 +21,13 @@ if os.path.isfile(FF_PATH_FILE):
     with open(FF_PATH_FILE, encoding="utf-8") as _ff_file:
         FF = _ff_file.read().strip() or (shutil.which("ffmpeg") or "ffmpeg")
 else:
-    FF = shutil.which("ffmpeg") or "ffmpeg"
+    FF = shutil.which("ffmpeg")
+    if not FF:
+        try:
+            import imageio_ffmpeg
+            FF = imageio_ffmpeg.get_ffmpeg_exe()
+        except ImportError:
+            FF = "ffmpeg"
 
 FDIR = os.path.join(HERE, "font", "raw")
 CONFIG_PATH = os.path.join(HERE, "shorts_config.json")
