@@ -13,7 +13,7 @@ export type NarrationResult = {
   durationSeconds: number | null;
 };
 
-const EDGE_TTS_VOICE = process.env.EDGE_TTS_VOICE || "tr-TR-EmelNeural";
+const EDGE_TTS_VOICE = process.env.EDGE_TTS_VOICE || "tr-TR-AhmetNeural";
 const EDGE_TTS_RATE = process.env.EDGE_TTS_RATE || "+5%";
 const MAX_GROUPS = 24;
 const MAX_GROUP_CHARS = 44;

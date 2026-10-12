@@ -150,3 +150,9 @@ Kökteki test scriptleri (bu oturumda kullanıldı):
 - **Produce entegrasyonu**: MIRA_USE_PY_MOTOR!=="0" varsayılan açık; motor hatası → `stages.render.motorError` + TS/ffmpeg merdiveni otomatik yedek (engine: "ts-ladder" ile işaretli). Anlatıya sabit CTA ("Daha fazla bilgi dozu için takip etmeyi unutma!") TTS öncesi eklenir; eski CTA'sız ses checkpoint'leri `ctaVersion` sayacıyla bayat sayılıp tazelenir. Worker promptuna TASARIM JSON bölümü eklendi (kelime tabanı <38 uzatma zinciri korunuyor).
 - **Railway tedarik**: `postinstall` scripts/motor-postinstall.mjs → pip install pillow/numpy/imageio-ffmpeg; **asla build kırmaz**, python yoksa TS merdiveni zarifce devralır.
 - Yerel kapsam dışı (Railway'de ilk üretimde doğrulanacak): postinstall pip davranışı, gerçek Edge TTS sesiyle QC (LRA>2 beklenir; sentetik test sesinde LRA düşük çıktı — bu yüzden QC burada TS merdivenine düşüren beklenen davranıştı), TASARIM bloğunu ilk üreten worker (LLM uyumu), RenderImages sıralamasının bg1/bg2 etkisi.
+
+## 18. Ses tercihi: varsayılan Edge sesi Emel → Ahmet (11:26)
+
+- Kullanıcı: "cihazın Türkçe konuşma sesi kullanılamıyor". Spec de (MIRA_STYLE_SPEC.json) "otoriter erkek TR" isterken varsayılan EmelNeural (kadın) kalmıştı.
+- Değişiklik: `EDGE_TTS_VOICE` varsayılanı `tr-TR-AhmetNeural` (oerder); Railway env üzerinden (EDGE_TTS_VOICE) yine değiştirilebilir. ElevenLabs anahtarı varsa zincir yine önce ona gider (ELEVENLABS_API_KEY+VOICE_ID) — orası kullanıcı tercihine açık, kod değişmeden hazır.
+- Test dürüstlüğü: bugün sandbox'ın IP'si Edge TTS'den 403 alıyor (sabah ~01:00'da, Emel sesiyle çalışıyordu; kadın sesli videolar kanıt) — AHMET sesi yerelde ÜRETİLEMEDİ, doğrulama ilk Railway üretiminde (ses dinlenerek + tts.provider='edge-tts' log'uyla). 403 kalıcılaşırsa akla: ElevenLabs anahtarı, ya da son çare narration.ts'e 3. fallback düşer (şimdilik yok — edge sert hata, sessiz video çıkmaz; stages/telegramda görünür).
