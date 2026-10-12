@@ -204,6 +204,11 @@ def main():
     ap.add_argument("--key", required=True, help="YouTube Data API v3 anahtarı")
     ap.add_argument("--top", type=int, default=20, help="analiz edilecek son video sayısı")
     ap.add_argument("--config", default="shorts_config.json")
+    ap.add_argument(
+        "--push-url",
+        default=os.environ.get("MIRA_SIGNAL_PUSH_URL"),
+        help="Opsiyonel Mira temel URL'si; verilirse direktif /api/automation/signal adresine gönderilir",
+    )
     args = ap.parse_args()
 
     cid = resolve_channel(args.handle or args.channel, args.key)
@@ -230,8 +235,35 @@ def main():
     open("content_directive.md", "w", encoding="utf-8").write(directive)
     print(directive)
     print("\n📝 pulse_report.json + content_directive.md yazıldı.")
-    print("   content_directive.md içindeki JSON bloğunu Mira'nın sistem "
-          "promptuna 'SİNYAL' bölümü olarak ekle.")
+
+    if args.push_url:
+        push_key = os.environ.get("MIRA_AUTOMATION_SECRET") or os.environ.get("MIRA_N8N_SECRET")
+        if not push_key:
+            sys.exit("Direktif dosyaları yazıldı, ancak MIRA_AUTOMATION_SECRET/MIRA_N8N_SECRET tanımlı olmadığı için Mira'ya gönderilmedi.")
+        match = re.search(r"```json\s*(\{.*?\})\s*```", directive, re.DOTALL)
+        if not match:
+            sys.exit("Direktif dosyaları yazıldı, ancak JSON direktif bloğu ayrıştırılamadı.")
+        payload = json.dumps({
+            "directive": json.loads(match.group(1)),
+            "source": "channel_pulse.py",
+        }, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            args.push_url.rstrip("/") + "/api/automation/signal",
+            data=payload,
+            headers={"Content-Type": "application/json", "x-mira-key": push_key},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=25) as response:
+                result = json.load(response)
+            if not result.get("ok"):
+                sys.exit("Mira API direktifi kabul etmedi: " + str(result)[:500])
+            print(f"✅ Mira'ya sinyal direktifi gönderildi. Kayıt: {result.get('operationId')}")
+        except Exception as exc:
+            sys.exit("Direktif dosyaları üretildi ama Mira API'ye gönderilemedi: " + str(exc)[:500])
+    else:
+        print("ℹ️ Otomatik aktarım ayarlı değil; direktif yalnızca dosyaya yazıldı. "
+              "MIRA_SIGNAL_PUSH_URL ve MIRA_AUTOMATION_SECRET tanımlandığında Mira'ya gönderilebilir.")
 
 
 if __name__ == "__main__":
