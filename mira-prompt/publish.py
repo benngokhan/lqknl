@@ -116,8 +116,11 @@ def build_hashtags(video_id, raw_title):
 def probe_duration(path):
     try:
         r = subprocess.run([FF, "-hide_banner", "-i", path], capture_output=True, text=True)
-        m = re.search(r"Duration:\s*\d+:\d+:([0-9.]+)", r.stderr)
-        return float(m.group(1)) if m else None
+        m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", r.stderr)
+        if not m:
+            return None
+        hours, minutes, seconds = int(m.group(1)), int(m.group(2)), float(m.group(3))
+        return hours * 3600 + minutes * 60 + seconds
     except Exception:
         return None
 
@@ -236,7 +239,8 @@ def main(argv=None):
         print("🟡 SİMÜLASYON: yükleme yapılmadı. Payload:")
         print(json.dumps(body, indent=1, ensure_ascii=False))
         return 0
-    if problems and not os.path.exists(meta["video_file"]):
+    if problems:
+        print("⛔ GÜVENLİK: Video doğrulama uyarıları bulunduğu için gerçek yükleme engellendi.")
         return 1
     upload(meta["video_file"], body)
     return 0
