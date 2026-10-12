@@ -41,9 +41,9 @@ function isTrustedSourceUrl(raw: string): boolean {
   try {
     const url = new URL(raw);
     if (url.protocol !== "https:") return false;
-    const host = url.hostname.toLowerCase().replace(/^www\\./, "");
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
     return TRUSTED_SOURCE_DOMAINS.some((domain) => host === domain || host.endsWith("." + domain)) ||
-      /\\.edu(?:\\.tr)?$/.test(host) || /\\.ac\\.uk$/.test(host) || /\\.gov(?:\\.tr)?$/.test(host);
+      /\.edu(?:\.tr)?$/.test(host) || /\.ac\.uk$/.test(host) || /\.gov(?:\.tr)?$/.test(host);
   } catch {
     return false;
   }
@@ -53,10 +53,10 @@ async function loadArchiveContext(topic: string): Promise<string> {
   const archive = await readFile(path.join(process.cwd(), "konu_arsivi.md"), "utf8").catch(() => "");
   if (!archive) return "";
   const normalize = (value: string) => value.toLocaleLowerCase("tr-TR")
-    .normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
-  const tokens = [...new Set(normalize(topic).split(/\\s+/).filter((token) => token.length >= 4))];
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+  const tokens = [...new Set(normalize(topic).split(/\s+/).filter((token) => token.length >= 4))];
   if (!tokens.length) return "";
-  const blocks = archive.split(/(?=^## KONU\\s+\\d+)/m);
+  const blocks = archive.split(/(?=^## KONU\s+\d+)/m);
   let best = "";
   let bestScore = 0;
   for (const block of blocks) {
