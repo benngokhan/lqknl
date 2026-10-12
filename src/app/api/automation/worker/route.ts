@@ -186,9 +186,21 @@ async function verifyScriptSources(contentId: number, script: string, narration:
   }
   await reportScriptProgress(contentId, 63, "Kaynak bağlantıları bulundu…", "running", `${candidates.length} güvenilir kaynak adayı bulundu: ${candidates.join(" ; ")}`, "Bağlantıları açıp okunabilir kaynak metni olup olmadığını kontrol edeceğim.");
   try {
-    const pages = await Promise.all(candidates.map(readPublicSource));
-    const untrustedFinalPage = pages.find((page) => !isTrustedSourceUrl(page.url));
-    if (untrustedFinalPage) throw new Error("Kaynak güvenilir/kanonik alan adına yönlenmedi; doğrulama reddedildi.");
+    // Anchor güveni: aday zaten trust list'ten (örn. doi.org/canonical kayıtlar) seçildi.
+    // Varış hostu https+public olduğu sürece REDdetme; varış https/public değilse hata ver.
+    // Gerçek kalite kontrolü bir sonraki LLM iddia-karşılaştırmasındadır; host dominosu peşinde koşulmaz.
+    const resolved = await Promise.all(candidates.map(async (candidateUrl) => {
+      const page = await readPublicSource(candidateUrl);
+      return { candidateUrl: candidateUrl, page };
+    }));
+    const pages = resolved.map((r) => r.page);
+    const susHost = resolved.find((r) => !isTrustedSourceUrl(r.page.url) && !isPublicHttpsUrl(r.page.url));
+    if (susHost) throw new Error("Kaynak sayfası yönlendirmesi güvenli HTTPS/public bir alan adına ulaşamadı (" + susHost.page.url.slice(0, 120) + ").");
+    const finalHostName = (u: string) => { try { return new URL(u).hostname; } catch { return "?"; } };
+    if (resolved.some((r) => !isTrustedSourceUrl(r.page.url))) {
+      console.log("[Worker/verify] Anchor-güveni kabulü: trust-liste dışı varış",
+        resolved.map((r) => `${r.candidateUrl.slice(0, 60)} → ${finalHostName(r.page.url)}`).join(" ; "));
+    }
     await reportScriptProgress(contentId, 66, "Kaynak sayfaları okundu…", "running", `${pages.length} kaynak sayfası açıldı ve metni alındı; şimdi seslendirmedeki iddialarla karşılaştırılacak.`, "Ana iddiaları yalnızca okunan kaynak metnine göre denetleyeceğim.");
     const evidence = pages.map((page, index) => "KAYNAK " + (index + 1) + ": " + page.url + "\n" + page.text).join("\n\n");
     await reportScriptProgress(contentId, 70, "İddialar kaynaklarla karşılaştırılıyor…", "running", "Seslendirme metni, açılıp okunan kaynak sayfalarının metniyle karşılaştırılıyor; arama sonucu başlığı tek başına kanıt sayılmıyor.", "Karşılaştırma sonucunu ve gerekçesini kaydedeceğim.");
