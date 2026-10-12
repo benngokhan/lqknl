@@ -149,7 +149,7 @@ export default function Home() {
   const [analysisError, setAnalysisError] = useState('');
   const [analysisRunLoading, setAnalysisRunLoading] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(true);
-  const [manualTopic, setManualTopic] = useState('');
+  const [manualTopic, setManualTopic] = useState('Konu 1 — TMSF v2: Banka batarsa mevduat güvencesi ve 2026 TMSF limiti. Önce resmi TMSF kaynağını doğrula; kaynak doğrulanmadan sayı/iddia kullanma. Referans: s11_tmsf.');
   const [manualTopicLoading, setManualTopicLoading] = useState(false);
   const [manualTopicResult, setManualTopicResult] = useState('');
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
@@ -209,18 +209,18 @@ export default function Home() {
 
   async function startManualVideo(item: QueueItem) {
     if (queueBusyId !== null) return;
-    if (!window.confirm(`“${item.title}” konusu için Mira şimdi senaryo ve video üretimine başlasın mı?`)) return;
+    if (!window.confirm(`“${item.title}” konusu için Mira şimdi yalnızca araştırma ve senaryo taslağı hazırlasın mı? Video üretimi, senaryoyu kontrol edip ayrıca onayladıktan sonra başlar.`)) return;
     setQueueBusyId(item.id);
-    setManualTopicResult(`#${item.id} için üretim başlatıldı. Mira senaryo ve videoyu hazırlıyor; YouTube'a otomatik yükleme yapılmayacak.`);
+    setManualTopicResult(`#${item.id} için araştırma ve senaryo hazırlığı başlatıldı. Video üretimi ve YouTube yüklemesi bu adımda yapılmayacak.`);
     try {
       const res = await fetch(`/api/automation/worker?contentId=${item.id}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ manualProduce: true }),
+        body: JSON.stringify({ manualProduce: false }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || `Üretim başlatılamadı (HTTP ${res.status}).`);
       setQueueItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'processing' } : entry));
-      setManualTopicResult(`#${item.id} üretim kuyruğuna alındı. Mira senaryoyu hazırladıktan sonra videoyu üretecek. YouTube'a yükleme yapılmayacak.`);
+      setManualTopicResult(`#${item.id} senaryo hazırlığına alındı. Taslağı kontrol edip ayrıca “Onayla ve video üret” demeden video üretimi başlamaz.`);
     } catch (error) {
       setManualTopicResult(error instanceof Error ? error.message : 'Üretim başlatılamadı.');
     } finally {
@@ -748,8 +748,8 @@ export default function Home() {
           {manualTopicResult && <p className="mt-1 text-xs text-sky-300">{manualTopicResult}</p>}
           <div className="mt-3 rounded-lg border border-sky-500/20 bg-slate-900/70 p-3">
             <div className="mb-2 flex items-center justify-between gap-2"><p className="text-sm font-semibold text-white">Manuel konu kuyruğu</p><button type="button" onClick={() => void loadManualQueue()} disabled={queueLoading} className="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-700 disabled:opacity-50">{queueLoading ? 'Yükleniyor…' : 'Kuyruğu yenile'}</button></div>
-            <p className="mb-3 text-xs text-slate-400">Buraya eklenen konular kendi kendine başlamaz. Planlı saatlerde birer birer işlenir; istersen hemen başlatabilirsin.</p>
-            {queueItems.length === 0 ? <p className="text-xs text-slate-500">Bekleyen manuel konu yok.</p> : <div className="space-y-2">{queueItems.map((item) => <div key={item.id} className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-950/70 p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="break-words text-sm font-medium text-white">{item.title}</p><p className="mt-1 text-xs text-slate-400">#{item.id} · {item.status === 'queued' ? 'Sırada' : item.status === 'processing' ? 'İşleniyor' : 'Hata / yeniden denenebilir'}</p></div><button type="button" onClick={() => void startManualVideo(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="shrink-0 rounded-lg border border-emerald-400/50 bg-emerald-600/20 px-3 py-2 text-xs font-medium hover:bg-emerald-600/40 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '▶ Bu videoyu şimdi oluştur'}</button></div>)}</div>}
+            <p className="mb-3 text-xs text-slate-400">Sıfır cron: konular otomatik başlamaz. Önce “Senaryo hazırla” ile araştırma ve taslak oluşturulur; taslağı kontrol edip ayrıca onaylayınca video üretimi başlar. Kaynaklar doğrulanmadan kesin bilgi kullanılmaz.</p>
+            {queueItems.length === 0 ? <p className="text-xs text-slate-500">Bekleyen manuel konu yok.</p> : <div className="space-y-2">{queueItems.map((item) => <div key={item.id} className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-950/70 p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="break-words text-sm font-medium text-white">{item.title}</p><p className="mt-1 text-xs text-slate-400">#{item.id} · {item.status === 'queued' ? 'Sırada' : item.status === 'processing' ? 'İşleniyor' : 'Hata / yeniden denenebilir'}</p></div><button type="button" onClick={() => void startManualVideo(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="shrink-0 rounded-lg border border-emerald-400/50 bg-emerald-600/20 px-3 py-2 text-xs font-medium hover:bg-emerald-600/40 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '✍ Senaryo hazırla'}</button></div>)}</div>}
           </div>
           {analysisOpen && (
             <div className="mt-3 space-y-2">
