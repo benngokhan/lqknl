@@ -8,15 +8,24 @@ Stages:
   render  - full 1080x1920x30fps MP4
   all     - plates+timing+music
 """
-import contextlib, json, os, re, subprocess, sys, unicodedata, wave
+import contextlib, json, os, re, shutil, subprocess, sys, unicodedata, wave
 import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-FF = open(os.path.join(ROOT, "ffmpeg_path.txt")).read().strip()
-FDIR = os.path.join(ROOT, "fonts", "raw")
-CONF = json.load(open(os.path.join(HERE, "shorts_config.json")))
+
+# The assets live in mira-prompt/font/raw; do not assume a root-level fonts folder.
+FF_PATH_FILE = os.path.join(ROOT, "ffmpeg_path.txt")
+if os.path.isfile(FF_PATH_FILE):
+    with open(FF_PATH_FILE, encoding="utf-8") as _ff_file:
+        FF = _ff_file.read().strip() or (shutil.which("ffmpeg") or "ffmpeg")
+else:
+    FF = shutil.which("ffmpeg") or "ffmpeg"
+
+FDIR = os.path.join(HERE, "font", "raw")
+CONFIG_PATH = os.path.join(HERE, "shorts_config.json")
+CONF = json.load(open(CONFIG_PATH, encoding="utf-8")) if os.path.isfile(CONFIG_PATH) else {}
 W, H, FPS = 1080, 1920, 30
 MX = 72
 CW = W - 2 * MX
@@ -569,7 +578,15 @@ def build_mix(vdir, total):
 
 
 def main():
+    if len(sys.argv) < 3:
+        raise SystemExit("Kullanım: python3 shorts_pipeline.py <plates|timing|music|render|publish|all> <video_id>")
     stage, vdir = sys.argv[1], sys.argv[2]
+    if vdir not in CONF:
+        raise SystemExit(
+            f"Konfigürasyon bulunamadı: {CONFIG_PATH}. "
+            "Önce shorts_config.example.json dosyasını shorts_config.json olarak kopyala "
+            "ve video_id ayarını ekle."
+        )
     if stage == "plates":
         stage_plates(vdir)
     elif stage == "timing":
