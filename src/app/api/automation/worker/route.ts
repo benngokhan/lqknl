@@ -228,9 +228,9 @@ export async function POST(req: Request) {
             "EKRAN METNİ bölümünde ekranda gösterilecek kısa Türkçe metinleri, GÖRSEL TASARIMI bölümünde tam 3 ayrı görsel için zaman kodu ve promptları yaz.",
             "Kaynak güvenilir biçimde bilinmiyorsa KAYNAK bölümüne yalnızca DOĞRULAMA GEREKLİ yaz; URL veya kaynak adı uydurma.",
             "Yalnızca düzeltilmiş tam taslağı döndür; açıklama, özür veya eksik başlık listesi yazma.",
-          ].join("\\n"),
+          ].join("\n"),
           history: [],
-          message: `Konu: ${topic}\\nEksik zorunlu başlıklar: ${missingHeadings.join(", ")}\\n\\nDüzeltilmesi gereken taslak:\\n${generated}`,
+          message: `Konu: ${topic}\nEksik zorunlu başlıklar: ${missingHeadings.join(", ")}\n\nDüzeltilmesi gereken taslak:\n${generated}`,
         });
         const repairedText = repaired.content.trim();
         const repairedMissing = findMissingHeadings(repairedText);
