@@ -1,0 +1,14 @@
+{
+  "s00_ornek": {
+    "seo_title": "Bu örnek başlığı gerçek konuya göre değiştir!",
+    "title": [
+      [["BİR", "w"], ["BİLİMSEL", "w"]],
+      [["GERÇEK", "w"]],
+      [["ŞAŞIRTIR", "g"]]
+    ],
+    "note1": "ÖRNEK BİLGİ — GERÇEK İÇERİKLE DEĞİŞTİR",
+    "note2": "KAYNAK ADI • DERGİ (YIL)",
+    "accents": ["bilimsel", "gerçek", "şaşırtır"],
+    "scenes": ["bg1.png", "bg2.png"]
+  }
+}
