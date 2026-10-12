@@ -185,8 +185,8 @@ export async function renderWithMotor(input: MotorRenderInput): Promise<MotorRen
       throw new Error(`motor render başarısız (kod ${render.code}): ${(render.stderr || render.stdout).slice(-300)}`);
     }
 
-    const lo = Number(process.env.MIRA_MOTOR_QC_LO) > 0 ? Number(process.env.MIRA_MOTOR_QC_LO) : 12;
-    const hi = Number(process.env.MIRA_MOTOR_QC_HI) > 0 ? Number(process.env.MIRA_MOTOR_QC_HI) : 31.5;
+    const lo = Number(process.env.MIRA_MOTOR_QC_LO) > 0 ? Number(process.env.MIRA_MOTOR_QC_LO) : 30;
+    const hi = Number(process.env.MIRA_MOTOR_QC_HI) > 0 ? Number(process.env.MIRA_MOTOR_QC_HI) : 40;
     const qc = await run(py, [QC, videoPath, String(lo), String(hi)], { env, timeoutMs: 60_000 });
     const qcText = (qc.stdout + qc.stderr).slice(-500);
     if (qc.code !== 0) throw new MotorQCFailError(`QC kapısı geçilemedi: ${qcText.slice(-250)}`, qcText);
