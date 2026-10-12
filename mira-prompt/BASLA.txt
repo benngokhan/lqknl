@@ -1,0 +1,10 @@
+BİLGİ DOZU — BAŞLANGIÇ
+
+1) shorts_config.example.json dosyasını shorts_config.json olarak kopyala ve örnek video kimliğini değiştir.
+2) Video kimliğiyle aynı adlı klasöre script.txt, bg1.png, bg2.png ve vo_raw.wav koy.
+3) Python bağımlılıklarını kur: pip install -r requirements.txt
+4) Render: python3 shorts_pipeline.py all <video_id>
+5) QC: python3 qc_check.py <video_id>/video.mp4 30 60
+6) Yayın kiti simülasyonu: python3 publish.py <video_id> --simulate
+
+Not: Bu klasör şu an ayrı bir üretim paketidir. Mira'nın mevcut Railway üretim API'sine bağlandığı henüz doğrulanmış değildir.
