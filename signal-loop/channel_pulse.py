@@ -211,7 +211,8 @@ def main():
     )
     args = ap.parse_args()
 
-    cid = resolve_channel(args.handle or args.channel, args.key)
+    target = args.handle or args.channel or "@bilgidozuofficial"
+    cid = resolve_channel(target, args.key)
     rows = fetch_shorts(cid, args.key, args.top)
     if not rows:
         sys.exit("Shorts bulunamadı")
