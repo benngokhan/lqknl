@@ -1,9 +1,6 @@
 name: Mira Continuous Content Intake Worker
 
 on:
-  schedule:
-    # Her saat çalışır; mevcut video üretim akışından ayrı tutulur.
-    - cron: "23 * * * *"
   workflow_dispatch:
 
 permissions:
