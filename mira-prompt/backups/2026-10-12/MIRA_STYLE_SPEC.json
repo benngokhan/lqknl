@@ -1,0 +1,37 @@
+{
+  "marka": "BILGI DOZU",
+  "format": {"cozunurluk": "1080x1920", "fps": 30, "sure_hedef": "30-40 sn"},
+  "motorda_sabit": "Bu degerler shorts_pipeline.py ICINE GOMULU; Mira bunlari degistiremez.",
+  "renkler": {
+    "neon_yesil": "#D4FF3F",
+    "altyazi_aktif_sari": "#FFE14A",
+    "beyaz": "#FFFFFF",
+    "etiket_metni": "#0B0F14",
+    "not_gri": "#F0F4F0",
+    "kaynak_gri": "#A0AAA8"
+  },
+  "fontlar": {
+    "baslik_altyazi_etiket_imza": "Archivo Black (fonts/raw/archivo.ttf)",
+    "not_kaynak": "Inter (fonts/raw/inter.ttf) 28px",
+    "KRITIK": "layout_engine=ImageFont.Layout.BASIC ZORUNLU (raqm Türkçe glifleri bozuyor)",
+    "baslik_otofit": "92px'ten başlar, taşma varsa 4'er düşer, min 56px"
+  },
+  "yerlesim_px": {
+    "ilerleme_cubugu": {"y": 58, "h": 6, "margin": 72, "arka": "rgba(255,255,255,52)", "aktif": "yesil+glow"},
+    "etiket": {"metin": "BİLGİ DOZU", "x": 72, "y": 94, "font": 30, "kutu": "yesil rounded r14"},
+    "baslik": {"x": 72, "taban_y": 300, "satir_araligi": 126, "renk_vurgusu": "son satırda yeşil segment", "animasyon": "satır satır yukarı + fade, yeşil alt çizgi tick"},
+    "altyazi": {"orta_ekran_taban": 1160, "font": 50, "satir": 60, "max_genislik": 1040,
+                "stil": "kelime kelime; aktif=SARI, vurgu=kalicı SARI, geçmiş=beyaz, gelecek=%55 beyaz"},
+    "not_kaynak": {"y1": 1738, "y2": 1782, "align": "orta"},
+    "imza": {"y": 1868, "font": 44, "bicim": "BİLGİ(beyaz) DOZU(yeşil)"}
+  },
+  "plato": {"boyut": "1620x2880", " grading": "sat 0.82 / kontrast 1.10 / parlaklık 0.93",
+            "gradients": {"ust": "%34 alan, 0.80 alfa", "alt": "%46 alan, 0.86 alfa"},
+            "vignette_grain": true},
+  "ken_burns": {"zoom": "1.03 → 1.075", "sahne_gecisi": "VO süresinin %46'sında 0.6sn blend"},
+  "ses": {"tts": "voice-00 (veya en yakın otoriter erkek TR)",
+          "muzik": "84 BPM minimal gerilim: 55Hz drone + pulse + son 4.6sn riser + A-minor pluck",
+          "ducking": "VO konuşurken müzik sidechain kısilir (thr 0.035 ratio 5)",
+          "master": "-14 LUFS / TP -1.5", "VO_gecikme": "0.40 sn lead"},
+  "qc_esigi": {"sure": [30, 60], "LUFS_min": -25, "LRA_min": 2, "stream": ["video", "audio"], "yonelim": "dikey"}
+}
