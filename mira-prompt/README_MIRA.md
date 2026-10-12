@@ -11,7 +11,7 @@ qc_check.py               → otomatik kalite kapısı (PASS/FAIL + exit code)
 MIRA_SYSTEM_PROMPT.txt    → Mira'nın LLM'ine sistem promptu (içerik sözleşmesi)
 mira_content_schema.json  → LLM çıktı şeması + dolu örnek
 MIRA_STYLE_SPEC.json      → tasarım sabitleri (referans doküman)
-fonts/raw/                → Archivo Black + Inter + Anton (test edilmiş)
+font/raw/                → Archivo Black + Inter + Anton (test edilmiş)
 ```
 
 ## MİRA İÇİNDE AKIŞ (taslak ONAYLANDIKTAN sonra)
