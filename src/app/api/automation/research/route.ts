@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { desc, eq, gte, and } from "drizzle-orm";
 import { db } from "@/db";
 import { contentItems, operations, tasks, trends } from "@/db/schema";
@@ -115,12 +117,28 @@ export async function POST(req: Request) {
       signalError instanceof Error ? signalError.message : String(signalError));
   }
 
+  // Marka koruması: MIRA_SYSTEM_PROMPT.txt'nin konu kurallarını (tek doğrulanabilir gerçek +
+  // kaynak zorunluluğu + kullanılmış-konu yasak listesi) intake prompt'una aynen enjekte et.
+  let topicRules = "";
+  try {
+    topicRules = (await fs.readFile(path.join(process.cwd(), "mira-prompt", "MIRA_SYSTEM_PROMPT.txt"), "utf8")).trim();
+  } catch (rulesError) {
+    console.error("[Research] MIRA_SYSTEM_PROMPT.txt okunamadı; kural enjeksiyonu olmadan devam:",
+      rulesError instanceof Error ? rulesError.message : String(rulesError));
+  }
+
   const selected = await generateWithFallback({
     system: [
-      "Sen Türkçe YouTube Shorts için konu araştırmacısısın.",
+      "Sen Mira'nın Bilgi Dozu kanalı için Türkçe YouTube Shorts konu araştırmacısısın — konu araştırmacısı, haberci DEĞİL.",
       "Yalnızca verilen güncel Google Trends listesini kaynak olarak kullan.",
-      "İzlenme potansiyeli, görsel anlatılabilirlik, geniş kitle ve 30-60 saniyede anlatılabilirlik açısından en iyi fikirleri seç.",
-      "Birbirine benzeyen konuları seçme; yalnızca listeden ilham alan ama trendmiş gibi sunulmayan, açıkça Shorts fikri olan başlıklar üret.",
+      ...(topicRules ? [
+        "BİLGİ DOZU KONU KURALLARI (mira-prompt/MIRA_SYSTEM_PROMPT.txt'in bütünü, aynen geçerli — drift engeli):",
+        topicRules
+      ] : []),
+      "MARKA KAPSAMI DIŞI (listedeki trend bunlara girse bile ASLA SEÇME): gezi/mekan önerileri (şehir, tatil yeri, plaj...), ürün/marka/şirket tanıtımları, magazin-ünlü dedikodusu, siyaset-parti-hükümet haberciliği, spor transfer skoru vb. genel haberler, algoritma şaşırtmacası bileşimi olmayan düz gündem. Bunlar Bilgi Dozu kümeleri değildir; onlar 'genel trend çöpü'.",
+      "Uygun Bilgi Dozu kümeleri: vücut bilimi/nöroloji paradoksları, günlük hayatın bilimsel açıklamaları, hayvanlar aleminin doğrulanabilir gerçekleri, coğrafya/fizik/ölçek rekorları, uzay ve astronominin ölçek gerçekleri, tarihte zaman uyuşmazlıkları, teknolojinin doğrulanabilir ilkleri, psikolojinin ölçülmüş gerçekleri. Sinyal direktifi ağırlık_artır kümelerini ÇİFT ÖNCELİKLENDİR; azalt_durdur kümelerinden YENİ KONU ÜRETME.",
+      "İzlenme potansiyeli ve görsel anlatılabilirlik ikincil filtre; birinci filtre her zaman: Bilgi Dozu kümesi + doğrulanabilir kalıcı bilgi + güçlü 2 saniyelik kanca.",
+      "Birbirine benzeyen konuları seçme; listeden ilham alan ama trendmiş gibi sunulmayan, açıkça Shorts bilgi fikri olan başlıklar üret.",
       "Yalnızca geçerli JSON döndür: { \"items\": [{ \"topic\": \"kısa video fikri\", \"title\": \"kısa başlık\", \"sourceTrend\": \"listedeki tam trend\", \"score\": 1-100 }] }",
       `Tam olarak ${remaining} farklı öğe üret. Bir öğeyi güvenilir şekilde oluşturamıyorsan daha az öğe üret; aynı konuyu tekrarlama.`,
       ...(signalDirective ? [

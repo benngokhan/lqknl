@@ -32,6 +32,15 @@ export interface MotorRenderInput {
   design: MotorDesign;
 }
 
+export class MotorQCFailError extends Error {
+  qcOutput: string;
+  constructor(message: string, qcOutput: string) {
+    super(message);
+    this.name = "MotorQCFailError";
+    this.qcOutput = qcOutput;
+  }
+}
+
 export interface MotorRenderResult {
   video: Buffer;
   durationSeconds: number | null;
@@ -180,7 +189,7 @@ export async function renderWithMotor(input: MotorRenderInput): Promise<MotorRen
     const hi = Number(process.env.MIRA_MOTOR_QC_HI) > 0 ? Number(process.env.MIRA_MOTOR_QC_HI) : 31.5;
     const qc = await run(py, [QC, videoPath, String(lo), String(hi)], { env, timeoutMs: 60_000 });
     const qcText = (qc.stdout + qc.stderr).slice(-500);
-    if (qc.code !== 0) throw new Error(`QC kapısı geçilemedi: ${qcText.slice(-250)}`);
+    if (qc.code !== 0) throw new MotorQCFailError(`QC kapısı geçilemedi: ${qcText.slice(-250)}`, qcText);
     const video = await fs.readFile(videoPath);
     const m = /sure=([\d.]+)/.exec(qcText);
     return {

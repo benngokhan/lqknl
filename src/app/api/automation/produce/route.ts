@@ -7,7 +7,7 @@ import { generateWithFallback } from "@/lib/model-manager";
 import { generateNarration, type CaptionGroup } from "@/lib/narration";
 import { generateImage } from "@/lib/generate-image";
 import { renderShort, type RenderImage } from "@/lib/render-video";
-import { renderWithMotor, buildMotorDesign } from "@/lib/motor-render";
+import { renderWithMotor, buildMotorDesign, MotorQCFailError } from "@/lib/motor-render";
 import { extractNarration, parseDraftScript, capNarrationForDuration } from "@/lib/script-parse";
 import { sendTelegramMessage } from "@/lib/telegram";
 import { spawn } from "node:child_process";
@@ -489,6 +489,25 @@ export async function POST(req: Request) {
         stages.render = { engine: "python-motor", durationSeconds, bytes: video.length, renderMs: motor.renderMs, qc: motor.qcOutput.slice(-220), profile };
       } catch (motorError) {
         const msg = motorError instanceof Error ? motorError.message : String(motorError);
+        // QC FAIL = kalite kararı: yedeğe düşülmez, görev FAILED olur, publish asla başlamaz.
+        if (motorError instanceof MotorQCFailError) {
+          stages.render = { engine: "python-motor", qcFailed: true, qc: msg.slice(-220) };
+          await db.update(contentItems).set({ status: "failed", updatedAt: new Date() })
+            .where(eq(contentItems.id, content.id));
+          await db.update(tasks).set({ status: "failed", updatedAt: new Date() })
+            .where(like(tasks.notes, `%\"contentId\":${content.id}%`));
+          await db.insert(operations).values({
+            action: "content_produce",
+            summary: `Motor QC kapısından geçemedi; otomatik red — video artifaktı oluşmadan kapatıldı: ${content.title}`,
+            status: "failed",
+            platform: content.platform,
+            metadata: { contentId: content.id, qc: msg.slice(-700), stages, qcFailed: true, autoRejected: true },
+          }).catch(() => {});
+          await sendTelegramMessage(
+            `❌ Mira marka motoru QC kapısından geçemedi — video OTOMATİK RED\n\nBaşlık: ${content.title}\nİçerik ID: ${content.id}\nQC: ${msg.slice(-400)}\n\nKural gereği yedek/yansi render çalıştırılmadı; yayın adımı hiç başlamadı. İyileştirmeler genellikle: gerçek TTS sesiyle LRA bandı aşılır.`
+          ).catch(() => {});
+          return NextResponse.json({ ok: false, produced: false, qcFailed: true, error: msg.slice(0, 600), stages }, { status: 422 });
+        }
         console.error(`[Produce] Marka motoru geriledi (#${content.id}): ${msg.slice(0, 300)}`);
         await reportProgress(content.id, 86, `Marka motoru geriledi (${msg.slice(0, 80)}); yedek render`);
         const rs = await retryStage(content.id, "MP4 birleştirme", 86, () => renderShort({

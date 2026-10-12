@@ -14,3 +14,10 @@ tsconfig.tsbuildinfo
 motor/shorts/*/
 !motor/shorts/.gitkeep
 motor/__pycache__/
+
+# Repo-kök çöpleri: el bırakılan arşiv/yedek/transfer artıkları (asla track edilmez)
+Build
+next
+mira-phase4-complete.zip
+.backups/
+gg/
