@@ -936,9 +936,9 @@ export default function Home() {
                   <div className="space-y-3 rounded-lg border border-slate-700 bg-slate-900 p-3 text-sm leading-relaxed">{analysis ? renderAnalysisReport(analysis.report) : null}</div>
                   <div className="rounded-lg border border-emerald-500/20 bg-emerald-950/10 p-3 space-y-3">
                     <p className="text-xs text-emerald-200">Karar alanı: yalnızca bu raporda analiz edilmiş içerikler burada onaylanır veya reddedilir. Taslak deposundaki kayıtlar bu kararlardan etkilenmeden önce burada değerlendirilir. Kaynak doğrulaması ayrıca yapılmalıdır.</p>
-                    {analysis.titles.length === 0 ? (
+                    {(analysis?.titles ?? []).length === 0 ? (
                       <p className="text-sm text-slate-400">Bu rapor için karar verilebilir içerik listesi bulunamadı.</p>
-                    ) : analysis.titles.map((item) => (
+                    ) : (analysis?.titles ?? []).map((item) => (
                       <div key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 p-3">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-white">{item.title}</p>
