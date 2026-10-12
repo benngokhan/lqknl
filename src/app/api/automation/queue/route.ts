@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { selfOrigin } from "@/lib/self-url";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { contentItems, operations, tasks } from "@/db/schema";
@@ -116,7 +117,7 @@ export async function POST(req: Request) {
   // Araştırma hattı (mode=key) için pasif kalır: zincir token'lı tetik bekler.
   const manualKick = mode === "panel" && process.env.MIRA_MANUAL_KICK !== "0";
   if (manualKick) {
-    const origin = new URL(req.url).origin;
+    const origin = selfOrigin();
     const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
     fetch(`${origin}/api/automation/worker?contentId=${content.id}`, {
       method: "POST",

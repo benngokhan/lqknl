@@ -1,4 +1,6 @@
 import { think } from '../../../lib/brain';
+import { logEvent } from "@/lib/logger";
+import { selfOrigin } from "@/lib/self-url";
 import { db } from '@/db';
 import { contentItems, messages, memories, operations } from '@/db/schema';
 import { desc, eq, ilike, sql } from 'drizzle-orm';
@@ -305,7 +307,7 @@ export async function POST(req: Request) {
 
     if (command === '/n8n') {
       try {
-        const base = new URL(req.url).origin;
+        const base = selfOrigin();
         const status = await fetchWithTimeout(`${base}/api/automation/n8n-status`, { cache: 'no-store' });
         const data = await status.json().catch(() => ({}));
         return NextResponse.json({
@@ -327,7 +329,7 @@ export async function POST(req: Request) {
       // ID'yi yalnızca bağımsız sayı olarak al ("MP4" içindeki 4 sayılmaz)
       const idMatch = message.replace(/^\/video/i, '').match(/(?:^|[^\w])(\d+)(?=$|[^\w])/);
       const contentId = idMatch ? Number(idMatch[1]) : null;
-      const origin = new URL(req.url).origin;
+      const origin = selfOrigin();
       const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
       const steps: string[] = [];
       try {
@@ -367,7 +369,10 @@ export async function POST(req: Request) {
           }
         }
 
-        const res = await fetch(origin + '/api/automation/produce', {
+        // UZUN İŞ: üretimin bitmesini BEKLEME — ateşle ve hemen geri dön.
+        // Edge'in idle-kesmesi artık bu çağrıyı öldüremez; her aşama logEvent'e düşer.
+        const startedAt = Date.now();
+        void fetch(origin + '/api/automation/produce', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -375,35 +380,28 @@ export async function POST(req: Request) {
           },
           body: JSON.stringify(contentId ? { contentId } : {}),
           cache: 'no-store',
-        });
-        const data = await res.json().catch(() => null) as Record<string, unknown> | null;
-        if (!data) {
-          return NextResponse.json({ reply: `❌ Üretim motoru yanıt vermedi (HTTP ${res.status}).` });
-        }
-        if (!res.ok || data.ok !== true) {
-          const err = typeof data.error === 'string' ? data.error : JSON.stringify(data).slice(0, 300);
-          return NextResponse.json({
-            reply: `❌ Video üretimi başarısız oldu.\n\n**Hata:** ${err}\n\n${steps.length ? `**Adımlar:** ${steps.join(' → ')}\n\n` : ''}Detay için Operations kayıtlarına bakabilirsin.`,
+        })
+          .then(async (r) => {
+            if (!r.ok) {
+              const t = await r.text().catch(() => '');
+              void logEvent({ level: 'error', source: 'chat/video', message: `Üretim red döndü: HTTP ${r.status} — ${t.slice(0, 160)}`, meta: { contentId } });
+            } else {
+              void logEvent({ level: 'success', source: 'chat/video', message: `Chat tetiklemesiyle video üretimi tamamlandı (${Math.round((Date.now() - startedAt) / 1000)} sn)`, meta: { contentId } });
+            }
+          })
+          .catch((err: unknown) => {
+            const cause = err && typeof err === 'object' && 'cause' in err ? String((err as { cause?: unknown }).cause) : '';
+            const msg = err instanceof Error ? err.message : String(err);
+            void logEvent({ level: 'error', source: 'chat/video', message: `Üretim çağrısı yerine ulaşamadı: ${msg}${cause ? ` (${cause})` : ''}`, meta: { contentId, ms: Date.now() - startedAt } });
           });
-        }
-        if (data.alreadyProduced === true) {
-          return NextResponse.json({
-            reply: `✅ #${data.contentId} videosu zaten üretilmiş durumda; tekrar üretilmedi.\n\nÜretilen Videolar panelinden izleyebilir, "YouTube'a Yayınla" ile yükleyebilirsin.`,
-          });
-        }
-        if (data.produced === false) {
-          return NextResponse.json({
-            reply: `ℹ️ ${typeof data.message === 'string' ? data.message : 'Üretilecek onaylı içerik yok.'}\n\nÖnce İçerik Taslakları panelinden bir taslağı videolu onayla ya da "/video <taslak-no>" yaz.`,
-          });
-        }
-        const stages = data.stages as Record<string, Record<string, unknown>> | undefined;
-        const ttsInfo = stages?.tts ? `ses: ${stages.tts.provider ?? '?'}${stages.tts.speechSeconds ? ` ${stages.tts.speechSeconds}s` : ''}` : '';
-        const renderInfo = stages?.render ? `video: ${stages.render.durationSeconds ?? '?'}s` : '';
+        void logEvent({ level: 'info', source: 'chat/video', message: `Video üretimi arka planda tetiklendi${contentId ? ` #${contentId}` : ' (otomatik sıradaki onaylı içerik)'}`, meta: { contentId } });
         return NextResponse.json({
-          reply: `✅ **Video üretildi (yayınlanmadı).**\n\n- **İçerik:** #${data.contentId}\n- **Durum:** ready (onay bekliyor)\n- **Adımlar:** ${steps.length ? steps.join(' → ') + ' → ' : ''}senaryo + görseller + ses + altyazı + MP4 birleştirme\n- **Özet:** ${[ttsInfo, renderInfo].filter(Boolean).join(' · ')}\n\nÜretilen Videolar panelinden izleyebilirsin. YouTube'a yüklemek istersen "YouTube'a Yayınla" butonuna basman gerekir.`,
+          reply: `🎬 **Video üretimi başladı.**\n\n${steps.length ? `**Adımlar:** ${steps.join(' → ')}\n\n` : ''}İşlem arka planda sürüyor (senaryo → ses → görseller → altyazı → MP4). Bitince Telegram bildirimi düşer; istersen **/logs** ekranından satır satır izleyebilirsin. YouTube'a yükleme bu adımın parçası değil.`,
+          emotion: 'happy',
         });
       } catch (err: unknown) {
         const message2 = err instanceof Error ? err.message : 'bağlantı hatası';
+        void logEvent({ level: 'error', source: 'chat/video', message: `Üretim ön-uçu patladı: ${message2.slice(0, 200)}` });
         return NextResponse.json({ reply: `❌ Üretim isteği gönderilemedi: ${message2}` });
       }
     }
@@ -486,7 +484,7 @@ export async function POST(req: Request) {
 
     if (asksToAnalyzeStoredDrafts) {
       try {
-        const base = new URL(req.url).origin;
+        const base = selfOrigin();
         const response = await fetchWithTimeoutMs(`${base}/api/automation/analyze-drafts`, {
           method: "POST",
           headers: {

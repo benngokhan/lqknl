@@ -1,4 +1,5 @@
 import { NextResponse, after } from "next/server";
+import { selfOrigin } from "@/lib/self-url";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { and, desc, eq, like, lt } from "drizzle-orm";
@@ -270,7 +271,7 @@ export async function POST(req: Request) {
   }
 
   // Yanıttan önce gerekli primleri garanti altına al: body + origin (after içinde req güvenli değil).
-  const origin = new URL(req.url).origin;
+  const origin = selfOrigin();
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
 

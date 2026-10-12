@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { selfOrigin } from "@/lib/self-url";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { db } from "@/db";
@@ -41,7 +42,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Plan dosyasında işlenebilir satır bulunamadı." }, { status: 400 });
   }
 
-  const origin = new URL(req.url).origin;
+  const origin = selfOrigin();
   const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
   const results: { title: string; status: "queued" | "duplicate" | "error"; detail?: string }[] = [];
   for (const row of rows) {

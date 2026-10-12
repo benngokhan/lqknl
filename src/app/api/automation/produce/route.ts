@@ -283,6 +283,7 @@ export async function POST(req: Request) {
   if (!authorized(req)) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
+  void logEvent({ level: "info", source: "produce", message: "Üretim isteği alındı", meta: { contentId: (body as { contentId?: number })?.contentId ?? null } });
 
   // --- MOCK MODU: DB/Civitai/LLM olmadan pipeline'ın gerçek kod yollarını test eder ---
   if (body.mock === true) {

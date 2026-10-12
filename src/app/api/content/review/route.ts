@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
+import { selfOrigin } from "@/lib/self-url";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { contentAssets, contentItems, operations } from "@/db/schema";
@@ -151,7 +152,7 @@ export async function POST(req: Request) {
     if (!queued) {
       return NextResponse.json({ error: "Kayıt kuyrukta değil; senaryoyu zaten üretilmiş olabilir. Listeyi yenile." }, { status: 409 });
     }
-    const origin = new URL(req.url).origin;
+    const origin = selfOrigin();
     const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
     let workerData: { error?: string; message?: string; processed?: boolean } | null = null;
     try {
