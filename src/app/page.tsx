@@ -43,6 +43,8 @@ interface VideoProgressEvent {
   stage: string;
   status: string;
   percentage: number;
+  detail?: string;
+  nextAction?: string;
   createdAt: string;
 }
 
@@ -799,7 +801,7 @@ export default function Home() {
           {manualTopicResult && <p className="mt-1 text-xs text-sky-300">{manualTopicResult}</p>}
           {manualScriptProgress && <div className="mt-3 rounded-lg border border-violet-500/30 bg-slate-950/80 p-3">
             <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold text-white">Mira canlı işlem akışı · #{manualScriptProgress.contentId}</p><span className={manualScriptProgress.status === 'success' ? 'text-xs text-emerald-300' : manualScriptProgress.status === 'failed' ? 'text-xs text-red-300' : 'text-xs text-sky-300'}>{manualScriptProgress.status === 'success' ? 'Tamamlandı' : manualScriptProgress.status === 'failed' ? 'Kontrol gerekli' : 'Çalışıyor'}</span></div>
-            <div className="mt-2 space-y-2">{manualScriptProgress.events.length ? manualScriptProgress.events.map((event) => <div key={event.id} className="flex items-start gap-2 text-xs"><span className={event.status === 'success' ? 'text-emerald-300' : event.status === 'failed' ? 'text-red-300' : 'text-sky-300'}>{event.status === 'success' ? '✓' : event.status === 'failed' ? '!' : '•'}</span><div className="min-w-0 flex-1"><p className="text-slate-200">{event.stage}</p><p className="text-slate-500">{new Date(event.createdAt).toLocaleTimeString('tr-TR')}</p></div></div>) : <p className="text-xs text-slate-400">Mira ilk işlem kaydını hazırlıyor…</p>}</div>
+            <div className="mt-2 space-y-2">{manualScriptProgress.events.length ? manualScriptProgress.events.map((event) => <div key={event.id} className="flex items-start gap-2 text-xs"><span className={event.status === 'success' ? 'text-emerald-300' : event.status === 'failed' ? 'text-red-300' : 'text-sky-300'}>{event.status === 'success' ? '✓' : event.status === 'failed' ? '!' : '•'}</span><div className="min-w-0 flex-1"><p className={event.status === 'failed' ? 'font-medium text-red-300' : 'font-medium text-slate-100'}>{event.stage}</p>{event.detail && <p className="mt-1 text-slate-300"><span className="text-slate-500">Neden:</span> {event.detail}</p>}{event.nextAction && <p className="mt-1 text-sky-200"><span className="text-sky-400">Sonraki adım:</span> {event.nextAction}</p>}<p className="mt-1 text-slate-500">{new Date(event.createdAt).toLocaleTimeString('tr-TR')} · %{event.percentage}</p></div></div>) : <p className="text-xs text-slate-400">Mira ilk işlem kaydını hazırlıyor…</p>}</div>
           </div>}
           <div className="mt-3 rounded-lg border border-sky-500/20 bg-slate-900/70 p-3">
             <div className="mb-2 flex items-center justify-between gap-2"><p className="text-sm font-semibold text-white">Manuel konu kuyruğu</p><button type="button" onClick={() => void loadManualQueue()} disabled={queueLoading} className="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-700 disabled:opacity-50">{queueLoading ? 'Yükleniyor…' : 'Kuyruğu yenile'}</button></div>
