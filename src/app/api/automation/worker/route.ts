@@ -1,4 +1,6 @@
 import { NextResponse, after } from "next/server";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { and, desc, eq, like, lt } from "drizzle-orm";
 import { db } from "@/db";
 import { contentItems, operations, tasks } from "@/db/schema";
@@ -22,6 +24,48 @@ async function reportScriptProgress(contentId: number, percentage: number, stage
   }).catch((error) => console.error("[Worker] progress write failed:", error instanceof Error ? error.message : String(error)));
 }
 type FactGateResult = { ok: true; sourceUrls: string[]; reason: string } | { ok: false; sourceUrls: string[]; reason: string };
+
+const TRUSTED_SOURCE_DOMAINS = [
+  "tmsf.org.tr", "nasa.gov", "nih.gov", "ncbi.nlm.nih.gov", "medlineplus.gov",
+  "cdc.gov", "who.int", "nhs.uk", "mayoclinic.org", "clevelandclinic.org",
+  "harvard.edu", "harvardhealth.harvard.edu", "stanford.edu", "nature.com",
+  "science.org", "scientificamerican.com", "britannica.com", "merckmanuals.com",
+  "sleepfoundation.org", "doi.org", "pmc.ncbi.nlm.nih.gov", "pubmed.ncbi.nlm.nih.gov",
+  "sciencedirect.com", "jamanetwork.com", "academic.oup.com", "journals.sagepub.com",
+  "frontiersin.org", "plos.org", "pnas.org", "royalsocietypublishing.org",
+  "cell.com", "springer.com", "wiley.com", "tandfonline.com", "pubs.acs.org",
+  "aps.org", "aip.org",
+] as const;
+
+function isTrustedSourceUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:") return false;
+    const host = url.hostname.toLowerCase().replace(/^www\\./, "");
+    return TRUSTED_SOURCE_DOMAINS.some((domain) => host === domain || host.endsWith("." + domain)) ||
+      /\\.edu(?:\\.tr)?$/.test(host) || /\\.ac\\.uk$/.test(host) || /\\.gov(?:\\.tr)?$/.test(host);
+  } catch {
+    return false;
+  }
+}
+
+async function loadArchiveContext(topic: string): Promise<string> {
+  const archive = await readFile(path.join(process.cwd(), "konu_arsivi.md"), "utf8").catch(() => "");
+  if (!archive) return "";
+  const normalize = (value: string) => value.toLocaleLowerCase("tr-TR")
+    .normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+  const tokens = [...new Set(normalize(topic).split(/\\s+/).filter((token) => token.length >= 4))];
+  if (!tokens.length) return "";
+  const blocks = archive.split(/(?=^## KONU\\s+\\d+)/m);
+  let best = "";
+  let bestScore = 0;
+  for (const block of blocks) {
+    const normalized = normalize(block);
+    const score = tokens.reduce((sum, token) => sum + (normalized.includes(token) ? 1 : 0), 0);
+    if (score > bestScore) { bestScore = score; best = block; }
+  }
+  return bestScore >= 3 ? best.slice(0, 4200).trim() : "";
+}
 
 function isPublicHttpsUrl(raw: string): URL | null {
   try {
@@ -80,7 +124,7 @@ async function discoverPublicSources(query: string): Promise<string[]> {
   if (!response.ok) throw new Error("Otomatik kaynak araması HTTP " + response.status + " döndürdü.");
   const html = (await response.text()).slice(0, 300_000);
   const matches = [...html.matchAll(/class=["\']result__a["\'][^>]*href=["\']([^"\']+)["\']/gi)];
-  const trusted = ["nih.gov", "ncbi.nlm.nih.gov", "medlineplus.gov", "cdc.gov", "who.int", "nhs.uk", "mayoclinic.org", "clevelandclinic.org", "harvard.edu", "stanford.edu", "nature.com", "science.org", "scientificamerican.com", "britannica.com"];
+  const trusted = TRUSTED_SOURCE_DOMAINS;
   const urls: string[] = [];
   for (const match of matches) {
     let candidate = match[1].replace(/&amp;/g, "&");
@@ -91,7 +135,7 @@ async function discoverPublicSources(query: string): Promise<string[]> {
       const safe = isPublicHttpsUrl(candidate);
       if (!safe) continue;
       const host = safe.hostname.toLowerCase().replace(/^www\./, "");
-      if (!trusted.some((domain) => host === domain || host.endsWith("." + domain))) continue;
+      if (!trusted.some((domain) => host === domain || host.endsWith("." + domain)) && !/\.edu(?:\.tr)?$/.test(host) && !/\.ac\.uk$/.test(host) && !/\.gov(?:\.tr)?$/.test(host)) continue;
       const normalized = safe.toString();
       if (!urls.includes(normalized)) urls.push(normalized);
       if (urls.length >= 3) break;
@@ -106,6 +150,7 @@ async function verifyScriptSources(script: string, narration: string, topic: str
   let candidates = [...sourceSection.matchAll(/https:\/\/[^\s)\]>]+/gi)]
     .map((match) => match[0].replace(/[.,;]+$/, ""))
     .filter((url, index, all) => all.indexOf(url) === index)
+    .filter((url) => isTrustedSourceUrl(url))
     .slice(0, 3);
   let searchedAutomatically = false;
   if (!candidates.length) {
@@ -122,6 +167,8 @@ async function verifyScriptSources(script: string, narration: string, topic: str
   }
   try {
     const pages = await Promise.all(candidates.map(readPublicSource));
+    const untrustedFinalPage = pages.find((page) => !isTrustedSourceUrl(page.url));
+    if (untrustedFinalPage) throw new Error("Kaynak güvenilir/kanonik alan adına yönlenmedi; doğrulama reddedildi.");
     const evidence = pages.map((page, index) => "KAYNAK " + (index + 1) + ": " + page.url + "\n" + page.text).join("\n\n");
     const check = await generateWithFallback({
       system: [
@@ -214,6 +261,7 @@ export async function POST(req: Request) {
   after(async () => {
     try {
       const topic = claimed.topic?.trim() || claimed.title;
+      const archiveContext = await loadArchiveContext(topic);
       await reportScriptProgress(claimed.id, 8, "Konu analizi yapılıyor…", "running", "Konu tek bir ana bilgiye indirgeniyor; belirsiz veya çok geniş noktalar ayıklanıyor.", "Uygun kapsam belirlenince senaryo taslağını oluşturacağım.");
       let signalDirective: Record<string, unknown> | null = null;
       try {
@@ -239,6 +287,7 @@ export async function POST(req: Request) {
           "Ekran metni kısa, okunaklı ve 2-3 satır olsun; anahtar son ifade neon yeşil vurgulansın. Türkçe doğal ve otoriter ses, kelime kelime senkron altyazı, düşük seviyeli gizemli müzik kullan.",
           "Taslağın en sonuna TASARIM başlıklı bölüm ekle; içinde YALNIZCA tek satır JSON olsun: {\"title\":[[\"SATIR1\"],[\"SATIR2\"],[[\"SON SATIR\",\"g\"]]],\"note1\":\"GERÇEK ÖZETİ (CAPS, ≤80 kr)\",\"note2\":\"SOYADI • KAYNAK (YIL)\",\"accents\":[\"k1\",\"k2\",\"k3\"]}. Başlık = içerik başlığının 2-3 satırlık BÜYÜK HARF hâli, son satır \"g\" işaretli (yeşil segment). accents = SESLENDİRME metninde birebir geçen 3-5 vurucu kelime. Kaynak belli değilse note2 olarak 'BİLGİ DOZU EDİTÖR DERLEMESİ (2026)' yaz.",
           "İçeriği yayınlama, video dosyası oluştuğunu iddia etme; yalnızca metin taslağı hazırla. Taslağın onay beklediğini açıkça belirt.",
+          ...(archiveContext ? [`KONU ARŞİVİNDEN EŞLEŞEN BÖLÜM (aday kaynak/çerçeve; canlı doğrulama yine zorunlu):\n${archiveContext}`] : []),
           ...(signalDirective ? [
             "HAFTALIK KANAL SİNYALİ: aşağıdaki JSON güncel kanal performansından türetilmiştir. Güçlü kümeleri konu seçimi ve çerçevelemede önceliklendir; azalt_durdur kümelerinden yeni konu önermemeye çalış. Klonlanacak videolardan yalnızca kanca yapısını al, metni veya iddiayı kopyalama.",
             JSON.stringify(signalDirective)
@@ -331,7 +380,7 @@ export async function POST(req: Request) {
       const [savedOperation] = await db.insert(operations).values({
         action: "autonomous_content_draft",
         summary: `Mira otomatik içerik taslağı hazırladı: ${claimed.title}`,
-        status: "success",
+        status: factCheck.ok ? "success" : "failed",
         platform: claimed.platform,
         metadata: {
           contentId: claimed.id,
@@ -347,18 +396,18 @@ export async function POST(req: Request) {
       }).returning();
 
       const [updated] = await db.update(contentItems)
-        .set({ status: "draft", updatedAt: new Date() })
+        .set({ status: factCheck.ok ? "draft" : "failed", updatedAt: new Date() })
         .where(eq(contentItems.id, claimed.id))
         .returning();
 
       await db.update(tasks)
-        .set({ status: "done", updatedAt: new Date() })
+        .set({ status: factCheck.ok ? "done" : "failed", updatedAt: new Date() })
         .where(like(tasks.notes, `%\"contentId\":${claimed.id}%`));
 
       // Manual-topic flow must never run destructive batch screening against other drafts.
-      let contentScreening: { ok?: boolean; kept?: number; deleted?: number; error?: string } = body.manualTopic === true ? { ok: true, kept: 1, deleted: 0 } : {};
+      let contentScreening: { ok?: boolean; kept?: number; deleted?: number; error?: string } = !factCheck.ok ? { ok: false, error: "Kaynak doğrulaması başarısız; taslak reddedildi." } : body.manualTopic === true ? { ok: true, kept: 1, deleted: 0 } : {};
       try {
-        if (body.manualTopic !== true) {
+        if (factCheck.ok && body.manualTopic !== true) {
         const screening = await fetch(`${origin}/api/automation/analyze-drafts`, {
           method: "POST",
           headers: { "x-mira-key": secret },
@@ -378,7 +427,7 @@ export async function POST(req: Request) {
       let telegramNotification: { sent: boolean; error?: string } = { sent: false, error: "Bildirim gönderimi doğrulanamadı." };
       try {
         const telegram = await sendTelegramMessage(
-          `🤖 Mira içerik işleme tamamlandı\n\nBaşlık: ${updated.title}\nİçerik ID: ${updated.id}\nModel: ${scriptProvider.provider}/${scriptProvider.model}\nSeslendirme: ${narrationWords} kelime\nAnaliz: ${contentScreening.ok ? `${contentScreening.kept ?? 0} taslak tutuldu, ${contentScreening.deleted ?? 0} içerik silindi.` : `Tamamlanamadı: ${contentScreening.error || "sonuç alınamadı"}`}\nYalnızca seçilen içerikler onay panelinde gösterilir. Otomatik yayın yapılmadı.`
+          `${factCheck.ok ? "🤖 Mira içerik işleme tamamlandı" : "⛔ Mira kaynak doğrulamasını geçemedi; taslak reddedildi"}\n\nBaşlık: ${updated.title}\nİçerik ID: ${updated.id}\nKaynak kontrolü: ${factCheck.ok ? "GEÇTİ" : "RED"} — ${factCheck.reason}\nModel: ${scriptProvider.provider}/${scriptProvider.model}\nSeslendirme: ${narrationWords} kelime\nAnaliz: ${factCheck.ok ? (contentScreening.ok ? `${contentScreening.kept ?? 0} taslak tutuldu, ${contentScreening.deleted ?? 0} içerik silindi.` : `Tamamlanamadı: ${contentScreening.error || "sonuç alınamadı"}`) : "Kaynak denetimi başarısız olduğu için analiz ve üretim yapılmadı."}\nOtomatik yayın yapılmadı.`
         );
         telegramNotification = telegram.sent
           ? { sent: true }
@@ -391,7 +440,7 @@ export async function POST(req: Request) {
       // ——— OTOPİLOT: taslak hazırsa kullanıcı tuşunu beklemeden video üretimine gir.
       // Yayın (YouTube yükleme) kapısı açık değildir; video panelde incelenmeyi bekler.
       // MIRA_AUTO_PRODUCE=0 ile tamamen kapatılabilir.
-      const autoProduce = body.manualProduce === true;
+      const autoProduce = body.manualProduce === true && factCheck.ok;
       const autopilot: Record<string, unknown> = { enabled: autoProduce };
       if (autoProduce) {
         try {
