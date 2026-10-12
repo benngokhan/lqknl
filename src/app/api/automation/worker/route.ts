@@ -69,35 +69,78 @@ async function readPublicSource(raw: string): Promise<{ url: string; text: strin
   throw new Error("Kaynak yönlendirmesi çözülemedi.");
 }
 
-async function verifyScriptSources(script: string, narration: string): Promise<FactGateResult> {
+async function discoverPublicSources(query: string): Promise<string[]> {
+  const searchUrl = new URL("https://html.duckduckgo.com/html/");
+  searchUrl.searchParams.set("q", query.slice(0, 500));
+  const response = await fetch(searchUrl, {
+    signal: AbortSignal.timeout(8000),
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; MiraFactCheck/1.0)" },
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error("Otomatik kaynak araması HTTP " + response.status + " döndürdü.");
+  const html = (await response.text()).slice(0, 300_000);
+  const matches = [...html.matchAll(/class=["\']result__a["\'][^>]*href=["\']([^"\']+)["\']/gi)];
+  const trusted = ["nih.gov", "ncbi.nlm.nih.gov", "medlineplus.gov", "cdc.gov", "who.int", "nhs.uk", "mayoclinic.org", "clevelandclinic.org", "harvard.edu", "stanford.edu", "nature.com", "science.org", "scientificamerican.com", "britannica.com"];
+  const urls: string[] = [];
+  for (const match of matches) {
+    let candidate = match[1].replace(/&amp;/g, "&");
+    try {
+      const wrapped = new URL(candidate, "https://html.duckduckgo.com");
+      const redirected = wrapped.searchParams.get("uddg");
+      if (redirected) candidate = redirected;
+      const safe = isPublicHttpsUrl(candidate);
+      if (!safe) continue;
+      const host = safe.hostname.toLowerCase().replace(/^www\./, "");
+      if (!trusted.some((domain) => host === domain || host.endsWith("." + domain))) continue;
+      const normalized = safe.toString();
+      if (!urls.includes(normalized)) urls.push(normalized);
+      if (urls.length >= 3) break;
+    } catch { /* Ignore malformed search results. */ }
+  }
+  return urls;
+}
+
+async function verifyScriptSources(script: string, narration: string, topic: string): Promise<FactGateResult> {
   const sections = parseDraftScript(script);
   const sourceSection = sections["KAYNAK"]?.trim() || "";
-  if (!sourceSection || /DOĞRULAMA\s*GEREKLİ|KAYNAK\s*YOK|BİLİNMİYOR/i.test(sourceSection)) {
-    return { ok: false, sourceUrls: [], reason: "Kaynak bölümü açıkça doğrulama gerektiğini belirtiyor veya boş." };
-  }
-  const candidates = [...sourceSection.matchAll(/https:\/\/[^\s)\]>]+/gi)]
+  let candidates = [...sourceSection.matchAll(/https:\/\/[^\s)\]>]+/gi)]
     .map((match) => match[0].replace(/[.,;]+$/, ""))
     .filter((url, index, all) => all.indexOf(url) === index)
-    .slice(0, 2);
-  if (!candidates.length) return { ok: false, sourceUrls: [], reason: "Kaynak bölümünde kontrol edilebilir HTTPS bağlantısı yok." };
+    .slice(0, 3);
+  let searchedAutomatically = false;
+  if (!candidates.length) {
+    searchedAutomatically = true;
+    try {
+      candidates = await discoverPublicSources((topic + " " + narration.slice(0, 220) + " scientific evidence source"));
+    } catch (error) {
+      return { ok: false, sourceUrls: [], reason: "Kaynak verilmedi; otomatik web araması başarısız oldu: " +
+        (error instanceof Error ? error.message : String(error)).slice(0, 300) };
+    }
+    if (!candidates.length) {
+      return { ok: false, sourceUrls: [], reason: "Kaynak verilmedi; otomatik aramada güvenilir HTTPS kaynağı bulunamadı." };
+    }
+  }
   try {
     const pages = await Promise.all(candidates.map(readPublicSource));
-    const evidence = pages.map((page, index) => `KAYNAK ${index + 1}: ${page.url}\n${page.text}`).join("\n\n");
+    const evidence = pages.map((page, index) => "KAYNAK " + (index + 1) + ": " + page.url + "\n" + page.text).join("\n\n");
     const check = await generateWithFallback({
       system: [
         "Sen katı bir bilgi doğrulama denetçisisin. Yalnızca verilen kaynak metninde açıkça desteklenen iddiaları kabul et.",
         "Kaynakla çelişen, kaynakta bulunmayan, abartılmış veya kesinliği kanıtlanmamış ana iddia varsa reddet.",
         "Genel konu benzerliği yeterli değildir; seslendirmedeki ana olgular kaynak metniyle doğrudan desteklenmeli.",
+        "Arama sonuçlarının başlığı tek başına kanıt değildir; yalnızca aşağıda okunan sayfa metnini değerlendir.",
         "Yalnızca geçerli JSON döndür: {\"supported\": true veya false, \"reason\": \"kısa Türkçe gerekçe\"}. Emin değilsen supported=false.",
       ].join("\n"),
       history: [],
-      message: `VİDEO SESLENDİRMESİ:\n${narration}\n\nKAYNAK SAYFALARINDAN OKUNAN METİN:\n${evidence}`,
+      message: "VİDEO SESLENDİRMESİ:\n" + narration + "\n\nKAYNAK SAYFALARINDAN OKUNAN METİN:\n" + evidence,
     });
     const raw = check.content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
     const parsed = JSON.parse(raw) as { supported?: unknown; reason?: unknown };
     const reason = typeof parsed.reason === "string" ? parsed.reason.slice(0, 400) : "Model gerekçe vermedi.";
-    if (parsed.supported !== true) return { ok: false, sourceUrls: pages.map((p) => p.url), reason };
-    return { ok: true, sourceUrls: pages.map((p) => p.url), reason };
+    const sourceUrls = pages.map((p) => p.url);
+    const prefix = searchedAutomatically ? "Otomatik arama yapıldı. " : "";
+    if (parsed.supported !== true) return { ok: false, sourceUrls, reason: prefix + reason };
+    return { ok: true, sourceUrls, reason: prefix + reason };
   } catch (error) {
     return { ok: false, sourceUrls: candidates, reason: (error instanceof Error ? error.message : String(error)).slice(0, 400) };
   }
@@ -274,10 +317,10 @@ export async function POST(req: Request) {
         }
       }
 
-      await reportScriptProgress(claimed.id, 58, "Kaynak araştırılıyor…", "running", "Senaryodaki kaynak bölümünden gerçek HTTPS adresleri çıkarılıp erişilebilirlik kontrolü yapılacak.", "Okunabilen kaynak metnini ana iddialarla karşılaştıracağım.");
-      await reportScriptProgress(claimed.id, 68, "Bilgilerin doğruluğu kontrol ediliyor…", "running", "Kaynak sayfasında bulunmayan veya desteklenmeyen iddialar kabul edilmeyecek.", "Sonucu kaydedip senaryoyu onayına sunacağım; doğrulama başarısızsa nedeni açıkça göstereceğim.");
+      await reportScriptProgress(claimed.id, 58, "Kaynak araştırılıyor…", "running", "Kaynak URL’leri kontrol edilecek; URL yoksa güvenilir bilimsel kaynaklar web’de otomatik aranacak.", "Okunabilen kaynak metnini ana iddialarla karşılaştıracağım.");
+      await reportScriptProgress(claimed.id, 68, "Bilgilerin doğruluğu kontrol ediliyor…", "running", "Bulunan kaynak sayfaları okunup seslendirmedeki ana iddialarla karşılaştırılacak; arama sonucu tek başına kanıt sayılmayacak.", "Sonucu kaydedip senaryoyu onayına sunacağım; doğrulama başarısızsa nedeni açıkça göstereceğim.");
       const rawNarration = extractNarration(scriptText, `${claimed.title}. ${topic}`);
-      const factCheck = await verifyScriptSources(scriptText, rawNarration);
+      const factCheck = await verifyScriptSources(scriptText, rawNarration, claimed.title + ". " + topic);
       await db.insert(operations).values({
         action: factCheck.ok ? "fact_check_passed" : "fact_check_blocked",
         summary: factCheck.ok ? `Kaynak kontrolü geçti: ${claimed.title}` : `Kaynak/doğruluk kontrolü başarısız: ${claimed.title}`,
