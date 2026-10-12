@@ -1,0 +1,62 @@
+name: Weekly Bilgi Dozu Channel Pulse
+
+on:
+  schedule:
+    # Sunday 18:00 UTC = Sunday 21:00 Türkiye time
+    - cron: "0 18 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-channel-pulse
+  cancel-in-progress: false
+
+jobs:
+  pulse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check required secrets
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET || secrets.MIRA_N8N_SECRET }}
+        run: |
+          if [ -z "$YOUTUBE_API_KEY" ]; then
+            echo "::error::GitHub Actions secret YOUTUBE_API_KEY is missing."
+            exit 1
+          fi
+          if [ -z "$MIRA_AUTOMATION_SECRET" ]; then
+            echo "::error::Set GitHub secret MIRA_AUTOMATION_SECRET (or MIRA_N8N_SECRET) to the same value configured in Railway."
+            exit 1
+          fi
+
+      - name: Analyze Bilgi Dozu Shorts and send directive to Railway
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET || secrets.MIRA_N8N_SECRET }}
+          MIRA_SIGNAL_PUSH_URL: https://aimira.up.railway.app
+        run: |
+          python signal-loop/channel_pulse.py --key "$YOUTUBE_API_KEY" --top 20
+          mkdir -p signal-loop/output
+          cp pulse_report.json content_directive.md signal-loop/output/
+
+      - name: Save pulse report
+        if: always() && hashFiles('pulse_report.json', 'content_directive.md') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: bilgidozu-channel-pulse
+          path: |
+            pulse_report.json
+            content_directive.md
+          if-no-files-found: warn
+          retention-days: 30
