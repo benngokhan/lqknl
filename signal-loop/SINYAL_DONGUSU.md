@@ -31,7 +31,7 @@ bakıp direktife işlemen 30 saniye sürer.
 ## Kurulum
 1. Google Cloud'da (publish için açtığın proje) → API anahtarı al
    (Credentials → Create Credentials → API key; YouTube Data API v3 zaten açık)
-2. `python3 channel_pulse.py --handle @kankanal --key AIza... --config shorts_config.json`
+2. `python3 channel_pulse.py --handle @bilgidozuofficial --key "$YOUTUBE_DATA_API_KEY" --config shorts_config.json`
 3. Çıkan `content_directive.md`'deki JSON bloğunu Mira'ya ver.
    Örnek sistem prompt eki:
    ```
@@ -77,4 +77,4 @@ Başarılı aktarımda `/api/automation/signal` direktifi veritabanındaki `oper
 
 - Betik şu anda görüntülenme sayısından **yayından beri ortalama günlük hızı** hesaplar; ilk 48 saatin tarihsel görüntülenme hızını geriye dönük çıkaramaz. Bunun için günlük snapshot tutulması gerekir.
 - Ortalama izlenme yüzdesi, abone dönüşümü ve yorum metinleri mevcut Data API çağrısından gelmez; bunlar Studio/YouTube Analytics üzerinden ayrıca alınmalıdır.
-- Gerçek kanal handle'ı ve canlı Mira adresi doğrulanmadan örnek değerleri kullanma.
+- Kanal varsayılanı @bilgidozuofficial olarak ayarlanmıştır. Canlı Mira adresi ve aktarım sırrı ayarlanmadan otomatik gönderimin çalıştığını varsayma.
