@@ -7,7 +7,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "db:push": "drizzle-kit push --config drizzle.config.ts"
+    "db:push": "drizzle-kit push --config drizzle.config.ts",
+    "postinstall": "node scripts/motor-postinstall.mjs"
   },
   "dependencies": {
     "@andresaya/edge-tts": "^1.0.0",

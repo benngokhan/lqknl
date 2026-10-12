@@ -11,6 +11,7 @@ const HEADINGS = [
   "KAYNAK",
   "AÇIKLAMA",
   "ETİKETLER",
+  "TASARIM",
 ] as const;
 
 export type DraftSections = Partial<Record<(typeof HEADINGS)[number], string>>;

@@ -1,0 +1,4 @@
+# BILGI DOZU render motoru (publish.py dahil değil; youtube upload TS tarafında)
+pillow
+numpy
+imageio-ffmpeg

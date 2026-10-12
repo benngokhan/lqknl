@@ -7,6 +7,7 @@ import { generateWithFallback } from "@/lib/model-manager";
 import { generateNarration, type CaptionGroup } from "@/lib/narration";
 import { generateImage } from "@/lib/generate-image";
 import { renderShort, type RenderImage } from "@/lib/render-video";
+import { renderWithMotor, buildMotorDesign } from "@/lib/motor-render";
 import { extractNarration, parseDraftScript, capNarrationForDuration } from "@/lib/script-parse";
 import { sendTelegramMessage } from "@/lib/telegram";
 import { spawn } from "node:child_process";
@@ -352,6 +353,13 @@ export async function POST(req: Request) {
         stages.script = { ...(stages.script as Record<string, unknown>), expandSkipped: (error instanceof Error ? error.message : String(error)).slice(0, 150) };
       }
     }
+
+    // Sabit marka CTA'sı: marka motorunun altyazı hizalaması VO ile birebir aynı metni ister.
+    const MOTOR_CTA = "Daha fazla bilgi dozu için takip etmeyi unutma!";
+    if (!/unutma!?$/i.test(narrationText.trim())) {
+      narrationText = `${narrationText.trim()} ${MOTOR_CTA}`;
+      stages.script = { ...(stages.script as Record<string, unknown>), narrationWords: narrationText.split(/\s+/).filter(Boolean).length, ctaAppended: true };
+    }
     const checkpoints = await loadCheckpoints(content.id);
     await reportProgress(content.id, 15, "Senaryo ve önceki üretim kayıtları kontrol edildi");
 
@@ -390,6 +398,8 @@ export async function POST(req: Request) {
       const savedSeconds = typeof meta.durationSeconds === "number" ? meta.durationSeconds : null;
       if (savedSeconds !== null && savedSeconds > 34) {
         checkpointStaleReason = `kaydedilmiş ses ${savedSeconds}sn (30sn kuralından önce üretilmiş)`;
+      } else if (meta.ctaVersion !== 1) {
+        checkpointStaleReason = "CTA'sız eski ses (marka motoru eşleşmesi için yeniden üretilecek)";
       } else {
         const audio = Buffer.from(checkpoints.narrationAsset.data, "base64");
         narrationMeanDb = await measureMeanVolumeDb(audio);
@@ -419,7 +429,7 @@ export async function POST(req: Request) {
         mime: "audio/mpeg",
         data: Buffer.from(narration.audio).toString("base64"),
         bytes: narration.audio.length,
-        meta: { pipelineStage: "narration", provider: narration.provider, captions: narration.captions, durationSeconds: narration.durationSeconds },
+        meta: { pipelineStage: "narration", provider: narration.provider, captions: narration.captions, durationSeconds: narration.durationSeconds, ctaVersion: 1 },
       });
       stages.tts = { provider: narration.provider, speechSeconds: narration.durationSeconds, checkpointSaved: true, meanVolumeDb: narrationMeanDb, regeneratedFromCheckpoint: Boolean(checkpointStaleReason) };
       await reportProgress(content.id, 50, "Seslendirme tamamlandı; görseller hazırlanıyor");
@@ -452,14 +462,62 @@ export async function POST(req: Request) {
 
     // 6) MP4 render
     await reportProgress(content.id, 82, "Görseller tamamlandı; MP4 video oluşturuluyor");
-    const { video, durationSeconds, captionsUsed, profile } = await retryStage(content.id, "MP4 birleştirme", 82, () => renderShort({
-      images,
-      audio: Buffer.from(narration.audio),
-      captions: narration.captions,
-      narrationText,
-      durationSeconds: narration.durationSeconds ?? undefined,
-    }));
-    stages.render = { durationSeconds, bytes: video.length, captions: captionsUsed, profile };
+    // 6) Render: önce marka motoru (PIL şablon: ilerleme çubuğu, başlık bloğu,
+    // kelime-kelime renkli altyazı, müzik+ducking, -14 LUFS). Python yoksa ya da
+    // hata çıkarsa TS/ffmpeg merdiveni korucu yedek olarak devrede.
+    await reportProgress(content.id, 82, "Video birleştiriliyor (marka motoru)");
+    const motorDesign = buildMotorDesign({
+      designSection: sections["TASARIM"],
+      title: content.title, topic, narration: narrationText, sections,
+    });
+    let video: Buffer;
+    let durationSeconds: number | null;
+    let captionsUsed = 0;
+    let profile = "";
+    if (process.env.MIRA_USE_PY_MOTOR !== "0") {
+      try {
+        const motor = await retryStage(content.id, "Marka motoru render", 84, () => renderWithMotor({
+          contentId: content.id,
+          narrationText,
+          audioMp3: narration.audio,
+          images,
+          design: motorDesign,
+        }));
+        video = motor.video;
+        durationSeconds = motor.durationSeconds;
+        profile = `motor-${process.env.MIRA_MOTOR_W || "720"}x${process.env.MIRA_MOTOR_H || "1280"}`;
+        stages.render = { engine: "python-motor", durationSeconds, bytes: video.length, renderMs: motor.renderMs, qc: motor.qcOutput.slice(-220), profile };
+      } catch (motorError) {
+        const msg = motorError instanceof Error ? motorError.message : String(motorError);
+        console.error(`[Produce] Marka motoru geriledi (#${content.id}): ${msg.slice(0, 300)}`);
+        await reportProgress(content.id, 86, `Marka motoru geriledi (${msg.slice(0, 80)}); yedek render`);
+        const rs = await retryStage(content.id, "MP4 birleştirme", 86, () => renderShort({
+          images,
+          audio: Buffer.from(narration.audio),
+          captions: narration.captions,
+          narrationText,
+          durationSeconds: narration.durationSeconds ?? undefined,
+        }));
+        video = rs.video;
+        durationSeconds = rs.durationSeconds;
+        captionsUsed = rs.captionsUsed;
+        profile = rs.profile;
+        stages.render = { engine: "ts-ladder", motorError: msg.slice(0, 220), durationSeconds, bytes: video.length, captions: captionsUsed, profile };
+      }
+    } else {
+      const rs = await retryStage(content.id, "MP4 birleştirme", 82, () => renderShort({
+        images,
+        audio: Buffer.from(narration.audio),
+        captions: narration.captions,
+        narrationText,
+        durationSeconds: narration.durationSeconds ?? undefined,
+      }));
+      video = rs.video;
+      durationSeconds = rs.durationSeconds;
+      captionsUsed = rs.captionsUsed;
+      profile = rs.profile;
+      stages.render = { engine: "ts-ladder", durationSeconds, bytes: video.length, captions: captionsUsed, profile };
+    }
 
     await reportProgress(content.id, 93, "Video oluşturuldu; dosya kaydediliyor");
 

@@ -10,3 +10,7 @@ tsconfig.tsbuildinfo
 .env
 .env*.local
 .DS_Store
+# motor calisma ciktilari / tmp motor shorts
+motor/shorts/*/
+!motor/shorts/.gitkeep
+motor/__pycache__/
