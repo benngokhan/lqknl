@@ -198,9 +198,9 @@ def build_directive(rows, clusters):
 
 def main():
     ap = argparse.ArgumentParser()
-    g = ap.add_mutually_exclusive_group(required=True)
-    g.add_argument("--handle")
-    g.add_argument("--channel")
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument("--handle", help="YouTube kanal handle'ı (varsayılan: @bilgidozuofficial)")
+    g.add_argument("--channel", help="YouTube kanal kimliği (UC...)")
     ap.add_argument("--key", required=True, help="YouTube Data API v3 anahtarı")
     ap.add_argument("--top", type=int, default=20, help="analiz edilecek son video sayısı")
     ap.add_argument("--config", default="shorts_config.json")
