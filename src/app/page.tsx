@@ -275,13 +275,15 @@ export default function Home() {
   async function addManualTopic() {
     const topic = manualTopic.trim();
     if (!topic || manualTopicLoading) return;
+    const topicTitleLine = topic.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || topic;
+    const topicTitle = topicTitleLine.replace(/^konu\s*:\s*/i, '').slice(0, 80) || 'Yeni senaryo';
     setManualTopicLoading(true);
     setManualTopicResult('Konu kuyruğa alınıyor…');
     setManualScriptProgress(null);
     try {
       const res = await fetch('/api/automation/queue', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: topic.slice(0, 80), topic, platform: 'youtube' }),
+        body: JSON.stringify({ title: topicTitle, topic, platform: 'youtube' }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || 'Konu eklenemedi (HTTP ' + res.status + ').');
@@ -289,7 +291,7 @@ export default function Home() {
       if (!Number.isInteger(contentId) || contentId <= 0) throw new Error('Konu kaydedildi ancak içerik kimliği alınamadı.');
       setManualTopic('');
       setManualTopicResult('Konu #' + contentId + ' alındı. Mira senaryo, kaynak ve doğruluk kontrolüne başladı.');
-      setManualScriptProgress({ contentId, title: topic.slice(0, 80), events: [], status: 'running' });
+      setManualScriptProgress({ contentId, title: topicTitle, events: [], status: 'running' });
       void loadManualQueue();
       const workerRes = await fetch('/api/automation/worker?contentId=' + contentId, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -298,7 +300,7 @@ export default function Home() {
       const workerData = await workerRes.json().catch(() => null);
       if (!workerRes.ok || workerData?.started !== true) throw new Error(workerData?.error || 'Mira görevi başlatılamadı.');
       setManualTopicResult('Konu #' + contentId + ': Mira görevi devraldı. Canlı adımları aşağıda görebilirsin.');
-      void pollManualScriptProgress(contentId, topic.slice(0, 80));
+      void pollManualScriptProgress(contentId, topicTitle);
       setTimeout(() => { void loadManualQueue(); }, 3000);
     } catch (error) {
       setManualTopicResult(error instanceof Error ? error.message.slice(0, 180) : 'Senaryo üretimi başlatılamadı.');
@@ -780,14 +782,13 @@ export default function Home() {
               {analysisLoading ? 'Yükleniyor…' : 'Yenile'}
             </button>
           </div>
-          <div className="mt-2 flex items-center gap-2">
-            <input
-              type="text"
+          <div className="mt-2 flex items-start gap-2">
+            <textarea
+              rows={5}
               value={manualTopic}
               onChange={(e) => setManualTopic(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') void addManualTopic(); }}
-              placeholder="Kendi konunu yaz… örn: SMS borcu olanlar neden ödeme bekliyor?"
-              className="min-w-0 flex-1 rounded-lg border border-slate-600 bg-slate-900/60 px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
+              placeholder={"Konu başlığı yazabilir veya hazır paketi yapıştırabilirsin:\nKonu: …\nKanca: …\nGelişme: …\nKaynaklar (doğrula): …\nBaşlık / Açıklama / Etiketler / Format: …"}
+              className="min-h-24 min-w-0 flex-1 resize-y rounded-lg border border-slate-600 bg-slate-900/60 px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
             />
             <button
               type="button"
@@ -805,7 +806,7 @@ export default function Home() {
           </div>}
           <div className="mt-3 rounded-lg border border-sky-500/20 bg-slate-900/70 p-3">
             <div className="mb-2 flex items-center justify-between gap-2"><p className="text-sm font-semibold text-white">Manuel konu kuyruğu</p><button type="button" onClick={() => void loadManualQueue()} disabled={queueLoading} className="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-700 disabled:opacity-50">{queueLoading ? 'Yükleniyor…' : 'Kuyruğu yenile'}</button></div>
-            <p className="mb-3 text-xs text-slate-400">Manuel konu için “Senaryo üret” dediğinde Mira senaryoyu hazırlar, kaynakları ve doğruluğu kontrol eder. Sonuç videoya hazır şekilde onayını bekler; video üretimi ve YouTube yüklemesi başlamaz.</p>
+            <p className="mb-3 text-xs text-slate-400">Tek satırlık konu veya KONU / KANCA / GELİŞME / KAYNAKLAR / BAŞLIK / AÇIKLAMA / ETİKETLER / FORMAT alanları olan hazır paketi yapıştırabilirsin. Mira verdiğin ayrıntıları korur, kaynak adaylarını doğrular ve senaryoyu onayına sunar. Onayın olmadan video üretimi veya YouTube yüklemesi başlamaz.</p>
             {queueItems.length === 0 ? <p className="text-xs text-slate-500">Bekleyen manuel konu yok.</p> : <div className="space-y-2">{queueItems.map((item) => <div key={item.id} className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-950/70 p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="break-words text-sm font-medium text-white">{item.title}</p><p className="mt-1 text-xs text-slate-400">#{item.id} · {item.status === 'queued' ? 'Sırada' : item.status === 'processing' ? 'İşleniyor' : 'Hata / yeniden denenebilir'}</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void startManualVideo(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="rounded-lg border border-slate-500 px-3 py-2 text-xs font-medium hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '✍ Senaryo hazırla'}</button><button type="button" onClick={() => void startManualProduction(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="rounded-lg border border-emerald-400/50 bg-emerald-600/20 px-3 py-2 text-xs font-semibold hover:bg-emerald-600/40 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '▶ Bu videoyu şimdi üret'}</button></div></div>)}</div>}
           </div>
           {analysisOpen && (
