@@ -1,15 +1,22 @@
-name: Mira Autonomous Content Runner
+name: Mira Manual Topic Queue Scheduler
 
 on:
+  schedule:
+    # Türkiye saati (UTC+3): 09:00, 13:00, 18:00, 21:00
+    - cron: "0 6,10,15,18 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: mira-manual-topic-scheduler
+  cancel-in-progress: false
+
 jobs:
-  run-one-content:
+  produce-one-manual-topic:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
       - name: Validate required secrets
         env:
@@ -18,51 +25,13 @@ jobs:
         run: |
           test -n "$MIRA_BASE_URL" || (echo "Missing GitHub Actions secret: MIRA_BASE_URL" && exit 1)
           test -n "$MIRA_AUTOMATION_SECRET" || (echo "Missing GitHub Actions secret: MIRA_AUTOMATION_SECRET" && exit 1)
-          python -c 'import os, urllib.parse; u=urllib.parse.urlparse(os.environ["MIRA_BASE_URL"]); print("Mira target host:", u.hostname or "INVALID_URL"); print("Target uses HTTPS:", u.scheme == "https")'
-      - name: Research trending topics and fill today's queue
+      - name: Start one manually queued topic only
         env:
           MIRA_BASE_URL: ${{ secrets.MIRA_BASE_URL }}
           MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
         run: |
-          curl --fail-with-body --silent --show-error --max-time 75 -X POST "${MIRA_BASE_URL%/}/api/automation/research" -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" -H "Content-Type: application/json" -d '{}' || echo "Topic research failed; continuing to process any existing queued content."
-      - name: Process one queued content draft
-        env:
-          MIRA_BASE_URL: ${{ secrets.MIRA_BASE_URL }}
-          MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
-        run: |
-          curl --fail-with-body --silent --show-error --max-time 75 -X POST "${MIRA_BASE_URL%/}/api/automation/worker" -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" -H "Content-Type: application/json" -d '{}'
-      - name: Analyze accumulated content drafts
-        continue-on-error: true
-        env:
-          MIRA_BASE_URL: ${{ secrets.MIRA_BASE_URL }}
-          MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
-        run: |
-          curl --fail-with-body --silent --show-error --max-time 75 -X POST "${MIRA_BASE_URL%/}/api/automation/analyze-drafts" -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" -H "Content-Type: application/json" -d '{}'
-      - name: Produce one approved video and upload privately
-        env:
-          MIRA_BASE_URL: ${{ secrets.MIRA_BASE_URL }}
-          MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
-        run: |
-          # Railway's HTTP proxy can return 502 if one production attempt exceeds its request window.
-          # The producer persists prompts, narration and images between calls, so retries resume from checkpoints.
-          RESPONSE=""
-          for attempt in 1 2 3 4; do
-            echo "Video production attempt $attempt/4"
-            if RESPONSE=$(curl --fail-with-body --silent --show-error --max-time 150 -X POST "${MIRA_BASE_URL%/}/api/automation/produce" -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" -H "Content-Type: application/json" -d '{}'); then
-              break
-            fi
-            echo "Production attempt $attempt failed; saved checkpoints will be reused on retry."
-            RESPONSE=""
-            if [ "$attempt" -lt 4 ]; then sleep 5; fi
-          done
-          if [ -z "$RESPONSE" ]; then
-            echo "Video production did not return a successful response after 4 checkpoint-resume attempts."
-            exit 1
-          fi
-          echo "$RESPONSE"
-          CONTENT_ID=$(printf '%s' "$RESPONSE" | python -c 'import json,sys; d=json.load(sys.stdin); print(d.get("contentId","") if d.get("produced") is True else "")')
-          if [ -n "$CONTENT_ID" ]; then
-            curl --fail-with-body --silent --show-error --max-time 300 -X POST "${MIRA_BASE_URL%/}/api/youtube/upload" -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" -H "Content-Type: application/json" -d "{\"contentId\": $CONTENT_ID, \"privacy\": \"private\"}"
-          else
-            echo "No approved content produced; nothing uploaded."
-          fi
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            -X POST "${MIRA_BASE_URL%/}/api/automation/worker" \
+            -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d '{"manualProduce":true}'
