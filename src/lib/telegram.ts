@@ -6,7 +6,7 @@ export type TelegramSendResult =
  * Optional Telegram notification. Missing credentials never break content production.
  * Configure TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Railway.
  */
-export async function sendTelegramMessage(text: string): Promise<TelegramSendResult> {
+export async function sendTelegramMessage(text: string, opts?: { parseMode?: "HTML" }): Promise<TelegramSendResult> {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   const chatId = process.env.TELEGRAM_CHAT_ID?.trim();
   if (!token || !chatId) return { sent: false, reason: "not_configured" };
@@ -19,6 +19,7 @@ export async function sendTelegramMessage(text: string): Promise<TelegramSendRes
         chat_id: chatId,
         text: text.slice(0, 3900),
         disable_web_page_preview: false,
+        ...(opts?.parseMode ? { parse_mode: opts.parseMode } : {}),
       }),
       signal: AbortSignal.timeout(10_000),
       cache: "no-store",

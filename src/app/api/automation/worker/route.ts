@@ -24,7 +24,8 @@ async function reportScriptProgress(contentId: number, percentage: number, stage
     metadata: { contentId, percentage, stage, status, detail, nextAction, updatedAt: new Date().toISOString(), workflow: "manual_script" },
   }).catch((error) => console.error("[Worker] progress write failed:", error instanceof Error ? error.message : String(error)));
 }
-type FactGateResult = { ok: true; sourceUrls: string[]; reason: string } | { ok: false; sourceUrls: string[]; reason: string };
+type EEngineStats = { openalex: number; crossref: number; pubmed: number };
+type FactGateResult = { ok: boolean; sourceUrls: string[]; reason: string; engines?: EEngineStats };
 
 const TRUSTED_SOURCE_DOMAINS = [
   "tmsf.org.tr", "nasa.gov", "nih.gov", "ncbi.nlm.nih.gov", "medlineplus.gov",
@@ -160,10 +161,12 @@ async function verifyScriptSources(contentId: number, script: string, narration:
     .slice(0, 3);
   let searchedAutomatically = false;
   let searchChannel = "";
+  let academicStats: EEngineStats | undefined;
   if (!candidates.length) {
     searchedAutomatically = true;
     await reportScriptProgress(contentId, 60, "Akademik kaynak aranıyor (OpenAlex/Crossref/PubMed)…", "running", "Taslakta doğrulanabilir HTTPS kaynağı bulunmadı; önce anahtarsız akademik indeksleri tarıyorum.", "Akademik bulgu olmazsa DuckDuckGo yedeğine düşeceğim.");
     const academic = await searchAcademicSources(topic, narration).catch((e) => ({ urls: [] as string[], engines: { openalex: 0, crossref: 0, pubmed: 0 }, errors: [e instanceof Error ? e.message.slice(0, 120) : String(e)] }));
+    academicStats = academic.engines;
     candidates = academic.urls.filter(isTrustedSourceUrl).slice(0, 3);
     if (candidates.length) {
       searchChannel = `akademik indeksler (openalex:${academic.engines.openalex} crossref:${academic.engines.crossref} pubmed:${academic.engines.pubmed})`;
@@ -176,12 +179,12 @@ async function verifyScriptSources(contentId: number, script: string, narration:
       } catch (error) {
         const reason = "Akademik keşif boş döndü; DDG araması da hata verdi: " + (error instanceof Error ? error.message : String(error)).slice(0, 300);
         await reportScriptProgress(contentId, 62, "Kaynak araması hata verdi", "failed", reason, "Kaynak araması hatasını inceleyip güvenilir bir bağlantı sağlandıktan sonra yeniden dene.");
-        return { ok: false, sourceUrls: [], reason: "Kaynak verilmedi; " + reason };
+        return { ok: false, sourceUrls: [], reason: "Kaynak verilmedi; " + reason, engines: academicStats };
       }
     }
     if (!candidates.length) {
       await reportScriptProgress(contentId, 62, "Güvenilir kaynak bulunamadı", "failed", "Akademik indeksler (OpenAlex/Crossref/PubMed) ve web keşfi güvenilir HTTPS kaynağı döndürmedi.", "Kaynak bağlantısı eklenmeli veya konu doğrulanabilir kaynakla yeniden hazırlanmalı.");
-      return { ok: false, sourceUrls: [], reason: "Kaynak verilmedi; akademik indekslerde ve web keşfinde güvenilir HTTPS kaynağı bulunamadı." };
+      return { ok: false, sourceUrls: [], reason: "Kaynak verilmedi; akademik indekslerde ve web keşfinde güvenilir HTTPS kaynağı bulunamadı.", engines: academicStats };
     }
   }
   await reportScriptProgress(contentId, 63, "Kaynak bağlantıları bulundu…", "running", `${candidates.length} güvenilir kaynak adayı bulundu: ${candidates.join(" ; ")}`, "Bağlantıları açıp okunabilir kaynak metni olup olmadığını kontrol edeceğim.");
@@ -222,17 +225,21 @@ async function verifyScriptSources(contentId: number, script: string, narration:
     const prefix = searchedAutomatically ? (searchChannel ? `Otomatik arama (${searchChannel}). ` : "Otomatik arama yapıldı. ") : "";
     if (parsed.supported !== true) {
       await reportScriptProgress(contentId, 76, "Kaynak kontrolü başarısız", "failed", `${prefix}${reason} Kaynaklar: ${sourceUrls.join(" ; ")}`, "Desteklenmeyen iddiayı düzeltmeden video üretimine geçme.");
-      return { ok: false, sourceUrls, reason: prefix + reason };
+      return { ok: false, sourceUrls, reason: prefix + reason, engines: academicStats };
     }
     await reportScriptProgress(contentId, 76, "Kaynak kontrolü geçti", "running", `${prefix}${reason} Kaynaklar: ${sourceUrls.join(" ; ")}`, "Senaryo ve kaynak kontrolü sonucunu kaydediyorum.");
-    return { ok: true, sourceUrls, reason: prefix + reason };
+    return { ok: true, sourceUrls, reason: prefix + reason, engines: academicStats };
   } catch (error) {
     const reason = (error instanceof Error ? error.message : String(error)).slice(0, 400);
     await reportScriptProgress(contentId, 76, "Kaynak kontrolü tamamlanamadı", "failed", reason, "Kaynak erişimini veya doğrulama modelinin çıktısını kontrol et; sonra aynı içeriği yeniden dene.");
-    return { ok: false, sourceUrls: candidates, reason };
+    return { ok: false, sourceUrls: candidates, reason, engines: academicStats };
   }
 }
 
+
+function tgEsc(v: string): string {
+  return v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 async function loadLatestSignalDirective(): Promise<Record<string, unknown> | null> {
   const [record] = await db.select().from(operations)
@@ -474,7 +481,34 @@ export async function POST(req: Request) {
       let telegramNotification: { sent: boolean; error?: string } = { sent: false, error: "Bildirim gönderimi doğrulanamadı." };
       try {
         const telegram = await sendTelegramMessage(
-          `${gatePass ? (manualGrace && !factCheck.ok ? "⏸️ Kaynak doğrulaması bulunamadı ama MANUEL konun panelde korundu (senin istediğin konuyu kapı yutmuyor)" : "🤖 Mira içerik işleme tamamlandı") : "⛔ Mira kaynak doğrulamasını geçemedi; taslak reddedildi"}\n\nBaşlık: ${updated.title}\nİçerik ID: ${updated.id}\nKaynak kontrolü: ${factCheck.ok ? "GEÇTİ" : manualGrace ? "BULUNAMADI (manuel taslak korundu)" : "RED"} — ${factCheck.reason}\nModel: ${scriptProvider.provider}/${scriptProvider.model}\nSeslendirme: ${narrationWords} kelime\nAnaliz: ${gatePass ? (contentScreening.ok ? `${contentScreening.kept ?? 0} taslak tutuldu, ${(contentScreening as { archived?: number }).archived ?? contentScreening.deleted ?? 0} içerik arşive alındı (silinmediğinden kurtarılabilir).` : `Tamamlanamadı: ${contentScreening.error || "sonuç alınamadı"}`) : "Kaynak denetimi başarısız olduğu için analiz ve üretim yapılmadı."}\nOtomatik yayın yapılmadı.`
+          [
+            `<b>🤖 MİRA | ${gatePass ? "İçerik İşleme Tamamlandı" : "Kaynak Doğrulamayı Geçemedi"}</b>`,
+            ``,
+            `🎬 <b>Başlık:</b> ${tgEsc(updated.title)}`,
+            `🆔 <b>İçerik ID:</b> #${updated.id}`,
+            ``,
+            factCheck.ok
+              ? `📚 <b>Kaynak Kontrolü:</b> ✅ <b>GEÇTİ</b>`
+              : manualGrace
+                ? `📚 <b>Kaynak Kontrolü:</b> ⏸️ <b>BULUNAMADI</b> <i>(manuel taslak korundu)</i>`
+                : `📚 <b>Kaynak Kontrolü:</b> ❌ <b>RED</b>`,
+            ...(factCheck.engines
+              ? [`<i>OpenAlex: ${factCheck.engines.openalex} | CrossRef: ${factCheck.engines.crossref} | PubMed: ${factCheck.engines.pubmed}</i>`]
+              : factCheck.ok && factCheck.sourceUrls.length ? [`<i>Kaynak: taslak URL'si ✓</i>`] : []),
+            `&gt; <i>${tgEsc(rawNarration.split(/\s+/).slice(0, 12).join(" ") + "…")}</i>`,
+            ...(!factCheck.ok ? [`📝 <i>${tgEsc(factCheck.reason.slice(0, 150))}</i>`] : []),
+            ``,
+            `🎙️ <b>Seslendirme:</b> ${narrationWords} kelime`,
+            `🤖 <b>Model:</b> ${tgEsc(`${scriptProvider.provider}/${scriptProvider.model}`)}`,
+            `📊 <b>Durum:</b> ${gatePass
+              ? (contentScreening.ok
+                  ? `${contentScreening.kept ?? 0} taslak tutuldu <i>(onay bekliyor)</i>${(contentScreening as { archived?: number }).archived ?? contentScreening.deleted ?? 0 ? ` · ${(contentScreening as { archived?: number }).archived ?? contentScreening.deleted ?? 0} arşiv` : ""}`
+                  : `Analiz tamamlanamadı <i>(${tgEsc((contentScreening.error || "sonuç yok").slice(0, 80))})</i>`)
+              : "Analiz ve üretim yapılmadı"}`,
+            ``,
+            `📌 <i>Otomatik yayın yapılmadı. İnceleyip onaylayabilirsiniz.</i>`,
+          ].join("\n"),
+          { parseMode: "HTML" }
         );
         telegramNotification = telegram.sent
           ? { sent: true }
