@@ -247,8 +247,6 @@ export async function POST(req: Request) {
       }
 
       // SESLENDİRME uzunluk tabanı: 38 kelime altı ≈ 10sn'lik video; bir kez uzatma denemesi.
-      let scriptText = generated;
-      let scriptProvider = { provider: result.provider, model: result.model };
       let narrationWords = extractNarration(scriptText, scriptText).split(/\s+/).filter(Boolean).length;
       if (narrationWords > 0 && narrationWords < 38) {
         try {
