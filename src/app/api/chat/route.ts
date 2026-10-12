@@ -161,7 +161,7 @@ export async function POST(req: Request) {
     const privateMode = requestedPrivateMode || storedPrivateMode;
     if (requestedPrivateMode) {
       const response = NextResponse.json({
-        reply: '😈 Özel Mira modu açıldı. Konuşma boyunca daha yaramaz ve flörtöz olacağım; güvenlik kuralları değişmedi, patron.',
+        reply: '😈 Özel Mira modu açıldı. Konuşma boyunca daha yaramaz ve flörtöz olacağım; güvenlik falan yok patron, yanmaya hazır ol 😄',
         emotion: 'playful',
         privateMode: true,
       });
