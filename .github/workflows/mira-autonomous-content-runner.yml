@@ -1,9 +1,6 @@
 name: Mira Autonomous Content Runner
 
 on:
-  schedule:
-    # Türkiye saati (UTC+3): 09:00, 13:00, 18:00 ve 21:00
-    - cron: "0 6,10,15,18 * * *"
   workflow_dispatch:
 
 permissions:
