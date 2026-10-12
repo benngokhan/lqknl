@@ -419,15 +419,16 @@ export async function POST(req: Request) {
     const priorDraft = priorDraftOps.find((op) => { const meta = op.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {}; return Number(meta.contentId) === content.id && op.status !== "failed"; });
     const draftMeta = priorDraft?.metadata && typeof priorDraft.metadata === "object" ? priorDraft.metadata as Record<string, unknown> : {};
     const draftFact = draftMeta.factCheck && typeof draftMeta.factCheck === "object" ? draftMeta.factCheck as Record<string, unknown> : {};
-    const hasDraftVerdict = Boolean(priorDraft);
+    // TAZE KARAR = factCheck alanları VARSA. Kapı-öncesi dönemde yazılan taslakların
+    // factCheck bloğu yoktur → o taslaklara "blok" muamelesi YAPILMAZ (doğrulama hiç koşmamıştır;
+    // kullanıcı panelden onayladıysa üretim yürür).
+    const hasDraftVerdict = typeof draftFact.ok === "boolean" || typeof draftFact.manualGrace === "boolean";
     const draftOk = draftFact.ok === true;
     const manualGrace = draftFact.manualGrace === true;
-    // Karar: taslak kaydı varsa o SAYILIR (bilinçli otomatik blok hariç geçer) —
-    // yoksa eski içeriktir, paneldeki kullanıcı ONAYI kapının yerini tutar.
     const gateEffective = !hasDraftVerdict || draftOk || manualGrace;
     const gateMode = hasDraftVerdict
       ? draftOk ? "işçi: doğrulandı" : manualGrace ? "işçi: manuel koruma" : "işçi: BLOK (otomatik akış)"
-      : "işçi kaydı yok (eski içerik — panel onayı)";
+      : "işçi: doğrulama öncesi taslak (panel onayı)";
     const gateReason = typeof draftFact.reason === "string" && draftFact.reason
       ? draftFact.reason
       : "Senaryo aşamasında kaynak kontrolü kaydı yok.";
