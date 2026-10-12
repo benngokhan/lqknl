@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { gte } from "drizzle-orm";
+import { desc, eq, gte, and } from "drizzle-orm";
 import { db } from "@/db";
 import { contentItems, operations, tasks, trends } from "@/db/schema";
 import { generateWithFallback } from "@/lib/model-manager";
@@ -11,6 +11,19 @@ function authorized(req: Request) {
   const expected = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
   if (!expected) return process.env.NODE_ENV !== "production";
   return req.headers.get("x-mira-key") === expected;
+}
+
+async function loadLatestSignalDirective(): Promise<Record<string, unknown> | null> {
+  const [record] = await db.select().from(operations)
+    .where(and(eq(operations.action, "channel_signal_directive"), eq(operations.status, "success")))
+    .orderBy(desc(operations.id))
+    .limit(1);
+  const metadata = record?.metadata && typeof record.metadata === "object"
+    ? record.metadata as Record<string, unknown> : {};
+  const directive = metadata.directive;
+  return directive && typeof directive === "object" && !Array.isArray(directive)
+    ? directive as Record<string, unknown>
+    : null;
 }
 
 function todayStartInTurkey(now = new Date()) {
@@ -94,6 +107,14 @@ export async function POST(req: Request) {
     }, { status: 502 });
   }
 
+  let signalDirective: Record<string, unknown> | null = null;
+  try {
+    signalDirective = await loadLatestSignalDirective();
+  } catch (signalError) {
+    console.error("[Research] Kanal sinyal direktifi okunamadı; temel trend araştırması devam edecek:",
+      signalError instanceof Error ? signalError.message : String(signalError));
+  }
+
   const selected = await generateWithFallback({
     system: [
       "Sen Türkçe YouTube Shorts için konu araştırmacısısın.",
@@ -102,9 +123,13 @@ export async function POST(req: Request) {
       "Birbirine benzeyen konuları seçme; yalnızca listeden ilham alan ama trendmiş gibi sunulmayan, açıkça Shorts fikri olan başlıklar üret.",
       "Yalnızca geçerli JSON döndür: { \"items\": [{ \"topic\": \"kısa video fikri\", \"title\": \"kısa başlık\", \"sourceTrend\": \"listedeki tam trend\", \"score\": 1-100 }] }",
       `Tam olarak ${remaining} farklı öğe üret. Bir öğeyi güvenilir şekilde oluşturamıyorsan daha az öğe üret; aynı konuyu tekrarlama.`,
+      ...(signalDirective ? [
+        "HAFTALIK KANAL SİNYALİ: agirlik_artir içindeki kümelere konu seçiminde öncelik ver; azalt_durdur içindeki kümelerden yeni konu seçme. Uygun güçlü konu sayısı azsa zayıf konu veya uydurma trend eklemek yerine daha az öğe döndür. Bu direktif Google Trends listesini geçersiz kılmaz; sourceTrend mutlaka listeden birebir alınmalı.",
+        `Güncel sinyal direktifi JSON: ${JSON.stringify(signalDirective)}`
+      ] : [])
     ].join("\n"),
     history: [],
-    message: `Tarih: ${now.toISOString()}\nBugün daha önce eklenen içerikler: ${JSON.stringify(existing)}\nGüncel Google Trends Türkiye RSS öğeleri: ${JSON.stringify(candidates)}`,
+    message: `Tarih: ${now.toISOString()}\nBugün daha önce eklenen içerikler: ${JSON.stringify(existing)}\nGüncel Google Trends Türkiye RSS öğeleri: ${JSON.stringify(candidates)}${signalDirective ? `\nHaftalık kanal sinyal direktifi: ${JSON.stringify(signalDirective)}` : ""}`,
   });
 
   const raw = selected.content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
@@ -177,6 +202,7 @@ export async function POST(req: Request) {
         score,
         provider: selected.provider,
         model: selected.model,
+        signalDirectivePeriod: typeof signalDirective?.donem === "string" ? signalDirective.donem : null,
         requiresApprovalToPublish: true,
       },
     });
