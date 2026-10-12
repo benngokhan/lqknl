@@ -37,6 +37,8 @@ export async function GET(req: Request) {
         stage: typeof meta.stage === "string" ? meta.stage : row.summary,
         status: row.status,
         percentage: typeof meta.percentage === "number" ? meta.percentage : 0,
+        detail: typeof meta.detail === "string" ? meta.detail : "",
+        nextAction: typeof meta.nextAction === "string" ? meta.nextAction : "",
         createdAt: typeof meta.updatedAt === "string" ? meta.updatedAt : row.createdAt.toISOString(),
       };
     });
