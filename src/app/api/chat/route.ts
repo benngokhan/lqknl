@@ -382,9 +382,14 @@ export async function POST(req: Request) {
           cache: 'no-store',
         })
           .then(async (r) => {
+            const raw = await r.text().catch(() => '');
+            let parsed: Record<string, unknown> | null = null;
+            try { parsed = JSON.parse(raw) as Record<string, unknown>; } catch { parsed = null; }
             if (!r.ok) {
-              const t = await r.text().catch(() => '');
-              void logEvent({ level: 'error', source: 'chat/video', message: `Üretim red döndü: HTTP ${r.status} — ${t.slice(0, 160)}`, meta: { contentId } });
+              void logEvent({ level: 'error', source: 'chat/video', message: `Üretim red döndü: HTTP ${r.status} — ${raw.slice(0, 160)}`, meta: { contentId } });
+            } else if (parsed && (parsed.ok === false || parsed.produced === false || parsed.blocked === true)) {
+              const why = String(parsed.error ?? parsed.message ?? raw.slice(0, 160));
+              void logEvent({ level: 'warn', source: 'chat/video', message: `Üretim tamamlanamadı: ${why.slice(0, 180)}${parsed.reason ? ` | sebep: ${String(parsed.reason).slice(0, 120)}` : ''}`, meta: { contentId } });
             } else {
               void logEvent({ level: 'success', source: 'chat/video', message: `Chat tetiklemesiyle video üretimi tamamlandı (${Math.round((Date.now() - startedAt) / 1000)} sn)`, meta: { contentId } });
             }

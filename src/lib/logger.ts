@@ -37,17 +37,18 @@ export async function logEvent(input: {
   else console.log(line);
 
   try {
-    let metaText = "";
+    let metaObj: Record<string, unknown> = {};
     if (input.meta) {
-      metaText = JSON.stringify(input.meta) ?? "";
+      let metaText = JSON.stringify(input.meta) ?? "";
       if (metaText.length > 2000) metaText = metaText.slice(0, 2000);
+      metaObj = JSON.parse(metaText) as Record<string, unknown>;
     }
     await db.insert(operations).values({
       action: LOG_ACTION,
       status: STATUS_MAP[level],
       summary: input.message.slice(0, 400),
       platform: input.source,
-      metadata: metaText ? JSON.parse(metaText) : null,
+      metadata: { level, ...metaObj },
     });
   } catch (error) {
     console.error("[MİRA/log] kayıt yazılamadı:", errText(error));

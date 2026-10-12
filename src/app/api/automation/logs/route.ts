@@ -42,7 +42,7 @@ export async function GET(req: Request) {
     const meta = row.metadata && typeof row.metadata === "object"
       ? row.metadata as Record<string, unknown>
       : {};
-    const rowLevel = String(meta.level ?? "info");
+    const rowLevel = String(meta.level ?? (row.status === "failed" ? "error" : row.status === "warn" ? "warn" : "info"));
     const rowSource = String(row.platform ?? meta.source ?? "");
     if (level && rowLevel !== level) continue;
     if (source && !rowSource.toLowerCase().includes(source)) continue;
