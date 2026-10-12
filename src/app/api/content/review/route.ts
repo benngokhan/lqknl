@@ -34,8 +34,21 @@ export async function GET(req: Request) {
       .where(eq(operations.action, "content_draft_analysis"))
       .orderBy(desc(operations.id))
       .limit(200);
+    // Manuel konu kuyruğundan oluşturulan senaryolar analiz raporuna bağlı değildir;
+    // başarılı manuel taslakları da onay listesinde göster.
+    const manualDraftOps = await db.select().from(operations)
+      .where(eq(operations.action, "autonomous_content_draft"))
+      .orderBy(desc(operations.id))
+      .limit(200);
     const keptIds = new Set<number>();
     const deletedIds = new Set<number>();
+    for (const operation of manualDraftOps) {
+      if (operation.status !== "success") continue;
+      const metadata = operation.metadata && typeof operation.metadata === "object"
+        ? operation.metadata as Record<string, unknown> : {};
+      const id = Number(metadata.contentId);
+      if (Number.isInteger(id) && id > 0) keptIds.add(id);
+    }
     for (const operation of analysisOps) {
       const metadata = operation.metadata && typeof operation.metadata === "object"
         ? operation.metadata as Record<string, unknown> : {};
