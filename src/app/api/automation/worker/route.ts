@@ -521,7 +521,9 @@ export async function POST(req: Request) {
       // ——— OTOPİLOT: taslak hazırsa kullanıcı tuşunu beklemeden video üretimine gir.
       // Yayın (YouTube yükleme) kapısı açık değildir; video panelde incelenmeyi bekler.
       // MIRA_AUTO_PRODUCE=0 ile tamamen kapatılabilir.
-      const autoProduce = body.manualProduce === true && factCheck.ok;
+      // Üretim pilotu varsayılan-AÇIK (MIRA_AUTO_PRODUCE=0 kapatır). manualProduce=true ek isteği de
+      // dürter. Video üretimi doğrulama kapısından (manuel konu koruma DAHİL) geçmişin gerektirir.
+      const autoProduce = (process.env.MIRA_AUTO_PRODUCE !== "0" || body.manualProduce === true) && gatePass;
       const autopilot: Record<string, unknown> = { enabled: autoProduce };
       if (autoProduce) {
         try {
@@ -571,7 +573,17 @@ export async function POST(req: Request) {
         // Tek bir kullanıcı isteği yalnızca seçilen içeriği işler; kuyruğu zincirleme tüketmez.
       }
 
-      await reportScriptProgress(claimed.id, factCheck.ok ? 100 : 92, factCheck.ok ? "Senaryo hazır — onayını bekliyor." : `Kaynak/doğruluk kontrolü tamamlandı ancak doğrulanamadı: ${factCheck.reason}`, factCheck.ok ? "success" : "failed", factCheck.ok ? "Senaryo kaydedildi ve kaynak kontrolü geçti." : `Taslak kaydedildi; ancak kaynak/doğruluk kontrolü geçmedi. ${factCheck.reason}`, factCheck.ok ? "Senaryoyu inceleyip onaylayabilirsin. Video üretimi ayrı onay gerektirir." : "Kaynağı/iddiaları düzeltip yeniden doğrulama yapmadan video üretimine geçme.");
+      await reportScriptProgress(claimed.id, gatePass ? 100 : 92,
+        gatePass
+          ? (manualGrace && !factCheck.ok
+              ? "Senaryo hazır — kaynak tam doğrulanamadı ama manuel konu korundu; onayını bekliyor."
+              : "Senaryo hazır — onayını bekliyor.")
+          : `Kaynak/doğruluk kontrolü tamamlandı ancak doğrulanamadı: ${factCheck.reason}`,
+        gatePass ? "success" : "failed",
+        gatePass
+          ? (manualGrace && !factCheck.ok ? `Taslak kaydedildi; kaynak sınıyısında metin alanı azdı (${factCheck.reason.slice(0,120)}) — manuel taslak panelde korundu.` : "Senaryo kaydedildi ve kaynak kontrolü geçti.")
+          : `Taslak kaydedildi; ancak kaynak/doğruluk kontrolü geçmedi. ${factCheck.reason}`,
+        gatePass ? "Senaryoyu inceleyip onaylayabilirsin." : "Kaynağı/iddiaları düzeltip yeniden doğrulama yapmadan video üretimine geçme.");
       console.log(`[Worker] Senaryo tamamlandı (arka plan): #${updated.id} "${updated.title}" — model ${scriptProvider.provider}/${scriptProvider.model}, ${narrationWords} kelime, op #${savedOperation.id}.`);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
