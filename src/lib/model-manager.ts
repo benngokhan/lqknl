@@ -38,7 +38,7 @@ function recentHistory(history: ModelTurn[]): ModelTurn[] {
 
 const configuredTimeout = Number(process.env.MODEL_TIMEOUT_MS);
 const PROVIDER_TIMEOUT_MS =
-  Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 12000;
+  Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 24000;
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();

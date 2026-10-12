@@ -169,3 +169,11 @@ Kökteki test scriptleri (bu oturumda kullanıldı):
 Semptom: manuel konudan worker taslak üretiyor, ama sonraki seleksiyonda **içerik kalıcı siliniyordu**; KAYNAK=DOĞRULAMA GEREKLİ (model web araması yapamıyor) rubrikte "kanıt yoksa puanı düşür" diye 25 puan altı çöküyor → <60 → REJECT → delete. Düzeltme:
 - Rubrik: kaynak/kanıt 25→15; **DOĞRULAMA GEREKLİ ≠ uydurma kaynak** (uydurma kaynak ⇒ REJECT sebebi, GEREKLİ #-düşür ok); marka-dışı/uydurma/tekrar HARİÇ tutularak REJECT kuralı daraltıldı.
 - REJECT davranışı: **SİLME YOK** → status="rejected" arşivi (panelde "reddedildi" görünür, kurtarılabilir). Graph dump'ları contentAssets temizlenip content satırı korunur. Response'ta `archived` alanı eklendi (`deleted` aynı kalsın tüketici uyumu için), worker Telegram metninde "arşive alındı (kurtarılabilir)".
+
+## 21. Akademik kaynak köprüsü (14:20) — keysiz 3 motor devrede
+
+- Modül: `src/lib/source-search.ts` — OpenAlex, Crossref (works/DOI), PubMed esearch; paralel, sessiz-düş (Promise.allSettled), 9sn/motor, tam-ekstrakt sorgu boş İSE topic-only ikinci tur. Hava koşullarında hiç hata vermez; köprü katmanı eski DDG `discoverPublicSources`'a düşer.
+- Köprü: worker `verifyScriptSources` → akademik indeksler ÖNCE, DDG SONRA; keşif kanalı rapora üstüne damga (`searchChannel`) düşer, ilerleme durum kaydı akademik adları anar (60/61).
+- Güvenlik politiği korundu: aday URL'leri yine `isTrustedSourceUrl` filtresinden (TRUSTED list'te zaten pubmed/doi/doğa yayıncıları vardı) geçip sonrasında sayfa-final tekrar doğrulanır; iddia-kaynak karşılaştırma LLM'i aynı tasarımda.
+- Yan etki: MODEL_TIMEOUT_MS varsayılanı 12000 → 24000 (openrouter/free'nin akşam slow-tur denemelerinde gereksiz retry zincirini azaltmak için; env ile istenirse artırılabilir).
+- Kanıt: tsx canlı testi `Depremde üst kat davranışı…` → openalex:3, crossref:3, pubmed:0 (doğal: PubMed'de deprem konusu az), gerçek DOI URLLeri (geomatik, ngumuh) döndü.

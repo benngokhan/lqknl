@@ -7,6 +7,7 @@ import { contentItems, operations, tasks } from "@/db/schema";
 import { generateWithFallback } from "@/lib/model-manager";
 import { sendTelegramMessage } from "@/lib/telegram";
 import { extractNarration, parseDraftScript } from "@/lib/script-parse";
+import { searchAcademicSources } from "@/lib/source-search";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -154,19 +155,29 @@ async function verifyScriptSources(contentId: number, script: string, narration:
     .filter((url) => isTrustedSourceUrl(url))
     .slice(0, 3);
   let searchedAutomatically = false;
+  let searchChannel = "";
   if (!candidates.length) {
     searchedAutomatically = true;
-    await reportScriptProgress(contentId, 60, "Güvenilir kaynak aranıyor…", "running", "Taslakta kullanılabilir güvenilir HTTPS kaynağı bulunmadı; otomatik arama başlatılıyor.", "Arama sonuçlarından güvenilir alan adlarına ait bağlantıları seçeceğim.");
-    try {
-      candidates = await discoverPublicSources((topic + " " + narration.slice(0, 220) + " scientific evidence source"));
-    } catch (error) {
-      const reason = "Otomatik kaynak araması başarısız oldu: " + (error instanceof Error ? error.message : String(error)).slice(0, 300);
-      await reportScriptProgress(contentId, 62, "Kaynak araması hata verdi", "failed", reason, "Kaynak araması hatasını inceleyip güvenilir bir bağlantı sağlandıktan sonra yeniden dene.");
-      return { ok: false, sourceUrls: [], reason: "Kaynak verilmedi; " + reason };
+    await reportScriptProgress(contentId, 60, "Akademik kaynak aranıyor (OpenAlex/Crossref/PubMed)…", "running", "Taslakta doğrulanabilir HTTPS kaynağı bulunmadı; önce anahtarsız akademik indeksleri tarıyorum.", "Akademik bulgu olmazsa DuckDuckGo yedeğine düşeceğim.");
+    const academic = await searchAcademicSources(topic, narration).catch((e) => ({ urls: [] as string[], engines: { openalex: 0, crossref: 0, pubmed: 0 }, errors: [e instanceof Error ? e.message.slice(0, 120) : String(e)] }));
+    candidates = academic.urls.filter(isTrustedSourceUrl).slice(0, 3);
+    if (candidates.length) {
+      searchChannel = `akademik indeksler (openalex:${academic.engines.openalex} crossref:${academic.engines.crossref} pubmed:${academic.engines.pubmed})`;
     }
     if (!candidates.length) {
-      await reportScriptProgress(contentId, 62, "Güvenilir kaynak bulunamadı", "failed", "Otomatik arama güvenilir HTTPS alan adına ait kaynak döndürmedi.", "Kaynak bağlantısı eklenmeli veya konu doğrulanabilir kaynakla yeniden hazırlanmalı.");
-      return { ok: false, sourceUrls: [], reason: "Kaynak verilmedi; otomatik aramada güvenilir HTTPS kaynağı bulunamadı." };
+      await reportScriptProgress(contentId, 61, "Akademik indeksler boş döndü; DuckDuckGo yedeği deneniyor…", "running", `Akademik keşif boş döndü${academic.errors.length ? ` (motor hataları: ${academic.errors.join(" | ")})` : ""}; web keşfiyle devam ediyorum.`, "Arama sonuçlarından güvenilir alan adlarına ait bağlantıları seçeceğim.");
+      try {
+        candidates = await discoverPublicSources((topic + " " + narration.slice(0, 220) + " scientific evidence source"));
+        if (candidates.length) searchChannel = "duckduckgo-web";
+      } catch (error) {
+        const reason = "Akademik keşif boş döndü; DDG araması da hata verdi: " + (error instanceof Error ? error.message : String(error)).slice(0, 300);
+        await reportScriptProgress(contentId, 62, "Kaynak araması hata verdi", "failed", reason, "Kaynak araması hatasını inceleyip güvenilir bir bağlantı sağlandıktan sonra yeniden dene.");
+        return { ok: false, sourceUrls: [], reason: "Kaynak verilmedi; " + reason };
+      }
+    }
+    if (!candidates.length) {
+      await reportScriptProgress(contentId, 62, "Güvenilir kaynak bulunamadı", "failed", "Akademik indeksler (OpenAlex/Crossref/PubMed) ve web keşfi güvenilir HTTPS kaynağı döndürmedi.", "Kaynak bağlantısı eklenmeli veya konu doğrulanabilir kaynakla yeniden hazırlanmalı.");
+      return { ok: false, sourceUrls: [], reason: "Kaynak verilmedi; akademik indekslerde ve web keşfinde güvenilir HTTPS kaynağı bulunamadı." };
     }
   }
   await reportScriptProgress(contentId, 63, "Kaynak bağlantıları bulundu…", "running", `${candidates.length} güvenilir kaynak adayı bulundu: ${candidates.join(" ; ")}`, "Bağlantıları açıp okunabilir kaynak metni olup olmadığını kontrol edeceğim.");
@@ -192,7 +203,7 @@ async function verifyScriptSources(contentId: number, script: string, narration:
     const parsed = JSON.parse(raw) as { supported?: unknown; reason?: unknown };
     const reason = typeof parsed.reason === "string" ? parsed.reason.slice(0, 400) : "Model gerekçe vermedi.";
     const sourceUrls = pages.map((p) => p.url);
-    const prefix = searchedAutomatically ? "Otomatik arama yapıldı. " : "";
+    const prefix = searchedAutomatically ? (searchChannel ? `Otomatik arama (${searchChannel}). ` : "Otomatik arama yapıldı. ") : "";
     if (parsed.supported !== true) {
       await reportScriptProgress(contentId, 76, "Kaynak kontrolü başarısız", "failed", `${prefix}${reason} Kaynaklar: ${sourceUrls.join(" ; ")}`, "Desteklenmeyen iddiayı düzeltmeden video üretimine geçme.");
       return { ok: false, sourceUrls, reason: prefix + reason };
