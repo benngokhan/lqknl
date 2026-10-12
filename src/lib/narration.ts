@@ -124,6 +124,43 @@ export async function generateWithEdgeTts(text: string): Promise<{ audio: Uint8A
   };
 }
 
+/**
+ * SON CAN SİMİDİ: keysiz Google Translate TTS (client=tw-ob). Edge TTS'nin
+ * protokolü Microsoft tarafında 403'e kapandığında zincirin koptuğu yer.
+ * Parça parça (≤170kr) alınır, MP3'ler uç uca eklenir. Altyazı zamanlaması yoktur
+ * (render servisi dosya süresini kendi ölçer).
+ */
+export async function generateWithGoogleTts(text: string): Promise<Uint8Array> {
+  const chunks: string[] = [];
+  let bucket = "";
+  for (const piece of text.split(/(?<=[.!?,;:\n—])/)) {
+    if ((bucket + piece).length > 170 && bucket.trim()) {
+      chunks.push(bucket.trim());
+      bucket = piece;
+    } else {
+      bucket += piece;
+    }
+  }
+  if (bucket.trim()) chunks.push(bucket.trim());
+
+  const parts: Buffer[] = [];
+  for (const chunk of chunks) {
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=tr&total=1&idx=0&textlen=${chunk.length}&q=${encodeURIComponent(chunk)}`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Referer": "https://translate.google.com/",
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) throw new Error(`Google TTS HTTP ${res.status} döndürdü`);
+    parts.push(Buffer.from(await res.arrayBuffer()));
+  }
+  const audio = Buffer.concat(parts);
+  if (!audio.length) throw new Error("Google TTS boş ses verisi döndürdü");
+  return new Uint8Array(audio);
+}
+
 export async function generateNarration(rawText: string): Promise<NarrationResult> {
   const text = stripForTts(rawText);
   if (!text) throw new Error("Seslendirilecek metin boş");
@@ -138,6 +175,13 @@ export async function generateNarration(rawText: string): Promise<NarrationResul
       console.error("[Narration] ElevenLabs failed; Edge TTS fallback:", message);
     }
   }
-  const edge = await generateWithEdgeTts(text);
-  return { audio: edge.audio, provider: "edge-tts", captions: edge.captions, durationSeconds: edge.durationSeconds };
+  try {
+    const edge = await generateWithEdgeTts(text);
+    return { audio: edge.audio, provider: "edge-tts", captions: edge.captions, durationSeconds: edge.durationSeconds };
+  } catch (edgeError) {
+    const message = edgeError instanceof Error ? edgeError.message : String(edgeError);
+    console.error("[Narration] Edge TTS failed; Google TTS son can simidi:", message);
+  }
+  const google = await generateWithGoogleTts(text);
+  return { audio: google, provider: "google-tts", captions: [], durationSeconds: null };
 }
