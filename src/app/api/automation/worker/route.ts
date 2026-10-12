@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { and, desc, eq, like, lt } from "drizzle-orm";
 import { db } from "@/db";
+import { logEvent } from "@/lib/logger";
 import { contentItems, operations, tasks } from "@/db/schema";
 import { generateWithFallback } from "@/lib/model-manager";
 import { sendTelegramMessage } from "@/lib/telegram";
@@ -430,6 +431,14 @@ export async function POST(req: Request) {
         status: factCheck.ok ? "success" : "failed", platform: claimed.platform,
         metadata: { contentId: claimed.id, sourceUrls: factCheck.sourceUrls, reason: factCheck.reason, gate: "source_reachability_and_claim_support", videoCreated: false },
       });
+      await logEvent({
+        level: factCheck.ok ? "success" : (manualGrace ? "warn" : "error"),
+        source: "worker/gate",
+        message: factCheck.ok
+          ? `Kaynak kapısını GEÇTİ #${claimed.id} — ${claimed.title}`
+          : `Kapı takıldı #${claimed.id} — ${manualGrace ? "manuel taslak KORUNDU" : "taslak RED"}: ${factCheck.reason}`,
+        meta: { contentId: claimed.id, manualGrace, sourceUrls: factCheck.sourceUrls.slice(0, 5), engines: factCheck.engines, reason: factCheck.reason.slice(0, 300) },
+      });
       await reportScriptProgress(claimed.id, 82, "Senaryo ve kaynak analizi tamamlanıyor…", "running", "Senaryo metni, kullanılan model ve kaynak kontrolü sonucu kayıt altına alınıyor.", "Taslağı onay bekleyen duruma getireceğim; bu adım video üretmez veya YouTube’a yüklemez.");
       const [savedOperation] = await db.insert(operations).values({
         action: "autonomous_content_draft",
@@ -476,6 +485,7 @@ export async function POST(req: Request) {
       } catch (screeningError) {
         contentScreening = { ok: false, error: screeningError instanceof Error ? screeningError.message : String(screeningError) };
         console.error("[Worker] Otomatik içerik analizi başarısız:", contentScreening.error);
+        void logEvent({ level: "error", source: "worker/analyze", message: `İçerik analizi başarısız: ${String(contentScreening.error).slice(0, 250)}`, meta: { contentId: claimed.id } });
       }
 
       let telegramNotification: { sent: boolean; error?: string } = { sent: false, error: "Bildirim gönderimi doğrulanamadı." };
@@ -517,6 +527,7 @@ export async function POST(req: Request) {
         telegramNotification = { sent: false, error: telegramError instanceof Error ? telegramError.message : String(telegramError) };
       }
       if (!telegramNotification.sent) console.error("[Worker] Telegram success notification failed:", telegramNotification.error);
+      if (!telegramNotification.sent) void logEvent({ level: "warn", source: "worker/telegram", message: `Bildirim Telegram'a ulaşamadı: ${String(telegramNotification.error).slice(0, 200)}` });
 
       // ——— OTOPİLOT: taslak hazırsa kullanıcı tuşunu beklemeden video üretimine gir.
       // Yayın (YouTube yükleme) kapısı açık değildir; video panelde incelenmeyi bekler.
@@ -549,6 +560,7 @@ export async function POST(req: Request) {
             if ("error" in produceRes) {
               autopilot.produceHttp = -1;
               console.error("[Worker] Otopilot üretim çağrısı yerine ulaşamadı:", produceRes.error);
+              void logEvent({ level: "error", source: "worker/autopilot", message: `Üretim çağrısı yerine varmadı #${updated.id}: ${produceRes.error}`, meta: { contentId: updated.id } });
               await sendTelegramMessage(
                 `<b>⚠️ MİRA | Otopilot Üretim Çalıştırılamadı</b>\n\n🆔 <b>İçerik:</b> #${updated.id}\n🔗 <b>Sorun:</b> ${tgEsc(produceRes.error)}\n\nÜretim isteği sunucuya varmadan patladı; paneldeki "Onayla ve video üret" tuşuyla tekrar dene.`,
                 { parseMode: "HTML" }
@@ -558,6 +570,7 @@ export async function POST(req: Request) {
               if (!produceRes.ok) {
                 const bodyText = (await produceRes.text().catch(() => "")).slice(0, 180);
                 console.error(`[Worker] Otopilot produce HTTP ${produceRes.status}:`, bodyText);
+                void logEvent({ level: "error", source: "worker/autopilot", message: `Üretim red verdi #${updated.id}: HTTP ${produceRes.status} — ${bodyText.slice(0, 150)}`, meta: { contentId: updated.id, http: produceRes.status } });
                 await sendTelegramMessage(
                   `<b>⚠️ MİRA | Otopilot Üretim Reddedildi</b>\n\n🆔 <b>İçerik:</b> #${updated.id}\n🔗 <b>HTTP:</b> ${produceRes.status}\n📝 ${tgEsc(bodyText || "yanıt yok")}\n\nAyrıntılar paneldeki üretim durumunda görülebilir.`,
                   { parseMode: "HTML" }
@@ -568,6 +581,7 @@ export async function POST(req: Request) {
         } catch (error) {
           autopilot.error = error instanceof Error ? error.message.slice(0, 120) : String(error);
           console.error("[Worker] Otopilot onay adımı başarısız:", autopilot.error);
+          void logEvent({ level: "error", source: "worker/autopilot", message: `Onay adımı patladı #${updated.id}: ${String(autopilot.error).slice(0, 200)}`, meta: { contentId: updated.id } });
         }
 
         // Tek bir kullanıcı isteği yalnızca seçilen içeriği işler; kuyruğu zincirleme tüketmez.
@@ -585,6 +599,7 @@ export async function POST(req: Request) {
           : `Taslak kaydedildi; ancak kaynak/doğruluk kontrolü geçmedi. ${factCheck.reason}`,
         gatePass ? "Senaryoyu inceleyip onaylayabilirsin." : "Kaynağı/iddiaları düzeltip yeniden doğrulama yapmadan video üretimine geçme.");
       console.log(`[Worker] Senaryo tamamlandı (arka plan): #${updated.id} "${updated.title}" — model ${scriptProvider.provider}/${scriptProvider.model}, ${narrationWords} kelime, op #${savedOperation.id}.`);
+      await logEvent({ level: "success", source: "worker/script", message: `Senaryo hazır #${updated.id} — "${updated.title}" | kapı: ${factCheck.ok ? "GEÇTİ" : "manuel koruma"} | ${narrationWords} kelime | @${scriptProvider.provider}`, meta: { contentId: updated.id, operationId: savedOperation.id, manualGrace } });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       await reportScriptProgress(claimed.id, 0, `İşlem başarısız: ${reason.slice(0, 240)}`, "failed", "İşlem bu aşamada tamamlanamadı; hata kaydı korunuyor.", "Mira hatayı ve eksik koşulu gösterecek. Sorun otomatik düzeltme kapsamındaysa yeniden denenecek; değilse kaynağı veya model çıktısını düzeltmek gerekecek.");
@@ -610,6 +625,7 @@ export async function POST(req: Request) {
         console.error("[Worker] Telegram failure notification failed:", telegramError instanceof Error ? telegramError.message : String(telegramError));
       }
       console.error(`[Worker] Arka plan senaryo işi başarısız (#${claimed.id}):`, reason.slice(0, 300));
+      await logEvent({ level: "error", source: "worker/script", message: `Senaryo işi patladı #${claimed.id}: ${reason.slice(0, 280)}`, meta: { contentId: claimed.id } });
     }
   });
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
+import { logEvent } from "@/lib/logger";
 import { contentAssets, contentItems, operations, tasks } from "@/db/schema";
 import { like } from "drizzle-orm";
 import { generateWithFallback } from "@/lib/model-manager";
@@ -223,6 +224,7 @@ async function retryStage<T>(
   }
   const detail = lastError instanceof Error ? lastError.message : String(lastError);
   await reportProgress(contentId, percentage, `${label} başarısız: ${detail.slice(0, 220)} — görev silinmedi, kaldığı yerden devam etmek üzere beklemede`, "waiting");
+  await logEvent({ level: "error", source: "produce/step", message: `Üretim adımı tutmadı #${contentId}: ${label} — ${detail.slice(0, 200)}`, meta: { contentId, label } });
   throw lastError instanceof Error ? lastError : new Error(detail);
 }
 
@@ -318,6 +320,7 @@ export async function POST(req: Request) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("[Produce/mock] failed:", message);
+      await logEvent({ level: "error", source: "produce", message: `Mock üretim patladı: ${message.slice(0, 280)}` });
       return NextResponse.json({ ok: false, mock: true, error: message.slice(0, 600) }, { status: 500 });
     }
   }
@@ -424,6 +427,7 @@ export async function POST(req: Request) {
     });
     if (!factGate.ok) {
       await reportProgress(content.id, 8, `❌ Doğruluğu ispatlanamadı, video oluşturulamıyor. ${factGate.reason}`, "waiting");
+      await logEvent({ level: "error", source: "produce/gate", message: `Video kapıda durdu #${content.id}: ${factGate.reason.slice(0, 280)}`, meta: { contentId: content.id, title: content.title } });
       return NextResponse.json({
         ok: true, produced: false, blocked: true, contentId: content.id,
         error: "❌ Doğruluğu ispatlanamadı, video oluşturulamıyor.",
@@ -613,9 +617,11 @@ export async function POST(req: Request) {
           await sendTelegramMessage(
             `❌ Mira marka motoru QC kapısından geçemedi — video OTOMATİK RED\n\nBaşlık: ${content.title}\nİçerik ID: ${content.id}\nQC: ${msg.slice(-400)}\n\nKural gereği yedek/yansi render çalıştırılmadı; yayın adımı hiç başlamadı. İyileştirmeler genellikle: gerçek TTS sesiyle LRA bandı aşılır.`
           ).catch(() => {});
+          void logEvent({ level: "error", source: "produce/qc", message: `QC FAIL — video reddedildi #${content.id}: ${msg.slice(0, 280)}`, meta: { contentId: content.id, http: 422 } });
           return NextResponse.json({ ok: false, produced: false, qcFailed: true, error: msg.slice(0, 600), stages }, { status: 422 });
         }
         console.error(`[Produce] Marka motoru geriledi (#${content.id}): ${msg.slice(0, 300)}`);
+        void logEvent({ level: "warn", source: "produce/render", message: `Marka motoru devre dışı, yedek render #${content.id}: ${msg.slice(0, 200)}`, meta: { contentId: content.id } });
         await reportProgress(content.id, 86, `Marka motoru geriledi (${msg.slice(0, 80)}); yedek render`);
         const rs = await retryStage(content.id, "MP4 birleştirme", 86, () => renderShort({
           images,
@@ -690,6 +696,7 @@ export async function POST(req: Request) {
     const telegram = await sendTelegramMessage(
       `✅ Mira video üretimini tamamladı\n\nBaşlık: ${content.title}\nİçerik ID: ${content.id}\nSüre: ${durationSeconds} sn\nDurum: Video hazır; YouTube'a otomatik yükleme bu bildirimin parçası değildir.\nÖnizleme: ${previewUrl}`
     );
+    await logEvent({ level: "success", source: "produce/done", message: `Video hazır #${content.id} — "${content.title}" (${durationSeconds} sn)`, meta: { contentId: content.id, previewUrl, durationSeconds } });
     stages.telegram = telegram;
     await reportProgress(content.id, 100, "Video hazır", "success");
 
@@ -721,6 +728,7 @@ export async function POST(req: Request) {
         `⚠️ Mira video üretiminde bir engelle karşılaştı\n\nBaşlık: ${failedContent?.title || "İçerik #" + requestedId}\nHata: ${message.slice(0, 700)}\nDurum: Görev iptal edilmedi. Kaydedilmiş aşamalar korunuyor; aynı contentId ile yeniden başlatıldığında kaldığı yerden devam etmeyi deneyecek.`
       ).catch(() => ({ sent: false as const, reason: "send_failed" as const }));
     }
+    await logEvent({ level: "error", source: "produce", message: `Üretim patladı${hasId ? ` #${requestedId}` : ""}: ${message.slice(0, 300)}`, meta: { contentId: hasId ? requestedId : null, retryable: true } });
     return NextResponse.json({ ok: false, produced: false, error: message.slice(0, 600), stages }, { status: 500 });
   }
 }
