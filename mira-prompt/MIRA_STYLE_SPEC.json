@@ -11,8 +11,8 @@
     "kaynak_gri": "#A0AAA8"
   },
   "fontlar": {
-    "baslik_altyazi_etiket_imza": "Archivo Black (fonts/raw/archivo.ttf)",
-    "not_kaynak": "Inter (fonts/raw/inter.ttf) 28px",
+    "baslik_altyazi_etiket_imza": "Archivo Black (font/raw/archivo.ttf)",
+    "not_kaynak": "Inter (font/raw/inter.ttf) 28px",
     "KRITIK": "layout_engine=ImageFont.Layout.BASIC ZORUNLU (raqm Türkçe glifleri bozuyor)",
     "baslik_otofit": "92px'ten başlar, taşma varsa 4'er düşer, min 56px"
   },
