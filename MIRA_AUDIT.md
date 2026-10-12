@@ -163,3 +163,9 @@ Kökteki test scriptleri (bu oturumda kullanıldı):
 2. **QC KAPASI GÖREVE CARP: RULE**: motor-render.ts'te `MotorQCFailError` typed; produce tarafında bu hata ⇒ **yedek render'a (ts-ladder) düşülmez**, content/task=`failed`, operation `autoRejected:true`, Telegram "❌ QC FAIL", HTTP 422 ile {qcFailed:true} döner. Yayın adımı hiç başlamaz (done≠QC-PASS titizliği). Crash/timeout/ortam hatası hâlâ ts-ladder'a düşer (orası bilerek var).
 3. **TEK MOTOR KAYNAĞI**: motor/ (TS köprülü canlı yol) — dedupe tam takas: `mira-prompt/` altındaki shorts_pipeline.py, qc_check.py, publish.py, requirements.txt repodan silindi; mira-prompt artık yalnızca DOKÜMAN paketi (README*, ANA_PROMPT.md, MIRA_SYSTEM_PROMPT.txt, şema/örnek config, font, spec). Drift riski kapalı.
 4. **HİJYEN**: repo köküne .gitignore'a: Build, next, mira-phase4-complete.zip, .backups/, gg/. Üstüne tracked olanlar --cached ile untrack edildi (diskten silinmeme garantisiyle). motor/README_MIRA.md + motor/install.sh hazır hâlde yeniden eklendi (kurulum rehberi geri döndü, orijinal zip'teki iki dosya pakete geri döndü).
+
+## 20. Seçim motoru yumuşatma (11:05) — manuel konu kaybının kökü
+
+Semptom: manuel konudan worker taslak üretiyor, ama sonraki seleksiyonda **içerik kalıcı siliniyordu**; KAYNAK=DOĞRULAMA GEREKLİ (model web araması yapamıyor) rubrikte "kanıt yoksa puanı düşür" diye 25 puan altı çöküyor → <60 → REJECT → delete. Düzeltme:
+- Rubrik: kaynak/kanıt 25→15; **DOĞRULAMA GEREKLİ ≠ uydurma kaynak** (uydurma kaynak ⇒ REJECT sebebi, GEREKLİ #-düşür ok); marka-dışı/uydurma/tekrar HARİÇ tutularak REJECT kuralı daraltıldı.
+- REJECT davranışı: **SİLME YOK** → status="rejected" arşivi (panelde "reddedildi" görünür, kurtarılabilir). Graph dump'ları contentAssets temizlenip content satırı korunur. Response'ta `archived` alanı eklendi (`deleted` aynı kalsın tüketici uyumu için), worker Telegram metninde "arşive alındı (kurtarılabilir)".

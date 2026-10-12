@@ -384,6 +384,12 @@ export async function POST(req: Request) {
       const rawNarration = extractNarration(scriptText, `${claimed.title}. ${topic}`);
       await reportScriptProgress(claimed.id, 54, "Senaryo metni çıkarıldı…", "running", `Seslendirme metni ayrıştırıldı; ${rawNarration.split(/\s+/).filter(Boolean).length} kelime bulundu. Kaynak denetimi başlıyor.`, "Kaynak bağlantılarını açıp ana iddiaları karşılaştıracağım.");
       const factCheck = await verifyScriptSources(claimed.id, scriptText, rawNarration, claimed.title + ". " + topic);
+      // Manuel konu doktrini: SENİN elinle girdiğin konular kapıda ölmez. Kapı yine çalışır, sonucu operasyon
+      // günlüğüne ve Telegram’a düşer; ama doğrulama bulunamazsa taslak "failed" DEĞİL "draft" olur,
+      // panelde görünür, istersen kaynak ekleyip tekrar denetletirsin. Otomatik araştırma akışı için
+      // kapı eskiden olduğu gibi SERT çalışır (otomatik kalite duvarı aynen ayakta).
+      const manualGrace = body.manualTopic === true;
+      const gatePass = factCheck.ok || manualGrace;
       await db.insert(operations).values({
         action: factCheck.ok ? "fact_check_passed" : "fact_check_blocked",
         summary: factCheck.ok ? `Kaynak kontrolü geçti: ${claimed.title}` : `Kaynak/doğruluk kontrolü başarısız: ${claimed.title}`,
@@ -394,7 +400,7 @@ export async function POST(req: Request) {
       const [savedOperation] = await db.insert(operations).values({
         action: "autonomous_content_draft",
         summary: `Mira otomatik içerik taslağı hazırladı: ${claimed.title}`,
-        status: factCheck.ok ? "success" : "failed",
+        status: gatePass ? "success" : "failed",
         platform: claimed.platform,
         metadata: {
           contentId: claimed.id,
@@ -404,24 +410,24 @@ export async function POST(req: Request) {
           model: scriptProvider.model,
           script: scriptText,
           narrationWords,
-          factCheck: { ok: factCheck.ok, sourceUrls: factCheck.sourceUrls, reason: factCheck.reason },
+          factCheck: { ok: factCheck.ok, manualGrace, sourceUrls: factCheck.sourceUrls, reason: factCheck.reason },
           requiresApprovalToPublish: true,
         },
       }).returning();
 
       const [updated] = await db.update(contentItems)
-        .set({ status: factCheck.ok ? "draft" : "failed", updatedAt: new Date() })
+        .set({ status: gatePass ? "draft" : "failed", updatedAt: new Date() })
         .where(eq(contentItems.id, claimed.id))
         .returning();
 
       await db.update(tasks)
-        .set({ status: factCheck.ok ? "done" : "failed", updatedAt: new Date() })
+        .set({ status: gatePass ? "done" : "failed", updatedAt: new Date() })
         .where(like(tasks.notes, `%\"contentId\":${claimed.id}%`));
 
       // Manual-topic flow must never run destructive batch screening against other drafts.
-      let contentScreening: { ok?: boolean; kept?: number; deleted?: number; error?: string } = !factCheck.ok ? { ok: false, error: "Kaynak doğrulaması başarısız; taslak reddedildi." } : body.manualTopic === true ? { ok: true, kept: 1, deleted: 0 } : {};
+      let contentScreening: { ok?: boolean; kept?: number; deleted?: number; error?: string } = !gatePass ? { ok: false, error: "Kaynak doğrulaması başarısız; taslak reddedildi." } : body.manualTopic === true ? { ok: true, kept: 1, deleted: 0 } : {};
       try {
-        if (factCheck.ok && body.manualTopic !== true) {
+        if (gatePass && body.manualTopic !== true) {
         const screening = await fetch(`${origin}/api/automation/analyze-drafts`, {
           method: "POST",
           headers: { "x-mira-key": secret },
@@ -441,7 +447,7 @@ export async function POST(req: Request) {
       let telegramNotification: { sent: boolean; error?: string } = { sent: false, error: "Bildirim gönderimi doğrulanamadı." };
       try {
         const telegram = await sendTelegramMessage(
-          `${factCheck.ok ? "🤖 Mira içerik işleme tamamlandı" : "⛔ Mira kaynak doğrulamasını geçemedi; taslak reddedildi"}\n\nBaşlık: ${updated.title}\nİçerik ID: ${updated.id}\nKaynak kontrolü: ${factCheck.ok ? "GEÇTİ" : "RED"} — ${factCheck.reason}\nModel: ${scriptProvider.provider}/${scriptProvider.model}\nSeslendirme: ${narrationWords} kelime\nAnaliz: ${factCheck.ok ? (contentScreening.ok ? `${contentScreening.kept ?? 0} taslak tutuldu, ${contentScreening.deleted ?? 0} içerik silindi.` : `Tamamlanamadı: ${contentScreening.error || "sonuç alınamadı"}`) : "Kaynak denetimi başarısız olduğu için analiz ve üretim yapılmadı."}\nOtomatik yayın yapılmadı.`
+          `${gatePass ? (manualGrace && !factCheck.ok ? "⏸️ Kaynak doğrulaması bulunamadı ama MANUEL konun panelde korundu (senin istediğin konuyu kapı yutmuyor)" : "🤖 Mira içerik işleme tamamlandı") : "⛔ Mira kaynak doğrulamasını geçemedi; taslak reddedildi"}\n\nBaşlık: ${updated.title}\nİçerik ID: ${updated.id}\nKaynak kontrolü: ${factCheck.ok ? "GEÇTİ" : manualGrace ? "BULUNAMADI (manuel taslak korundu)" : "RED"} — ${factCheck.reason}\nModel: ${scriptProvider.provider}/${scriptProvider.model}\nSeslendirme: ${narrationWords} kelime\nAnaliz: ${gatePass ? (contentScreening.ok ? `${contentScreening.kept ?? 0} taslak tutuldu, ${(contentScreening as { archived?: number }).archived ?? contentScreening.deleted ?? 0} içerik arşive alındı (silinmediğinden kurtarılabilir).` : `Tamamlanamadı: ${contentScreening.error || "sonuç alınamadı"}`) : "Kaynak denetimi başarısız olduğu için analiz ve üretim yapılmadı."}\nOtomatik yayın yapılmadı.`
         );
         telegramNotification = telegram.sent
           ? { sent: true }

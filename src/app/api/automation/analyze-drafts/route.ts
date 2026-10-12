@@ -88,8 +88,9 @@ export async function POST(req: Request) {
   const result = await generateWithFallback({
     system: [
       "Sen Mira'nın YouTube Shorts editörü ve içerik seçicisisin.",
-      "Her içeriği 100 üzerinden puanla: kanca 20, tek ve anlaşılır bilgi 20, kaynak/kanıt 25, süreye uygunluk 15, özgünlük 10, görselleştirilebilirlik 10. Kaynak uydurma; kanıt yoksa puanı düşür.",
-      "En iyi en fazla 3 içeriği KEEP seç; KEEP için puan en az 60 olmalı. Geri kalanların tamamını REJECT seç. KEEP olanlar Taslaklar bölümünde kalacak, REJECT olanlar içerik deposundan kalıcı silinecek.",
+      "Her içeriği 100 üzerinden puanla: kanca 25, tek ve anlaşılır bilgi 25, kaynak/kanıt 15, süreye uygunluk 15, özgünlük 10, görselleştirilebilirlik 10. Kaynak uydurma; uydurma kaynak/URL = REJECT sebebi.",
+      "KAYNAK bölümünde 'DOĞRULAMA GEREKLİ' yazması kanıt uydurma DEĞİLDİR — model web araması yapamaz; bu durumda kaynak puanını düşür ama doğrulanabilir-markalı metnin geri kalanı iyiyse KEEP adayı olabilir. Bilgi gerçekten mantıklı/öğreticiyse ve DOĞRULAMA GEREKLİ ise: puanı 60-70 bandında tut, kanca+bilgi kalitesine göre verdiğin nihai kararda sileceğin değil arşivleneceğini unutma.",
+      "En iyi en fazla 3 içeriği KEEP seç; KEEP için puan en az 60 olmalı. Geri kalanların tamamını REJECT seç. KEEP olanlar Taslaklar bölümünde kalacak, REJECT olanlar SİLİNMEZ — 'rejected' durumuna alınır (arşiv; panelde görülebilir, kullanıcı isterse kurtarır). Yalnızca marka-dışı, uydurma-kaynaklı, kanıtsız-abartılı veya aynen tekrarlananları REJECT için hedefle.",
       "Yalnızca verilen id'leri kullan ve her id için tek karar üret. Yalnızca geçerli JSON döndür, açıklama veya markdown ekleme: {\"decisions\":[{\"id\":1,\"score\":80,\"decision\":\"KEEP\",\"reason\":\"kısa gerekçe\"}]}",
     ].join("\n"),
     history: [],
@@ -127,7 +128,7 @@ export async function POST(req: Request) {
     "TASLAKLARDA KALANLAR:",
     ...(keep.length ? keep.map((item, i) => `${i + 1}. ${pending.find((draft) => draft.id === item.id)?.title} — ${item.score}/100 — ${item.reason}`) : ["60 puan ve üzeri içerik bulunamadı."]),
     "",
-    "SİLİNENLER:",
+    "ARŞİVLENENLER (silinmez; panelde 'reddedildi' olarak görünür):",
     ...(rejected.length ? rejected.map((item) => `- ${item.title} — ${decisions.find((decision) => decision.id === item.id)?.reason ?? "Mira seçmedi"}`) : ["Yok"]),
   ].join("\n");
 
@@ -140,7 +141,7 @@ export async function POST(req: Request) {
       analyzedContentIds: pending.map((draft) => draft.id),
       decisions,
       keptContentIds: [...keepIds],
-      deletedContentIds: rejected.map((draft) => draft.id),
+      archivedContentIds: rejected.map((draft) => draft.id),
       titles: pending.map((draft) => ({ id: draft.id, title: draft.title })),
       report,
       provider: result.provider,
@@ -150,17 +151,18 @@ export async function POST(req: Request) {
     },
   }).returning();
 
-  let deletedCount = 0;
+  let archivedCount = 0;
   for (const item of rejected) {
     await db.delete(contentAssets).where(eq(contentAssets.contentId, item.id));
-    const deleted = await db.delete(contentItems)
+    const archived = await db.update(contentItems)
+      .set({ status: "rejected", updatedAt: new Date() })
       .where(and(eq(contentItems.id, item.id), eq(contentItems.status, "draft")))
       .returning({ id: contentItems.id });
-    if (deleted.length) {
-      deletedCount++;
+    if (archived.length) {
+      archivedCount++;
       await db.insert(operations).values({
-        action: "content_auto_rejected",
-        summary: `Mira beğenmediği içeriği sildi: ${item.title}`,
+        action: "content_auto_archived",
+        summary: `Mira beğenmediği içeriği arşive aldı (silinmedi, kurtarılabilir): ${item.title}`,
         status: "success",
         platform: drafts.find((draft) => draft.id === item.id)?.platform ?? "youtube",
         metadata: { contentId: item.id, reason: decisions.find((decision) => decision.id === item.id)?.reason ?? "Mira seçmedi", analysisOperationId: saved.id },
@@ -173,9 +175,11 @@ export async function POST(req: Request) {
     analyzed: true,
     count: pending.length,
     kept: keep.length,
-    deleted: deletedCount,
+    deleted: archivedCount,
+    archived: archivedCount,
     keptTitles: keep.map((item) => pending.find((draft) => draft.id === item.id)?.title),
     deletedTitles: rejected.filter((item) => !keepIds.has(item.id)).map((item) => item.title),
+    archivedTitles: rejected.filter((item) => !keepIds.has(item.id)).map((item) => item.title),
     contentIds: pending.map((draft) => draft.id),
     report,
     provider: result.provider,

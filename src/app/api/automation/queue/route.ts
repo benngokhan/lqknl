@@ -111,7 +111,19 @@ export async function POST(req: Request) {
     },
   }).returning();
 
-  const manualKick = false; // Kuyruğa eklemek üretimi başlatmaz; zamanlama veya kullanıcı butonu başlatır.
+  // Panelden manuel eklenen konu: vardiyayı beklemeden worker'ı ateşle (manualTopic işareti kapıyı
+  // yumuşatır; senaryo arka planda yazılır, otopilot zinciri video üretimine dek sürer).
+  // Araştırma hattı (mode=key) için pasif kalır: zincir token'lı tetik bekler.
+  const manualKick = mode === "panel" && process.env.MIRA_MANUAL_KICK !== "0";
+  if (manualKick) {
+    const origin = new URL(req.url).origin;
+    const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
+    fetch(`${origin}/api/automation/worker?contentId=${content.id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-mira-key": secret },
+      body: JSON.stringify({ manualTopic: true }),
+    }).catch((e) => console.error("[Queue] Manuel worker tetiklemesi başarısız:", e));
+  }
 
   return NextResponse.json({
     ok: true,
