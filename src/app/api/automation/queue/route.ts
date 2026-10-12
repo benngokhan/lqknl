@@ -7,7 +7,7 @@ import { normalizeTitleKey } from "@/lib/dedupe-content";
 export const dynamic = "force-dynamic";
 
 function authorized(req: Request) {
-  const expected = process.env.MIRA_N8N_SECRET;
+  const expected = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
   if (!expected) return process.env.NODE_ENV !== "production";
   return req.headers.get("x-mira-key") === expected;
 }
