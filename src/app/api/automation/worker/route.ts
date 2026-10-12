@@ -36,6 +36,10 @@ const TRUSTED_SOURCE_DOMAINS = [
   "frontiersin.org", "plos.org", "pnas.org", "royalsocietypublishing.org",
   "cell.com", "springer.com", "wiley.com", "tandfonline.com", "pubs.acs.org",
   "aps.org", "aip.org",
+  // Akademik indeks/varış hostları: DOI'lerin çözüldüğü Türkçe+ulusal portal
+  // (dergipark), OpenAlex kayıt sayfası ve yaygın önbaskı/yayın siteleri.
+  "openalex.org", "dergipark.org.tr", "arxiv.org", "biorxiv.org", "medrxiv.org",
+  "bmj.com", "thelancet.com", "mdpi.com", "hindawi.com", "cambridge.org",
 ] as const;
 
 function isTrustedSourceUrl(raw: string): boolean {
