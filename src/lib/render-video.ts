@@ -333,7 +333,10 @@ async function renderShortWithProfile(input: RenderInput, profile: RenderProfile
       "-i", audioPath,
       "-map", "0:v", "-map", "1:a",
       "-c:v", "copy",
-      "-c:a", "aac", "-b:a", "128k", "-af", "apad",
+      "-c:a", "aac", "-b:a", "128k",
+      // Telefon hoparlorunde de net duyulsun: yayin standardi -14 LUFS + 48kHz stereo
+      "-af", "loudnorm=I=-14:TP=-1.5:LRA=7,apad",
+      "-ar", "48000", "-ac", "2",
       "-t", String(duration), "-movflags", "+faststart",
       outputPath,
     ], 120_000, ffenv);
