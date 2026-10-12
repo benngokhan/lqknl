@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { contentItems, operations, tasks } from "@/db/schema";
 import { generateWithFallback } from "@/lib/model-manager";
 import { sendTelegramMessage } from "@/lib/telegram";
+import { extractNarration } from "@/lib/script-parse";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -101,6 +102,34 @@ export async function POST(req: Request) {
       throw new Error(`Model taslak formatını üretmedi. Eksik başlıklar: ${missingHeadings.join(", ")}; taslak kaydedilmedi.`);
     }
 
+    // SESLENDİRME uzunluk tabanı: 38 kelime altı ≈ 10sn'lik video; bir kez uzatma denemesi.
+    let scriptText = generated;
+    let scriptProvider = { provider: result.provider, model: result.model };
+    let narrationWords = extractNarration(scriptText, scriptText).split(/\s+/).filter(Boolean).length;
+    if (narrationWords > 0 && narrationWords < 38) {
+      try {
+        const lengthen = await generateWithFallback({
+          system: [
+            "Sen Mira'nın Bilgi Dozu adlı YouTube Shorts kanalı için Türkçe içerik üretim motorusun.",
+            "Verilen taslaktaki SESLENDİRME bölümünü 40-48 kelime arasına çıkar: kancayı, konuyu ve tüm başlık yapısını koru; aynı üslupla, konu hakkında 1-2 somut ve doğrulanabilir bilgi ekle.",
+            "TASLAKIN TAMAMINI aynı başlıklarla döndür; başlık adları ve diğer bölümler değişmesin; hata/ret açıklaması yazma.",
+          ].join("\n"),
+          history: [],
+          message: `Konu: ${topic}\nTaslak (SESLENDİRME ${narrationWords} kelime — kısa kaldı):\n${scriptText}`,
+        });
+        const retryText = lengthen.content.trim();
+        const retryWords = extractNarration(retryText, retryText).split(/\s+/).filter(Boolean).length;
+        const retryMissing = requiredHeadings.filter((h) => !retryText.toLocaleUpperCase("tr-TR").includes(h));
+        if (retryMissing.length === 0 && retryWords >= 38 && !refusalPattern.test(retryText)) {
+          scriptText = retryText;
+          narrationWords = retryWords;
+          scriptProvider = { provider: lengthen.provider, model: lengthen.model };
+        }
+      } catch {
+        // Uzatma denemesi patlarsa kısa metinle devam; üretim tarafındaki ağ da var.
+      }
+    }
+
     const [savedOperation] = await db.insert(operations).values({
       action: "autonomous_content_draft",
       summary: `Mira otomatik içerik taslağı hazırladı: ${claimed.title}`,
@@ -110,9 +139,10 @@ export async function POST(req: Request) {
         contentId: claimed.id,
         topic,
         title: claimed.title,
-        provider: result.provider,
-        model: result.model,
-        script: result.content,
+        provider: scriptProvider.provider,
+        model: scriptProvider.model,
+        script: scriptText,
+        narrationWords,
         requiresApprovalToPublish: true,
       },
     }).returning();
@@ -148,7 +178,7 @@ export async function POST(req: Request) {
     let telegramNotification: { sent: boolean; error?: string } = { sent: false, error: "Bildirim gönderimi doğrulanamadı." };
     try {
       const telegram = await sendTelegramMessage(
-        `🤖 Mira içerik işleme tamamlandı\n\nBaşlık: ${updated.title}\nİçerik ID: ${updated.id}\nModel: ${result.provider}/${result.model}\nAnaliz: ${contentScreening.ok ? `${contentScreening.kept ?? 0} taslak tutuldu, ${contentScreening.deleted ?? 0} içerik silindi.` : `Tamamlanamadı: ${contentScreening.error || "sonuç alınamadı"}`}\nYalnızca seçilen içerikler onay panelinde gösterilir. Otomatik yayın yapılmadı.`
+        `🤖 Mira içerik işleme tamamlandı\n\nBaşlık: ${updated.title}\nİçerik ID: ${updated.id}\nModel: ${scriptProvider.provider}/${scriptProvider.model}\nSeslendirme: ${narrationWords} kelime\nAnaliz: ${contentScreening.ok ? `${contentScreening.kept ?? 0} taslak tutuldu, ${contentScreening.deleted ?? 0} içerik silindi.` : `Tamamlanamadı: ${contentScreening.error || "sonuç alınamadı"}`}\nYalnızca seçilen içerikler onay panelinde gösterilir. Otomatik yayın yapılmadı.`
       );
       telegramNotification = telegram.sent
         ? { sent: true }
@@ -163,9 +193,10 @@ export async function POST(req: Request) {
       processed: true,
       notification: telegramNotification,
       content: updated,
-      script: result.content,
-      provider: result.provider,
-      model: result.model,
+      script: scriptText,
+      narrationWords,
+      provider: scriptProvider.provider,
+      model: scriptProvider.model,
       operationId: savedOperation.id,
       contentScreening,
       published: false,

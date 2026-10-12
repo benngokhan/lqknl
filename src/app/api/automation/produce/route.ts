@@ -28,17 +28,20 @@ function decodeBase64Loose(value: string): Buffer {
   return Buffer.from(value.replace(/^data:[^;]+;base64,/i, "").replace(/\s/g, ""), "base64");
 }
 
-async function imagePromptsWithLlm(topic: string, script: string): Promise<string[]> {
+async function imagePromptsWithLlm(topic: string, script: string, narration: string): Promise<string[]> {
   const result = await generateWithFallback({
     system: [
       "You are an image prompt writer for a Turkish YouTube Shorts channel.",
-      "Write exactly 3 visual scene prompts for the given 20-second segment (beginning, middle, end).",
+      "The viewer sees 3 still images while the narration plays; each image MUST illustrate what is being said at that beat.",
+      "Write exactly 3 visual scene prompts following the narration's progression (beginning, middle, end).",
+      "Each prompt must depict a CONCRETE, physically representable subject directly tied to the narration: a person doing something, a recognizable object, a real place. If the narration mentions specifics (bank, money, vault, building, machine...), the scene must show those.",
+      "FORBIDDEN: purely abstract/atmospheric scenes made only of light beams, gradients, glowing shapes, empty fog, or generic tech ambience.",
       "Each prompt: one cinematic vertical 9:16 scene, dark tones, neon green (#D4FF3F) accent, no text or lettering in the image.",
       "Prompts must be in English, 25-60 words each, safe for work, photorealistic or cinematic illustration.",
       'Return ONLY valid JSON: {"prompts": ["...", "...", "..."]}',
     ].join("\n"),
     history: [],
-    message: `Topic: ${topic}\nScript excerpt:\n${script.slice(0, 1200)}`,
+    message: `Topic: ${topic}\nNarration (Turkish - images must match its beats):\n${narration}\n\nScript excerpt:\n${script.slice(0, 900)}`,
   });
   const raw = result.content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
   const parsed: { prompts?: unknown } = JSON.parse(raw);
@@ -318,9 +321,37 @@ export async function POST(req: Request) {
     const topic = content.topic?.trim() || content.title;
     const rawNarration = extractNarration(script, `${content.title}. ${topic}`);
     const narrationCap = capNarrationForDuration(rawNarration);
-    const narrationText = narrationCap.text;
+    let narrationText = narrationCap.text;
     const sections = parseDraftScript(script);
     stages.script = { narrationChars: rawNarration.length, narrationWords: narrationCap.words, wasCapped: narrationCap.wasCapped, sectionKeys: Object.keys(sections) };
+
+    // Anlatı çok kısaysa (<32 kelime ≈ <15sn) üretim anında bir kez uzat:
+    // modelin 40-48 kelime şartını tutmadığı eski taslaklar için de çalışır.
+    if (narrationCap.words > 0 && narrationCap.words < 32) {
+      try {
+        const expanded = await retryStage(content.id, "Kısa anlatı uzatma", 12, async () => {
+          const r = await generateWithFallback({
+            system: [
+              "Türkçe bir YouTube Shorts anlatı yazıcısısın.",
+              "Verilen kısa anlatıyı aynı konuda tutarak 44-56 kelimeye uzat: ilk cümledeki kancayı koru, konuyla ilgili 1-2 somut ve doğrulanabilir bilgi ekle, otoriter ve doğal bir üslupla bitir.",
+              "Sadece anlatı metnini döndür; başlık, süre bilgisi, köşeli açıklama, alıntı, yıldız işareti EKLEME.",
+            ].join("\n"),
+            history: [],
+            message: `Konu: ${topic}\nKısa anlatı (${narrationCap.words} kelime):\n${narrationText}`,
+          });
+          const text = r.content.replace(/\s+/g, " ").trim();
+          const words = text.split(/\s+/).filter(Boolean).length;
+          if (words < 30 || words > 90) throw new Error(`Uzatılan anlatı makul uzunlukta değil (${words} kelime)`);
+          return text;
+        });
+        const recap = capNarrationForDuration(expanded);
+        const before = narrationCap.words;
+        narrationText = recap.text;
+        stages.script = { ...(stages.script as Record<string, unknown>), narrationWords: recap.words, expandedFromWords: before };
+      } catch (error) {
+        stages.script = { ...(stages.script as Record<string, unknown>), expandSkipped: (error instanceof Error ? error.message : String(error)).slice(0, 150) };
+      }
+    }
     const checkpoints = await loadCheckpoints(content.id);
     await reportProgress(content.id, 15, "Senaryo ve önceki üretim kayıtları kontrol edildi");
 
@@ -328,7 +359,7 @@ export async function POST(req: Request) {
     let prompts = checkpoints.prompts;
     if (prompts.length !== 3) {
       try {
-        prompts = await retryStage(content.id, "Görsel sahne planlama", 25, () => imagePromptsWithLlm(topic, script));
+        prompts = await retryStage(content.id, "Görsel sahne planlama", 25, () => imagePromptsWithLlm(topic, script, narrationText));
         stages.prompts = { source: "llm" };
       } catch (error) {
         const fallback = (sections["GÖRSEL TASARIMI"] || topic)
