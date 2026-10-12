@@ -199,12 +199,25 @@ export default function Home() {
   }
 
 
+  const progressPollingIds = useRef<Set<number>>(new Set());
+
   async function loadManualQueue() {
     setQueueLoading(true);
     try {
       const res = await fetch('/api/automation/queue', { cache: 'no-store' });
       const data = await res.json().catch(() => null);
-      if (res.ok && Array.isArray(data)) setQueueItems(data as QueueItem[]);
+      if (res.ok && Array.isArray(data)) {
+        const items = data as QueueItem[];
+        setQueueItems(items);
+        // Panel yeniden açıldığında da "processing" görevlerinin canlı akışına otomatik bağlan.
+        for (const item of items) {
+          if (item.status === 'processing' && !progressPollingIds.current.has(item.id)) {
+            progressPollingIds.current.add(item.id);
+            void pollManualScriptProgress(item.id, item.title)
+              .finally(() => progressPollingIds.current.delete(item.id));
+          }
+        }
+      }
     } finally {
       setQueueLoading(false);
     }
@@ -833,8 +846,8 @@ export default function Home() {
           </div>
           {manualTopicResult && <p className="mt-1 text-xs text-sky-300">{manualTopicResult}</p>}
           {manualScriptProgress && <div className="mt-3 rounded-lg border border-violet-500/30 bg-slate-950/80 p-3">
-            <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold text-white">Mira canlı işlem akışı · #{manualScriptProgress.contentId}</p><span className={manualScriptProgress.status === 'success' ? 'text-xs text-emerald-300' : manualScriptProgress.status === 'failed' ? 'text-xs text-red-300' : 'text-xs text-sky-300'}>{manualScriptProgress.status === 'success' ? 'Tamamlandı' : manualScriptProgress.status === 'failed' ? 'Kontrol gerekli' : 'Çalışıyor'}</span></div>
-            <div className="mt-2 space-y-2">{manualScriptProgress.events.length ? manualScriptProgress.events.map((event) => <div key={event.id} className="flex items-start gap-2 text-xs"><span className={event.status === 'success' ? 'text-emerald-300' : event.status === 'failed' ? 'text-red-300' : 'text-sky-300'}>{event.status === 'success' ? '✓' : event.status === 'failed' ? '!' : '•'}</span><div className="min-w-0 flex-1"><p className={event.status === 'failed' ? 'font-medium text-red-300' : 'font-medium text-slate-100'}>{event.stage}</p>{event.detail && <p className="mt-1 text-slate-300"><span className="text-slate-500">Neden:</span> {event.detail}</p>}{event.nextAction && <p className="mt-1 text-sky-200"><span className="text-sky-400">Sonraki adım:</span> {event.nextAction}</p>}<p className="mt-1 text-slate-500">{new Date(event.createdAt).toLocaleTimeString('tr-TR')} · %{event.percentage}</p></div></div>) : <p className="text-xs text-slate-400">Mira ilk işlem kaydını hazırlıyor…</p>}</div>
+            <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold text-white">Mira canlı işlem akışı · #{manualScriptProgress.contentId}</p><span className={manualScriptProgress.status === 'success' ? 'text-xs text-emerald-300' : manualScriptProgress.status === 'failed' ? 'text-xs text-red-300' : 'text-xs text-sky-300'}>{manualScriptProgress.status === 'success' ? 'Hazır' : manualScriptProgress.status === 'failed' ? (manualScriptProgress.events[manualScriptProgress.events.length - 1]?.stage.toLocaleLowerCase('tr-TR').includes('doğrulanamadı') || manualScriptProgress.events[manualScriptProgress.events.length - 1]?.stage.toLocaleLowerCase('tr-TR').includes('kaynak/doğruluk') ? 'Doğrulanamadı' : 'Hata') : manualScriptProgress.events.length === 0 ? 'Aşama kaydı bekleniyor' : 'Hazırlanıyor'}</span></div>
+            <div className="mt-2 space-y-2">{manualScriptProgress.events.length ? manualScriptProgress.events.map((event) => <div key={event.id} className="flex items-start gap-2 text-xs"><span className={event.status === 'success' ? 'text-emerald-300' : event.status === 'failed' ? 'text-red-300' : 'text-sky-300'}>{event.status === 'success' ? '✓' : event.status === 'failed' ? '!' : '•'}</span><div className="min-w-0 flex-1"><p className={event.status === 'failed' ? 'font-medium text-red-300' : 'font-medium text-slate-100'}>{event.stage}</p>{event.detail && <p className="mt-1 text-slate-300"><span className="text-slate-500">Neden:</span> {event.detail}</p>}{event.nextAction && <p className="mt-1 text-sky-200"><span className="text-sky-400">Sonraki adım:</span> {event.nextAction}</p>}<p className="mt-1 text-slate-500">{new Date(event.createdAt).toLocaleTimeString('tr-TR')} · %{event.percentage}</p></div></div>) : <p className="text-xs text-amber-200">Canlı aşama kaydı henüz alınmadı. Kuyruktaki “İşleniyor” durumu senaryonun hazır olduğunu veya kaynakların doğrulandığını göstermez; görevden gerçek ilerleme kaydı bekleniyor.</p>}</div>
           </div>}
           <div className="mt-3 rounded-lg border border-sky-500/20 bg-slate-900/70 p-3">
             <div className="mb-2 flex items-center justify-between gap-2"><p className="text-sm font-semibold text-white">Manuel konu kuyruğu</p><button type="button" onClick={() => void loadManualQueue()} disabled={queueLoading} className="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-700 disabled:opacity-50">{queueLoading ? 'Yükleniyor…' : 'Kuyruğu yenile'}</button></div>
