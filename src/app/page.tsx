@@ -919,7 +919,7 @@ export default function Home() {
               </div>}
             </div>)}</div>}
           </div>
-          {false && analysisOpen && (
+          {analysis && false && analysisOpen && (
             <div className="mt-3 space-y-2">
               {analysisError && <p className="text-sm text-red-300" role="alert">{analysisError}</p>}
               {analysisLoading && !analysis && <p className="text-sm text-slate-400">Son analiz raporu yükleniyor…</p>}
