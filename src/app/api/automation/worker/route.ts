@@ -295,5 +295,5 @@ export async function POST(req: Request) {
     contentId: claimed.id,
     title: claimed.title,
     message: "Senaryo üretimi arka planda başladı; ilerleme DB durumundan görünür (queued → draft).",
-  });
+  }, { status: 202 });
 }
