@@ -14,7 +14,7 @@ Kullanım:
 
 Kota maliyeti: ~3-5 birim (günlük 10.000'in binde kaçı). Haftada 1 koşmak yeter.
 """
-import argparse, json, os, re, sys, urllib.parse, urllib.request
+import argparse, json, os, re, statistics, sys, urllib.parse, urllib.request
 from datetime import datetime, timezone
 
 API = "https://www.googleapis.com/youtube/v3"
@@ -151,7 +151,7 @@ def pct(v, base):
 def build_directive(rows, clusters):
     med = sorted(r["views"] for r in rows)
     n = len(med)
-    median = med[n // 2] if n else 0
+    median = statistics.median(med) if n else 0
     lines = ["# SİNYAL DİREKTİFİ — Mira içerik ağırlıkları",
              f"_Üretim: {datetime.now(timezone.utc).date()} • {n} Shorts analiz edildi • "
              f"medyan görüntülenme: {median:,}_", ""]
@@ -162,15 +162,15 @@ def build_directive(rows, clusters):
     for c, items in sorted(clusters.items(), key=lambda kv: -sorted(
             (r["views"] for r in kv[1]), default=0)[-1] if kv[1] else 0):
         vs = sorted(r["views"] for r in items)
-        cmed = vs[len(vs) // 2]
+        cmed = statistics.median(vs)
         eng = sum(r["engagement"] for r in items) / len(items) * 100
-        signal = "🔴 ZAYIF" if cmed < median * 0.5 else (
-            "🟡 NORMAL" if cmed < median * 1.5 else "🟢 GÜÇLÜ")
+        signal = "🔴 ZAYIF" if cmed <= median * 0.5 else (
+            "🟢 GÜÇLÜ" if cmed >= median * 1.5 else "🟡 NORMAL")
         scores.append((c, cmed, signal))
         lines.append(f"| {c} | {len(items)} | {sum(vs):,} | {cmed:,} | {eng:.1f} | {signal} |")
     strong = [c for c, m, s in scores if s.startswith("🟢")]
     weak = [c for c, m, s in scores if s.startswith("🔴")]
-    outliers = [r for r in rows if r["views"] > max(median * 2, 500)]
+    outliers = [r for r in rows if r["views"] > median * 2]
     lines += ["", "## KARARLAR", ""]
     if strong:
         lines += [f"- ✅ **AĞIRLIK ARTIR ({', '.join(strong)}):** sonraki 5 taslağın "
@@ -222,10 +222,10 @@ def main():
     rows.sort(key=lambda r: -r["views"])
     report = {"uretim": datetime.now(timezone.utc).isoformat(),
               "kanal": cid, "video_sayisi": len(rows),
-              "medyan_views": sorted(r["views"] for r in rows)[len(rows) // 2],
+              "medyan_views": statistics.median(r["views"] for r in rows),
               "videolar": rows, "kumeler": {
                   c: {"adet": len(v), "toplam_views": sum(x["views"] for x in v),
-                      "medyan_views": sorted(x["views"] for x in v)[len(v) // 2],
+                      "medyan_views": statistics.median(x["views"] for x in v),
                       "ort_engagement_pct": round(
                           100 * sum(x["engagement"] for x in v) / len(v), 2)}
                   for c, v in clusters.items()}}
