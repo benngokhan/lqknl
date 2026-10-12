@@ -409,7 +409,10 @@ export async function POST(req: Request) {
     const sections = parseDraftScript(script);
 
     // Fact-check before TTS, image generation, or MP4 rendering.
-    const factGate = await verifyScriptSources(script, rawNarration);
+    const priorCheckOps = await db.select().from(operations).where(inArray(operations.action, ["fact_check_passed", "fact_check_blocked"])).orderBy(desc(operations.id)).limit(500);
+    const priorCheck = priorCheckOps.find((op) => { const meta = op.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {}; return Number(meta.contentId) === content.id; });
+    const priorMeta = priorCheck?.metadata && typeof priorCheck.metadata === "object" ? priorCheck.metadata as Record<string, unknown> : {};
+    const factGate: FactGateResult = priorCheck ? { ok: priorCheck.action === "fact_check_passed" && priorCheck.status === "success", sourceUrls: Array.isArray(priorMeta.sourceUrls) ? priorMeta.sourceUrls.filter((url): url is string => typeof url === "string") : [], reason: typeof priorMeta.reason === "string" ? priorMeta.reason : "Kayıtlı kaynak kontrolü." } : { ok: false, sourceUrls: [], reason: "Senaryo aşamasında kaynak kontrolü bulunamadı; senaryoyu yeniden hazırla." };
     await db.insert(operations).values({
       action: factGate.ok ? "fact_check_passed" : "fact_check_blocked",
       summary: factGate.ok
