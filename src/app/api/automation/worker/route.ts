@@ -208,11 +208,42 @@ export async function POST(req: Request) {
       if (refusalPattern.test(generated)) {
         throw new Error("Model içerik yerine ret/hata mesajı döndürdü; taslak kaydedilmedi.");
       }
-      const normalized = generated.toLocaleUpperCase("tr-TR");
-      const requiredHeadings = ["KANCA", "SESLENDİRME", "EKRAN METNİ", "GÖRSEL TASARIMI", "KAYNAK"];
-      const missingHeadings = requiredHeadings.filter((heading) => !normalized.includes(heading));
+      const requiredHeadings = ["KANCA", "SESLENDİRME", "EKRAN METNİ", "GÖRSEL TASARIMI", "SES VE MÜZİK", "KAYNAK", "AÇIKLAMA", "ETİKETLER"];
+      const findMissingHeadings = (text: string) => {
+        const normalized = text.toLocaleUpperCase("tr-TR");
+        return requiredHeadings.filter((heading) => !normalized.includes(heading));
+      };
+      let missingHeadings = findMissingHeadings(generated);
+      let scriptText = generated;
+      let scriptProvider = { provider: result.provider, model: result.model };
+
+      // Bir başlık eksikse hemen işi düşürme: aynı model zinciriyle tek bir düzeltme denemesi yap.
       if (missingHeadings.length > 0) {
-        throw new Error(`Model taslak formatını üretmedi. Eksik başlıklar: ${missingHeadings.join(", ")}; taslak kaydedilmedi.`);
+        await reportScriptProgress(claimed.id, 32, `Eksik senaryo bölümleri tamamlanıyor: ${missingHeadings.join(", ")}…`);
+        const repaired = await generateWithFallback({
+          system: [
+            "Sen Mira'nın taslak biçimi düzeltme motorusun.",
+            "Verilen senaryoyu baştan sona yeniden döndür. Konunun anlamını, doğrulanabilir iddiaları ve mevcut bilgileri koru; yeni doğrulanmamış bilgi veya kaynak uydurma.",
+            "Aşağıdaki başlıkların HER BİRİ ayrı bir bölüm başlığı olarak, tam yazımıyla zorunludur: KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI, SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER, TASARIM.",
+            "EKRAN METNİ bölümünde ekranda gösterilecek kısa Türkçe metinleri, GÖRSEL TASARIMI bölümünde tam 3 ayrı görsel için zaman kodu ve promptları yaz.",
+            "Kaynak güvenilir biçimde bilinmiyorsa KAYNAK bölümüne yalnızca DOĞRULAMA GEREKLİ yaz; URL veya kaynak adı uydurma.",
+            "Yalnızca düzeltilmiş tam taslağı döndür; açıklama, özür veya eksik başlık listesi yazma.",
+          ].join("\\n"),
+          history: [],
+          message: `Konu: ${topic}\\nEksik zorunlu başlıklar: ${missingHeadings.join(", ")}\\n\\nDüzeltilmesi gereken taslak:\\n${generated}`,
+        });
+        const repairedText = repaired.content.trim();
+        const repairedMissing = findMissingHeadings(repairedText);
+        if (!refusalPattern.test(repairedText) && repairedMissing.length === 0) {
+          scriptText = repairedText;
+          scriptProvider = { provider: repaired.provider, model: repaired.model };
+          missingHeadings = [];
+        } else {
+          missingHeadings = repairedMissing.length ? repairedMissing : missingHeadings;
+        }
+      }
+      if (missingHeadings.length > 0) {
+        throw new Error(`Model taslak formatını üretemedi. Düzeltme denemesinde eksik başlıklar: ${missingHeadings.join(", ")}; taslak kaydedilmedi.`);
       }
 
       // SESLENDİRME uzunluk tabanı: 38 kelime altı ≈ 10sn'lik video; bir kez uzatma denemesi.
