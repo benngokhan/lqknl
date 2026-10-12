@@ -158,6 +158,9 @@ export default function Home() {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [queueLoading, setQueueLoading] = useState(false);
   const [queueBusyId, setQueueBusyId] = useState<number | null>(null);
+  const [expandedQueueIds, setExpandedQueueIds] = useState<Set<number>>(new Set());
+  const [queueEventDetails, setQueueEventDetails] = useState<Record<number, VideoProgressEvent[]>>({});
+  const [queueDetailsLoading, setQueueDetailsLoading] = useState<Set<number>>(new Set());
   const { speak, voiceError } = useSpeaker();
 
   async function loadAnalysis() {
@@ -220,6 +223,47 @@ export default function Home() {
       }
     } finally {
       setQueueLoading(false);
+    }
+  }
+
+  async function toggleQueueDetails(item: QueueItem) {
+    const isOpen = expandedQueueIds.has(item.id);
+    if (isOpen) {
+      setExpandedQueueIds((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
+      return;
+    }
+
+    setExpandedQueueIds((current) => new Set(current).add(item.id));
+    setQueueDetailsLoading((current) => new Set(current).add(item.id));
+    try {
+      const res = await fetch('/api/automation/produce-events?contentId=' + item.id, { cache: 'no-store' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || ('Hata ayrıntıları alınamadı (HTTP ' + res.status + ').'));
+      const events = Array.isArray(data?.events) ? data.events as VideoProgressEvent[] : [];
+      setQueueEventDetails((current) => ({ ...current, [item.id]: events }));
+    } catch (error) {
+      setQueueEventDetails((current) => ({
+        ...current,
+        [item.id]: [{
+          id: -item.id,
+          stage: 'Hata ayrıntıları alınamadı',
+          status: 'failed',
+          percentage: 0,
+          detail: error instanceof Error ? error.message : 'Ayrıntılar alınamadı.',
+          nextAction: 'Bağlantıyı kontrol edip konu ayrıntılarını yeniden aç.',
+          createdAt: new Date().toISOString(),
+        }],
+      }));
+    } finally {
+      setQueueDetailsLoading((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
     }
   }
 
@@ -852,7 +896,28 @@ export default function Home() {
           <div className="mt-3 rounded-lg border border-sky-500/20 bg-slate-900/70 p-3">
             <div className="mb-2 flex items-center justify-between gap-2"><p className="text-sm font-semibold text-white">Manuel konu kuyruğu</p><button type="button" onClick={() => void loadManualQueue()} disabled={queueLoading} className="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-700 disabled:opacity-50">{queueLoading ? 'Yükleniyor…' : 'Kuyruğu yenile'}</button></div>
             <p className="mb-3 text-xs text-slate-400">Tek satırlık konu veya KONU / KANCA / GELİŞME / KAYNAKLAR / BAŞLIK / AÇIKLAMA / ETİKETLER / FORMAT alanları olan hazır paketi yapıştırabilirsin. Mira verdiğin ayrıntıları korur, kaynak adaylarını doğrular ve senaryoyu onayına sunar. Onayın olmadan video üretimi veya YouTube yüklemesi başlamaz.</p>
-            {queueItems.length === 0 ? <p className="text-xs text-slate-500">Bekleyen manuel konu yok.</p> : <div className="space-y-2">{queueItems.map((item) => <div key={item.id} className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-950/70 p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="break-words text-sm font-medium text-white">{item.title}</p><p className="mt-1 text-xs text-slate-400">#{item.id} · {item.status === 'queued' ? 'Sırada' : item.status === 'processing' ? 'İşleniyor' : 'Hata / yeniden denenebilir'}</p></div><div className="flex flex-wrap gap-2">{item.status === 'failed' && <button type="button" onClick={() => void retryManualItem(item)} disabled={queueBusyId !== null} className="rounded-lg border border-amber-400/50 bg-amber-600/20 px-3 py-2 text-xs font-semibold hover:bg-amber-600/40 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Yeniden deneniyor…' : '↻ Yeniden dene'}</button>}<button type="button" onClick={() => void startManualVideo(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="rounded-lg border border-slate-500 px-3 py-2 text-xs font-medium hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '✍ Senaryo hazırla'}</button><button type="button" onClick={() => void startManualProduction(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="rounded-lg border border-emerald-400/50 bg-emerald-600/20 px-3 py-2 text-xs font-semibold hover:bg-emerald-600/40 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '▶ Bu videoyu şimdi üret'}</button></div></div>)}</div>}
+            {queueItems.length === 0 ? <p className="text-xs text-slate-500">Bekleyen manuel konu yok.</p> : <div className="space-y-2">{queueItems.map((item) => <div key={item.id} className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-950/70 p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1">
+                <button type="button" onClick={() => void toggleQueueDetails(item)} aria-expanded={expandedQueueIds.has(item.id)} className="w-full break-words text-left text-sm font-medium text-white hover:text-sky-200 focus:outline-none focus:ring-1 focus:ring-sky-400 rounded">
+                  {item.title} <span className="ml-1 text-xs text-sky-300">{expandedQueueIds.has(item.id) ? '▴ Ayrıntıları gizle' : '▾ Hata/işlem ayrıntıları'}</span>
+                </button>
+                <p className="mt-1 text-xs text-slate-400">#{item.id} · {item.status === 'queued' ? 'Sırada' : item.status === 'processing' ? 'İşleniyor' : 'Hata / yeniden denenebilir'}</p>
+              </div><div className="flex flex-wrap gap-2">{item.status === 'failed' && <button type="button" onClick={() => void retryManualItem(item)} disabled={queueBusyId !== null} className="rounded-lg border border-amber-400/50 bg-amber-600/20 px-3 py-2 text-xs font-semibold hover:bg-amber-600/40 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Yeniden deneniyor…' : '↻ Yeniden dene'}</button>}<button type="button" onClick={() => void startManualVideo(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="rounded-lg border border-slate-500 px-3 py-2 text-xs font-medium hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '✍ Senaryo hazırla'}</button><button type="button" onClick={() => void startManualProduction(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="rounded-lg border border-emerald-400/50 bg-emerald-600/20 px-3 py-2 text-xs font-semibold hover:bg-emerald-600/40 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '▶ Bu videoyu şimdi üret'}</button></div>
+              {expandedQueueIds.has(item.id) && <div className="rounded-lg border border-amber-500/30 bg-slate-900/80 p-3 text-xs">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="font-semibold text-amber-200">Konu #{item.id} · İşlem ve hata ayrıntıları</p>
+                  <button type="button" onClick={() => void toggleQueueDetails(item)} className="rounded border border-slate-600 px-2 py-1 text-slate-300 hover:bg-slate-700">Kapat</button>
+                </div>
+                {queueDetailsLoading.has(item.id) ? <p className="text-slate-300">Kayıtlı aşamalar ve hata nedeni alınıyor…</p>
+                  : (queueEventDetails[item.id]?.length ?? 0) > 0
+                    ? <div className="space-y-3">{queueEventDetails[item.id].map((event) => <div key={event.id} className="border-l-2 border-slate-600 pl-3">
+                      <p className={event.status === 'failed' ? 'font-semibold text-red-300' : event.status === 'success' ? 'font-semibold text-emerald-300' : 'font-semibold text-slate-100'}>{event.stage}</p>
+                      {event.detail && <p className="mt-1 whitespace-pre-wrap break-words text-slate-300"><span className="text-slate-500">Ayrıntı:</span> {event.detail}</p>}
+                      {event.nextAction && <p className="mt-1 whitespace-pre-wrap break-words text-sky-200"><span className="text-sky-400">Önerilen adım:</span> {event.nextAction}</p>}
+                      <p className="mt-1 text-slate-500">{new Date(event.createdAt).toLocaleString('tr-TR')} · %{event.percentage} · {event.status === 'failed' ? 'Hata' : event.status === 'success' ? 'Tamamlandı' : 'Devam ediyor'}</p>
+                    </div>)}</div>
+                    : <p className="text-amber-200">Bu konu için canlı aşama/hata ayrıntısı kaydı bulunamadı. Bu, hatanın nedeninin kaydedildiği anlamına gelmez; olay kaydı backend tarafında ayrıca incelenmelidir.</p>}
+              </div>}
+            </div>)}</div>}
           </div>
           {analysisOpen && (
             <div className="mt-3 space-y-2">
