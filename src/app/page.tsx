@@ -122,7 +122,7 @@ export default function Home() {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [drafts, setDrafts] = useState<ContentDraft[]>([]);
-  const [draftPanelOpen, setDraftPanelOpen] = useState(false);
+  const [draftPanelOpen, setDraftPanelOpen] = useState(true);
   const [draftsLoading, setDraftsLoading] = useState(false);
   const [reviewBusyId, setReviewBusyId] = useState<number | null>(null);
   const [draftsError, setDraftsError] = useState('');
@@ -130,7 +130,7 @@ export default function Home() {
   const [videoProgress, setVideoProgress] = useState<{ contentId: number; title: string; percentage: number; stage: string; status: string } | null>(null);
   const [videoEvents, setVideoEvents] = useState<VideoProgressEvent[]>([]);
   const [readyVideos, setReadyVideos] = useState<ContentDraft[]>([]);
-  const [readyPanelOpen, setReadyPanelOpen] = useState(false);
+  const [readyPanelOpen, setReadyPanelOpen] = useState(true);
   const [readyLoading, setReadyLoading] = useState(false);
   const [readyError, setReadyError] = useState('');
   const [publishBusyId, setPublishBusyId] = useState<number | null>(null);
@@ -640,7 +640,7 @@ export default function Home() {
               disabled={analysisRunLoading || analysisLoading}
               className="shrink-0 rounded-lg border border-violet-400/50 bg-violet-600/20 px-3 py-2 text-xs hover:bg-violet-600/40 disabled:opacity-50"
             >
-              {analysisRunLoading ? 'Analiz ediliyor…' : 'Analiz Testi'}
+              {analysisRunLoading ? 'Analiz ediliyor…' : 'Analiz Yap'}
             </button>
             <button
               type="button"
