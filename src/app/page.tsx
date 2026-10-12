@@ -21,6 +21,15 @@ interface ContentDraft {
   hasVideo?: boolean;
 }
 
+interface QueueItem {
+  id: number;
+  title: string;
+  topic: string | null;
+  platform: string;
+  status: string;
+  createdAt: string;
+}
+
 interface DraftAnalysis {
   report: string | null;
   createdAt: string | null;
@@ -145,6 +154,9 @@ export default function Home() {
   const [manualTopic, setManualTopic] = useState('');
   const [manualTopicLoading, setManualTopicLoading] = useState(false);
   const [manualTopicResult, setManualTopicResult] = useState('');
+  const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
+  const [queueLoading, setQueueLoading] = useState(false);
+  const [queueBusyId, setQueueBusyId] = useState<number | null>(null);
   const { speak, voiceError } = useSpeaker();
 
   async function loadAnalysis() {
@@ -207,6 +219,39 @@ export default function Home() {
     }
   }
 
+  async function loadManualQueue() {
+    setQueueLoading(true);
+    try {
+      const res = await fetch('/api/automation/queue', { cache: 'no-store' });
+      const data = await res.json().catch(() => null);
+      if (res.ok && Array.isArray(data)) setQueueItems(data as QueueItem[]);
+    } finally {
+      setQueueLoading(false);
+    }
+  }
+
+  async function startManualVideo(item: QueueItem) {
+    if (queueBusyId !== null) return;
+    if (!window.confirm(`“${item.title}” konusu için Mira şimdi senaryo ve video üretimine başlasın mı?`)) return;
+    setQueueBusyId(item.id);
+    setManualTopicResult(`#${item.id} için üretim başlatıldı. Mira senaryo ve videoyu hazırlıyor; YouTube'a otomatik yükleme yapılmayacak.`);
+    try {
+      const res = await fetch(`/api/automation/worker?contentId=${item.id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manualProduce: true }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Üretim başlatılamadı (HTTP ${res.status}).`);
+      setQueueItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'processing' } : entry));
+      setManualTopicResult(`#${item.id} üretim kuyruğuna alındı. Mira senaryoyu hazırladıktan sonra videoyu üretecek. YouTube'a yükleme yapılmayacak.`);
+    } catch (error) {
+      setManualTopicResult(error instanceof Error ? error.message : 'Üretim başlatılamadı.');
+    } finally {
+      setQueueBusyId(null);
+      void loadManualQueue();
+    }
+  }
+
   async function addManualTopic() {
     const topic = manualTopic.trim();
     if (!topic || manualTopicLoading) return;
@@ -220,9 +265,9 @@ export default function Home() {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || `Konu eklenemedi (HTTP ${res.status}).`);
-      setManualTopicResult('✅ Kuyruğa eklendi — senaryo arka planda yazılıyor, hazır olunca video üretimi kendiliğinden başlar.');
+      setManualTopicResult('✅ Konu kuyruğa eklendi. Otomatik başlamaz; planlı saatte veya “Bu videoyu şimdi oluştur” düğmesiyle başlatılır.');
       setManualTopic('');
-      void loadDrafts();
+      void loadManualQueue();
       setTimeout(() => setManualTopicResult(''), 12000);
     } catch (error) {
       setManualTopicResult(error instanceof Error ? error.message.slice(0, 80) : 'Konu eklenemedi.');
@@ -446,6 +491,7 @@ export default function Home() {
       void loadDrafts();
       void loadAnalysis();
       void loadReadyVideos();
+      void loadManualQueue();
     }
   }, [entered]);
 
@@ -730,6 +776,11 @@ export default function Home() {
             </button>
           </div>
           {manualTopicResult && <p className="mt-1 text-xs text-sky-300">{manualTopicResult}</p>}
+          <div className="mt-3 rounded-lg border border-sky-500/20 bg-slate-900/70 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2"><p className="text-sm font-semibold text-white">Manuel konu kuyruğu</p><button type="button" onClick={() => void loadManualQueue()} disabled={queueLoading} className="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-700 disabled:opacity-50">{queueLoading ? 'Yükleniyor…' : 'Kuyruğu yenile'}</button></div>
+            <p className="mb-3 text-xs text-slate-400">Buraya eklenen konular kendi kendine başlamaz. Planlı saatlerde birer birer işlenir; istersen hemen başlatabilirsin.</p>
+            {queueItems.length === 0 ? <p className="text-xs text-slate-500">Bekleyen manuel konu yok.</p> : <div className="space-y-2">{queueItems.map((item) => <div key={item.id} className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-950/70 p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="break-words text-sm font-medium text-white">{item.title}</p><p className="mt-1 text-xs text-slate-400">#{item.id} · {item.status === 'queued' ? 'Sırada' : item.status === 'processing' ? 'İşleniyor' : 'Hata / yeniden denenebilir'}</p></div><button type="button" onClick={() => void startManualVideo(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="shrink-0 rounded-lg border border-emerald-400/50 bg-emerald-600/20 px-3 py-2 text-xs font-medium hover:bg-emerald-600/40 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '▶ Bu videoyu şimdi oluştur'}</button></div>)}</div>}
+          </div>
           {analysisOpen && (
             <div className="mt-3 space-y-2">
               {analysisError && <p className="text-sm text-red-300" role="alert">{analysisError}</p>}
