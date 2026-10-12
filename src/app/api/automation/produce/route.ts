@@ -79,6 +79,89 @@ async function reportProgress(contentId: number, percentage: number, stage: stri
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+type FactGateResult = { ok: true; sourceUrls: string[]; reason: string } | { ok: false; sourceUrls: string[]; reason: string };
+
+function isPublicHttpsUrl(raw: string): URL | null {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || !url.hostname.includes(".")) return null;
+    const host = url.hostname.toLowerCase();
+    if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
+        /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) || host.includes(":")) return null;
+    return url;
+  } catch { return null; }
+}
+
+async function readPublicSource(raw: string): Promise<{ url: string; text: string }> {
+  let current = isPublicHttpsUrl(raw);
+  if (!current) throw new Error("Kaynak bağlantısı güvenli bir HTTPS adresi değil.");
+  for (let hop = 0; hop < 4; hop++) {
+    const response = await fetch(current, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(8000),
+      headers: { "User-Agent": "MiraFactCheck/1.0" },
+      cache: "no-store",
+    });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (!location || hop === 3) throw new Error("Kaynak yönlendirmesi çözülemedi.");
+      const next = isPublicHttpsUrl(new URL(location, current).toString());
+      if (!next) throw new Error("Kaynak güvenli bir HTTPS adresine yönlendirmiyor.");
+      current = next;
+      continue;
+    }
+    if (!response.ok) throw new Error(`Kaynak bağlantısı HTTP ${response.status} döndürdü.`);
+    const type = response.headers.get("content-type") || "";
+    if (!/text\/html|text\/plain|application\/xhtml/i.test(type)) throw new Error("Kaynak sayfası okunabilir metin olarak sunulmuyor.");
+    const rawText = (await response.text()).slice(0, 250_000);
+    const text = rawText
+      .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"')
+      .replace(/&#39;|&apos;/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+      .replace(/\s+/g, " ").trim();
+    if (text.length < 250) throw new Error("Kaynak sayfasında doğrulama için yeterli metin bulunamadı.");
+    return { url: current.toString(), text: text.slice(0, 12_000) };
+  }
+  throw new Error("Kaynak yönlendirmesi çözülemedi.");
+}
+
+async function verifyScriptSources(script: string, narration: string): Promise<FactGateResult> {
+  const sections = parseDraftScript(script);
+  const sourceSection = sections["KAYNAK"]?.trim() || "";
+  if (!sourceSection || /DOĞRULAMA\s*GEREKLİ|KAYNAK\s*YOK|BİLİNMİYOR/i.test(sourceSection)) {
+    return { ok: false, sourceUrls: [], reason: "Kaynak bölümü açıkça doğrulama gerektiğini belirtiyor veya boş." };
+  }
+  const candidates = [...sourceSection.matchAll(/https:\/\/[^\s)\]>]+/gi)]
+    .map((match) => match[0].replace(/[.,;]+$/, ""))
+    .filter((url, index, all) => all.indexOf(url) === index)
+    .slice(0, 2);
+  if (!candidates.length) return { ok: false, sourceUrls: [], reason: "Kaynak bölümünde kontrol edilebilir HTTPS bağlantısı yok." };
+  try {
+    const pages = await Promise.all(candidates.map(readPublicSource));
+    const evidence = pages.map((page, index) => `KAYNAK ${index + 1}: ${page.url}\n${page.text}`).join("\n\n");
+    const check = await generateWithFallback({
+      system: [
+        "Sen katı bir bilgi doğrulama denetçisisin. Yalnızca verilen kaynak metninde açıkça desteklenen iddiaları kabul et.",
+        "Kaynakla çelişen, kaynakta bulunmayan, abartılmış veya kesinliği kanıtlanmamış ana iddia varsa reddet.",
+        "Genel konu benzerliği yeterli değildir; seslendirmedeki ana olgular kaynak metniyle doğrudan desteklenmeli.",
+        "Yalnızca geçerli JSON döndür: {\"supported\": true veya false, \"reason\": \"kısa Türkçe gerekçe\"}. Emin değilsen supported=false.",
+      ].join("\n"),
+      history: [],
+      message: `VİDEO SESLENDİRMESİ:\n${narration}\n\nKAYNAK SAYFALARINDAN OKUNAN METİN:\n${evidence}`,
+    });
+    const raw = check.content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+    const parsed = JSON.parse(raw) as { supported?: unknown; reason?: unknown };
+    const reason = typeof parsed.reason === "string" ? parsed.reason.slice(0, 400) : "Model gerekçe vermedi.";
+    if (parsed.supported !== true) return { ok: false, sourceUrls: pages.map((p) => p.url), reason };
+    return { ok: true, sourceUrls: pages.map((p) => p.url), reason };
+  } catch (error) {
+    return { ok: false, sourceUrls: candidates, reason: (error instanceof Error ? error.message : String(error)).slice(0, 400) };
+  }
+}
+
+
 const SILENT_THRESHOLD_DB = -45;
 
 // MP3 buffer'ının ortalama ses seviyesini ölç (ffmpeg volumedetect). Ölcülemezse null.
@@ -324,6 +407,27 @@ export async function POST(req: Request) {
     const narrationCap = capNarrationForDuration(rawNarration);
     let narrationText = narrationCap.text;
     const sections = parseDraftScript(script);
+
+    // Fact-check before TTS, image generation, or MP4 rendering.
+    const factGate = await verifyScriptSources(script, rawNarration);
+    await db.insert(operations).values({
+      action: factGate.ok ? "fact_check_passed" : "fact_check_blocked",
+      summary: factGate.ok
+        ? `Kaynak kontrolü geçti: ${content.title}`
+        : `❌ Doğruluğu ispatlanamadı, video oluşturulamıyor. ${content.title}`,
+      status: factGate.ok ? "success" : "failed",
+      platform: content.platform,
+      metadata: { contentId: content.id, sourceUrls: factGate.sourceUrls, reason: factGate.reason, gate: "source_reachability_and_claim_support", videoCreated: false },
+    });
+    if (!factGate.ok) {
+      await reportProgress(content.id, 8, `❌ Doğruluğu ispatlanamadı, video oluşturulamıyor. ${factGate.reason}`, "waiting");
+      return NextResponse.json({
+        ok: true, produced: false, blocked: true, contentId: content.id,
+        error: "❌ Doğruluğu ispatlanamadı, video oluşturulamıyor.",
+        reason: factGate.reason, sourceUrls: factGate.sourceUrls,
+      }, { status: 200 });
+    }
+    stages.factCheck = { ok: true, sourceUrls: factGate.sourceUrls, reason: factGate.reason };
     stages.script = { narrationChars: rawNarration.length, narrationWords: narrationCap.words, wasCapped: narrationCap.wasCapped, sectionKeys: Object.keys(sections) };
 
     // Anlatı çok kısaysa (<32 kelime ≈ <15sn) üretim anında bir kez uzat:
