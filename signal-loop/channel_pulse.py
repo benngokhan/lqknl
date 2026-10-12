@@ -14,7 +14,7 @@ Kullanım:
 
 Kota maliyeti: ~3-5 birim (günlük 10.000'in binde kaçı). Haftada 1 koşmak yeter.
 """
-import argparse, json, re, sys, urllib.parse, urllib.request
+import argparse, json, os, re, sys, urllib.parse, urllib.request
 from datetime import datetime, timezone
 
 API = "https://www.googleapis.com/youtube/v3"
@@ -181,7 +181,7 @@ def build_directive(rows, clusters):
     if outliers:
         lines += ["- 🚀 **AYKIRI DEĞERLER (medyanın 2 katı üstü) — klonla:**"]
         lines += [f"  - `{r['video_id']}` {r['title']} ({r['views']:,} görüntülenme, "
-                  f"küme: {r['cluster']}, etki: %{pct(r['engagement']*100, 1)})" for r in outliers]
+                  f"küme: {r['cluster']}, etkileşim: %{r['engagement'] * 100:.1f})" for r in outliers]
     lines += ["", "## MİRA'YA İNJECT EDİLECEK BLOK", "", "```json",
               json.dumps({
                   "donem": datetime.now(timezone.utc).date().isoformat(),
@@ -235,5 +235,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import os
     main()
