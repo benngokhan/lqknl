@@ -188,10 +188,65 @@ export async function POST(req: Request) {
     }
     if (!telegramNotification.sent) console.error("[Worker] Telegram success notification failed:", telegramNotification.error);
 
+    // ——— OTOPİLOT: taslak hazırsa kullanıcı tuşunu beklemeden video üretimine gir.
+    // Yayın (YouTube yükleme) kapısı açık değildir; video panelde incelenmeyi bekler.
+    // MIRA_AUTO_PRODUCE=0 ile tamamen kapatılabilir.
+    const autoProduce = process.env.MIRA_AUTO_PRODUCE !== "0";
+    const autopilot: Record<string, unknown> = { enabled: autoProduce };
+    if (autoProduce) {
+      const origin = new URL(req.url).origin;
+      const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
+      try {
+        const review = await fetch(`${origin}/api/content/review`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-mira-key": secret },
+          body: JSON.stringify({ action: "approve_video", id: updated.id }),
+          cache: "no-store",
+          signal: AbortSignal.timeout(15_000),
+        });
+        autopilot.approveHttp = review.status;
+        if (review.ok) {
+          // Üretim uzun sürer; yanıtı beklemeden arka planda tetikle.
+          fetch(`${origin}/api/automation/produce`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-mira-key": secret },
+            body: JSON.stringify({ contentId: updated.id }),
+          }).catch((e) => console.error("[Worker] Otopilot üretim tetiklemesi başarısız:", e));
+          autopilot.produceTriggered = updated.id;
+        }
+      } catch (error) {
+        autopilot.error = error instanceof Error ? error.message.slice(0, 120) : String(error);
+        console.error("[Worker] Otopilot onay adımı başarısız:", autopilot.error);
+      }
+
+      // Kuyruk zincirlemesi: sıradaki içerik varsa bir sonraki turu kendini tetikle.
+      // MIRA_WORKER_CHAIN_MAX (varsayılan 6) dalga başına zincir derinliğini sınırlar.
+      try {
+        const body = await req.clone().json().catch(() => ({}));
+        const chainDepth = Number(body?.chainDepth) > 0 ? Number(body.chainDepth) : 0;
+        const chainMax = Number(process.env.MIRA_WORKER_CHAIN_MAX) > 0 ? Number(process.env.MIRA_WORKER_CHAIN_MAX) : 6;
+        const [nextQueued] = await db.select({ id: contentItems.id }).from(contentItems)
+          .where(eq(contentItems.status, "queued")).orderBy(contentItems.id).limit(1);
+        if (nextQueued && chainDepth + 1 < chainMax) {
+          fetch(`${origin}/api/automation/worker`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-mira-key": secret },
+            body: JSON.stringify({ chainDepth: chainDepth + 1 }),
+          }).catch((e) => console.error("[Worker] Kuyruk zincirlemesi başarısız:", e));
+          autopilot.chainedNext = { contentId: nextQueued.id, depth: chainDepth + 1 };
+        } else if (nextQueued) {
+          autopilot.chainStopped = `zincir derinliği sınırı (${chainMax}) doldu; kalan kuyruk ${[nextQueued.id]}`;
+        }
+      } catch (error) {
+        console.error("[Worker] Zincirleme kontrolü yapılamadı:", error instanceof Error ? error.message : error);
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       processed: true,
       notification: telegramNotification,
+      autopilot,
       content: updated,
       script: scriptText,
       narrationWords,

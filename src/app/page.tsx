@@ -140,6 +140,8 @@ export default function Home() {
   const [analysisError, setAnalysisError] = useState('');
   const [analysisRunLoading, setAnalysisRunLoading] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(true);
+  const [planImportLoading, setPlanImportLoading] = useState(false);
+  const [planImportResult, setPlanImportResult] = useState('');
   const { speak, voiceError } = useSpeaker();
 
   async function loadAnalysis() {
@@ -177,6 +179,28 @@ export default function Home() {
       setAnalysisError(error instanceof Error ? error.message : 'Taslak analizi tamamlanamadı.');
     } finally {
       setAnalysisRunLoading(false);
+    }
+  }
+
+  async function importContentPlan() {
+    if (planImportLoading) return;
+    setPlanImportLoading(true);
+    setPlanImportResult('');
+    try {
+      const res = await fetch('/api/automation/import-xlsx-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Plan içe aktarılamadı (HTTP ${res.status}).`);
+      setPlanImportResult(`${data?.queued ?? 0} eklendi · ${data?.duplicates ?? 0} kopya`);
+      setTimeout(() => setPlanImportResult(''), 12000);
+    } catch (error) {
+      setPlanImportResult(error instanceof Error ? error.message.slice(0, 60) : 'Plan içe aktarılamadı.');
+      setTimeout(() => setPlanImportResult(''), 12000);
+    } finally {
+      setPlanImportLoading(false);
     }
   }
 
@@ -641,6 +665,14 @@ export default function Home() {
               className="shrink-0 rounded-lg border border-violet-400/50 bg-violet-600/20 px-3 py-2 text-xs hover:bg-violet-600/40 disabled:opacity-50"
             >
               {analysisRunLoading ? 'Analiz ediliyor…' : 'Analiz Yap'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void importContentPlan()}
+              disabled={planImportLoading}
+              className="shrink-0 rounded-lg border border-emerald-400/50 bg-emerald-600/20 px-3 py-2 text-xs hover:bg-emerald-600/40 disabled:opacity-50"
+            >
+              {planImportLoading ? 'Plan alınıyor…' : planImportResult || '📋 20\u2019lik planı kuyruğa al'}
             </button>
             <button
               type="button"
