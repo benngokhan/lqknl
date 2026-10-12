@@ -1,0 +1,38 @@
+{
+  "$schema": "BILGI DOZU icerik sozlesmesi — Mira LLM cikti semasi",
+  "video_id": {
+    "type": "string",
+    "pattern": "^s[0-9]+_[a-z]+$",
+    "example": "s11_mutluluk"
+  },
+  "shorts_config_entry": {
+    "description": "Bu blok aynen shorts_config.json'a eklenir. Motor bundan BASLIK/NOT/VURGU okur.",
+    "fields": {
+      "title": {
+        "spec": "2-3 satir; satir = segment listesi; segment = [metin, renk] veya 'METIN'; renk 'w'=beyaz 'g'=yesil",
+        "example": [["GORILDEN", "DAHA"], [["KARISIK", "g"]]]
+      },
+      "note1": "GERÇEK ÖZETİ (CAPS, kaynak notu 1. satır)",
+      "note2": "SOYADI • DERGİ (YIL) formatında kaynak (CAPS)",
+      "accents": {"spec": "3-5 kelime, script'te GECEN birebir kelimeler; altyazıda kalıcı sarı"},
+      "seo_title": "≤95 kr Türkçe başlık ('🧠 #Shorts' motor tarafından eklenir)",
+      "scenes": ["bg1.png", "bg2.png"]
+    }
+  },
+  "script_txt": {
+    "description": "shorts/<video_id>/script.txt — SESLENDİRME METNİ. Cümle sonları .!? ile biter (motor cümleeleri altyazı parçalarına böler). 42-55 kelime + sabit CTA.",
+    "example": "Odaklandığın için yarısı görmüyorsun. Ünlü gorilya deneyinde ... Daha fazla bilgi dozu için takip etmeyi unutma!"
+  },
+  "full_example": {
+    "video_id": "s9_gorilla",
+    "shorts_config_entry": {
+      "title": [["ODAKLANINCA"], ["GORİLAYI"], [["GÖREMEZSİN", "g"]]],
+      "note1": "KÖR ODAK: %50 KATILIMCI GORİLAYI GÖRMEDİ",
+      "note2": "SIMONS & CHABRIS • PERCEPTION (1999)",
+      "accents": ["yarısı", "algı", "risk"],
+      "seo_title": "Odaklanınca Gorilayı Göremezsin!",
+      "scenes": ["bg1.png", "bg2.png"]
+    },
+    "script": "Odaklandığın için yarısı görmüyorsun. Ünlü gorilya deneyinde, izleyicilerden basketbol paslarını saymaları istendi; ekranın ortasından geçen gorilyayı yarısı görmemişti. Beyin, dikkatini vermediği her şeyi görüntü olarak alır ama algı olarak işlemez. Yani gözün açık ama dünyanın yarısı kapalı. Daha fazla bilgi dozu için takip etmeyi unutma!"
+  }
+}
