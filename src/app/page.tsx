@@ -142,6 +142,9 @@ export default function Home() {
   const [analysisOpen, setAnalysisOpen] = useState(true);
   const [planImportLoading, setPlanImportLoading] = useState(false);
   const [planImportResult, setPlanImportResult] = useState('');
+  const [manualTopic, setManualTopic] = useState('');
+  const [manualTopicLoading, setManualTopicLoading] = useState(false);
+  const [manualTopicResult, setManualTopicResult] = useState('');
   const { speak, voiceError } = useSpeaker();
 
   async function loadAnalysis() {
@@ -201,6 +204,31 @@ export default function Home() {
       setTimeout(() => setPlanImportResult(''), 12000);
     } finally {
       setPlanImportLoading(false);
+    }
+  }
+
+  async function addManualTopic() {
+    const topic = manualTopic.trim();
+    if (!topic || manualTopicLoading) return;
+    setManualTopicLoading(true);
+    setManualTopicResult('');
+    try {
+      const res = await fetch('/api/automation/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: topic.slice(0, 80), topic, platform: 'youtube' }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Konu eklenemedi (HTTP ${res.status}).`);
+      setManualTopicResult('✅ Kuyruğa eklendi — senaryo arka planda yazılıyor, hazır olunca video üretimi kendiliğinden başlar.');
+      setManualTopic('');
+      void loadDrafts();
+      setTimeout(() => setManualTopicResult(''), 12000);
+    } catch (error) {
+      setManualTopicResult(error instanceof Error ? error.message.slice(0, 80) : 'Konu eklenemedi.');
+      setTimeout(() => setManualTopicResult(''), 12000);
+    } finally {
+      setManualTopicLoading(false);
     }
   }
 
@@ -683,6 +711,25 @@ export default function Home() {
               {analysisLoading ? 'Yükleniyor…' : 'Yenile'}
             </button>
           </div>
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              type="text"
+              value={manualTopic}
+              onChange={(e) => setManualTopic(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void addManualTopic(); }}
+              placeholder="Kendi konunu yaz… örn: SMS borcu olanlar neden ödeme bekliyor?"
+              className="min-w-0 flex-1 rounded-lg border border-slate-600 bg-slate-900/60 px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => void addManualTopic()}
+              disabled={manualTopicLoading || !manualTopic.trim()}
+              className="shrink-0 rounded-lg border border-sky-400/50 bg-sky-600/20 px-3 py-2 text-xs hover:bg-sky-600/40 disabled:opacity-50"
+            >
+              {manualTopicLoading ? 'Ekleniyor…' : '➕ Konuyu kuyruğa al'}
+            </button>
+          </div>
+          {manualTopicResult && <p className="mt-1 text-xs text-sky-300">{manualTopicResult}</p>}
           {analysisOpen && (
             <div className="mt-3 space-y-2">
               {analysisError && <p className="text-sm text-red-300" role="alert">{analysisError}</p>}

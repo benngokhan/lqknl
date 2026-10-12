@@ -6,14 +6,18 @@ import { normalizeTitleKey } from "@/lib/dedupe-content";
 
 export const dynamic = "force-dynamic";
 
-function authorized(req: Request) {
+function authMode(req: Request): "key" | "panel" | null {
   const expected = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
-  if (!expected) return process.env.NODE_ENV !== "production";
-  return req.headers.get("x-mira-key") === expected;
+  if (expected && req.headers.get("x-mira-key") === expected) return "key";
+  const hasEntryCookie = req.headers.get("cookie")?.split(";").some((part) => part.trim() === "mira_entry=1") ?? false;
+  if (hasEntryCookie) return "panel";
+  if (!expected && process.env.NODE_ENV !== "production") return "key";
+  return null;
 }
 
 export async function POST(req: Request) {
-  if (!authorized(req)) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
+  const mode = authMode(req);
+  if (!mode) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const b = await req.json().catch(() => ({}));
   const topic = typeof b.topic === "string" ? b.topic.trim().slice(0, 500) : "";
@@ -79,11 +83,26 @@ export async function POST(req: Request) {
     },
   }).returning();
 
+  // Panelden manuel eklenen konu: bir sonraki vardiyayı beklemeden worker'ı ateşle.
+  // Worker claim'i atomiktir; senaryo arka planda yazılır, otopilot zinciri video üretimine dek sürer.
+  let manualKick = false;
+  if (mode === "panel" && process.env.MIRA_MANUAL_KICK !== "0") {
+    manualKick = true;
+    const origin = new URL(req.url).origin;
+    const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
+    fetch(`${origin}/api/automation/worker?contentId=${content.id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-mira-key": secret },
+      body: JSON.stringify({}),
+    }).catch((e) => console.error("[Queue] Manuel worker tetiklemesi başarısız:", e));
+  }
+
   return NextResponse.json({
     ok: true,
     content,
     task,
     operation,
+    manualKick,
     pipeline: {
       status: "queued",
       stages: ["research", "script", "voice", "video", "publish", "report"],
