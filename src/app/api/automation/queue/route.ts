@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { contentItems, operations, tasks } from "@/db/schema";
 import { normalizeTitleKey } from "@/lib/dedupe-content";
@@ -29,6 +29,25 @@ export async function POST(req: Request) {
   if (!mode) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const b = await req.json().catch(() => ({}));
+
+  // Retry the existing failed item in place; never create a duplicate topic.
+  const retryContentId = Number(b.retryContentId);
+  if (Number.isInteger(retryContentId) && retryContentId > 0) {
+    const [retried] = await db.update(contentItems)
+      .set({ status: "queued", updatedAt: new Date() })
+      .where(and(eq(contentItems.id, retryContentId), eq(contentItems.status, "failed")))
+      .returning({ id: contentItems.id, title: contentItems.title, status: contentItems.status });
+    if (!retried) return NextResponse.json({ error: "İçerik bulunamadı veya yeniden denemeye uygun değil." }, { status: 409 });
+    await db.insert(operations).values({
+      action: "content_pipeline_retry",
+      summary: `Mevcut içerik yeniden kuyruğa alındı: ${retried.title}`,
+      status: "queued",
+      platform: "youtube",
+      metadata: { contentId: retryContentId, retryable: true, duplicateCreated: false },
+    });
+    return NextResponse.json({ ok: true, content: retried, duplicateCreated: false }, { status: 200 });
+  }
+
   const topic = typeof b.topic === "string" ? b.topic.trim().slice(0, 500) : "";
   const platform = typeof b.platform === "string" ? b.platform.trim().slice(0, 40) : "youtube";
   const title = typeof b.title === "string" && b.title.trim()
