@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, eq, like } from "drizzle-orm";
+import { and, desc, eq, like } from "drizzle-orm";
 import { db } from "@/db";
 import { contentItems, operations, tasks } from "@/db/schema";
 import { generateWithFallback } from "@/lib/model-manager";
@@ -12,6 +12,19 @@ function authorized(req: Request) {
   const expected = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
   if (!expected) return process.env.NODE_ENV !== "production";
   return req.headers.get("x-mira-key") === expected;
+}
+
+async function loadLatestSignalDirective(): Promise<Record<string, unknown> | null> {
+  const [record] = await db.select().from(operations)
+    .where(and(eq(operations.action, "channel_signal_directive"), eq(operations.status, "success")))
+    .orderBy(desc(operations.id))
+    .limit(1);
+  const metadata = record?.metadata && typeof record.metadata === "object"
+    ? record.metadata as Record<string, unknown> : {};
+  const directive = metadata.directive;
+  return directive && typeof directive === "object" && !Array.isArray(directive)
+    ? directive as Record<string, unknown>
+    : null;
 }
 
 export async function POST(req: Request) {
@@ -47,6 +60,13 @@ export async function POST(req: Request) {
 
   try {
     const topic = claimed.topic?.trim() || claimed.title;
+    let signalDirective: Record<string, unknown> | null = null;
+    try {
+      signalDirective = await loadLatestSignalDirective();
+    } catch (signalError) {
+      console.error("[Worker] Kanal sinyal direktifi okunamadı; normal üretim devam edecek:",
+        signalError instanceof Error ? signalError.message : String(signalError));
+    }
     const result = await generateWithFallback({
       system: [
         "Sen Mira'nın Bilgi Dozu adlı YouTube Shorts kanalı için Türkçe içerik üretim motorusun.",
@@ -59,10 +79,14 @@ export async function POST(req: Request) {
         "Çıktı başlıkları: KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI, SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER.",
         "Görsel formatı: dikey 9:16, 1080x1920, 30 fps; üç ayrı ama görsel olarak tutarlı sinematik görüntü, hafif Ken Burns hareketi; koyu tonlar, üst-alt siyah gradyan; ince gri ilerleme çubuğu ve #D4FF3F neon yeşil vurgu; üst solda 'BİLGİ DOZU', altta marka adı.",
         "Ekran metni kısa, okunaklı ve 2-3 satır olsun; anahtar son ifade neon yeşil vurgulansın. Türkçe doğal ve otoriter ses, kelime kelime senkron altyazı, düşük seviyeli gizemli müzik kullan.",
-        "İçeriği yayınlama, video dosyası oluştuğunu iddia etme; yalnızca metin taslağı hazırla. Taslağın onay beklediğini açıkça belirt."
+        "İçeriği yayınlama, video dosyası oluştuğunu iddia etme; yalnızca metin taslağı hazırla. Taslağın onay beklediğini açıkça belirt.",
+        ...(signalDirective ? [
+          "HAFTALIK KANAL SİNYALİ: aşağıdaki JSON güncel kanal performansından türetilmiştir. Güçlü kümeleri konu seçimi ve çerçevelemede önceliklendir; azalt_durdur kümelerinden yeni konu önermemeye çalış. Klonlanacak videolardan yalnızca kanca yapısını al, metni veya iddiayı kopyalama.",
+          JSON.stringify(signalDirective)
+        ] : [])
       ].join("\n"),
       history: [],
-      message: `Platform: ${claimed.platform}\nKonu: ${topic}\nBaşlık: ${claimed.title}\nEn fazla 30 saniyelik, tek ana bilgili Bilgi Dozu Shorts taslağı üret. İlk 1-2 saniyeye güçlü hook/kanca koy ve tam 3 ayrı görsel için zaman kodlu, ayrı görsel promptları ver. Tüm zorunlu başlıkları doldur. Model hata/ret mesajı yazma; güvenilir kaynak bulamıyorsan iddiayı üretme ve KAYNAK bölümünde DOĞRULAMA GEREKLİ yaz.`,
+      message: `Platform: ${claimed.platform}\nKonu: ${topic}\nBaşlık: ${claimed.title}\nEn fazla 30 saniyelik, tek ana bilgili Bilgi Dozu Shorts taslağı üret. İlk 1-2 saniyeye güçlü hook/kanca koy ve tam 3 ayrı görsel için zaman kodlu, ayrı görsel promptları ver. Tüm zorunlu başlıkları doldur. Model hata/ret mesajı yazma; güvenilir kaynak bulamıyorsan iddiayı üretme ve KAYNAK bölümünde DOĞRULAMA GEREKLİ yaz.${signalDirective ? `\nHaftalık kanal sinyal direktifi: ${JSON.stringify(signalDirective)}` : ""}`,
     });
 
     const generated = result.content.trim();
