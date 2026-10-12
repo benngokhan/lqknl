@@ -843,7 +843,7 @@ export default function Home() {
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain my-3 sm:my-4 space-y-4 pr-1 sm:pr-2 pb-2">
         <section className="rounded-xl border border-violet-500/30 bg-slate-800/80 p-3">
-          <div className="flex items-center gap-2">
+          <div className="hidden">
             <button
               type="button"
               onClick={() => setAnalysisOpen((open) => !open)}
@@ -919,7 +919,7 @@ export default function Home() {
               </div>}
             </div>)}</div>}
           </div>
-          {analysisOpen && (
+          {false && analysisOpen && (
             <div className="mt-3 space-y-2">
               {analysisError && <p className="text-sm text-red-300" role="alert">{analysisError}</p>}
               {analysisLoading && !analysis && <p className="text-sm text-slate-400">Son analiz raporu yükleniyor…</p>}
@@ -963,8 +963,8 @@ export default function Home() {
             </div>
           )}
         </section>
-        <section className="rounded-xl border border-blue-500/30 bg-slate-800/80 p-3">
-          <div className="flex items-center justify-between gap-2">
+        <section className={videoProgress ? "rounded-xl border border-blue-500/30 bg-slate-800/80 p-3" : "hidden"}>
+          <div className="hidden">
             <button
               type="button"
               onClick={() => setDraftPanelOpen((open) => !open)}
@@ -987,7 +987,7 @@ export default function Home() {
               {draftsLoading ? 'Yükleniyor…' : 'Yenile'}
             </button>
           </div>
-          {draftPanelOpen && (
+          {false && draftPanelOpen && (
             <div className="mt-3 space-y-3">
               <p className="text-xs text-slate-400">İşçilerin topladığı içerikler burada birikir. Senaryosu olmayanı önce <b className="text-slate-300">Senaryoyu oluştur</b> ile hazırlat; <b className="text-slate-300">Onayla ve video üret</b> üretimi heaslak yok. Yeni taslaklar burada görünecek.</p>
               {drafts.map((draft) => (
