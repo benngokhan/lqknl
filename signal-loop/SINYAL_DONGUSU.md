@@ -6,12 +6,12 @@
       ↓
 pulse_report.json + content_directive.md oluşur
       ↓
-content_directive.md'deki JSON bloğunu Mira sistem promptuna ekle
-(veya Mira'ya o haftaki ilk mesajın başına yapıştır)
+MIRA_SIGNAL_PUSH_URL + MIRA_AUTOMATION_SECRET ayarlıysa
+/api/automation/signal adresine güvenli POST yapılır
       ↓
-Mira o hafta taslakları AĞIRLIKLI güçlü kümelerden seçer
+Mira'nın taslak işçisi son kayıtlı direktifi okur
       ↓
-(1 hafta sonra) tekrar nabız → direktif günceller
+(1 hafta sonra) tekrar nabız → direktif güncellenir
 ```
 
 ## Hangi metrik neyi söyler (Shorts'a özel)
@@ -53,3 +53,28 @@ bakıp direktife işlemen 30 saniye sürer.
   kümeleri şu an en güçlü sinyal → yeni taslakların çoğu bu iki kümeden seçilmeli.
 - "Beynin kararı senden önce biliyor" (2) ve "zaman yoğunlaşır" (2) → soyut/kavramsal
   kancalar şu an zayıf → somut, gündelik, deney anlatan kancalara dön.
+
+
+## Mira'ya otomatik aktarım
+
+GitHub'a kod gönderildiğinde tek başına haftalık sinyal üretimi başlamaz. Nabız betiği çalıştırılırken şu ortam değişkenlerini tanımla:
+
+- `MIRA_SIGNAL_PUSH_URL`: Mira'nın canlı temel adresi (sonuna `/api/automation/signal` eklenmez; betik ekler).
+- `MIRA_AUTOMATION_SECRET` (veya `MIRA_N8N_SECRET`): Mira API'siyle aynı gizli anahtar.
+- YouTube Data API v3 anahtarı betiğe `--key` ile verilir.
+
+Örnek:
+
+```bash
+export MIRA_SIGNAL_PUSH_URL="https://CANLI-MIRA-ADRESIN"
+export MIRA_AUTOMATION_SECRET="MIRA_ILE_AYNI_GIZLI_ANAHTAR"
+python3 channel_pulse.py --handle "@GERCEK_KANAL_HANDLE" --key "$YOUTUBE_DATA_API_KEY"
+```
+
+Başarılı aktarımda `/api/automation/signal` direktifi veritabanındaki `operations` kaydına yazar. Taslak işçisi son başarılı direktifi okur. Aktarım ayarlı değilse dosyalar oluşturulur ama canlı Mira güncellenmez; bu durumda JSON bloğu elle aktarılabilir.
+
+## Ölçüm sınırları
+
+- Betik şu anda görüntülenme sayısından **yayından beri ortalama günlük hızı** hesaplar; ilk 48 saatin tarihsel görüntülenme hızını geriye dönük çıkaramaz. Bunun için günlük snapshot tutulması gerekir.
+- Ortalama izlenme yüzdesi, abone dönüşümü ve yorum metinleri mevcut Data API çağrısından gelmez; bunlar Studio/YouTube Analytics üzerinden ayrıca alınmalıdır.
+- Gerçek kanal handle'ı ve canlı Mira adresi doğrulanmadan örnek değerleri kullanma.
