@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { gte } from "drizzle-orm";
+import { desc, eq, gte, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { contentItems, operations, tasks } from "@/db/schema";
 import { normalizeTitleKey } from "@/lib/dedupe-content";
@@ -13,6 +13,15 @@ function authMode(req: Request): "key" | "panel" | null {
   if (hasEntryCookie) return "panel";
   if (!expected && process.env.NODE_ENV !== "production") return "key";
   return null;
+}
+
+export async function GET(req: Request) {
+  const mode = authMode(req);
+  if (!mode) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
+  const rows = await db.select().from(contentItems)
+    .where(inArray(contentItems.status, ["queued", "processing", "failed"]))
+    .orderBy(desc(contentItems.createdAt)).limit(40);
+  return NextResponse.json(rows.map((row) => ({ id: row.id, title: row.title, topic: row.topic, platform: row.platform, status: row.status, createdAt: row.createdAt, updatedAt: row.updatedAt })));
 }
 
 export async function POST(req: Request) {
@@ -83,19 +92,7 @@ export async function POST(req: Request) {
     },
   }).returning();
 
-  // Panelden manuel eklenen konu: bir sonraki vardiyayı beklemeden worker'ı ateşle.
-  // Worker claim'i atomiktir; senaryo arka planda yazılır, otopilot zinciri video üretimine dek sürer.
-  let manualKick = false;
-  if (mode === "panel" && process.env.MIRA_MANUAL_KICK !== "0") {
-    manualKick = true;
-    const origin = new URL(req.url).origin;
-    const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
-    fetch(`${origin}/api/automation/worker?contentId=${content.id}`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-mira-key": secret },
-      body: JSON.stringify({}),
-    }).catch((e) => console.error("[Queue] Manuel worker tetiklemesi başarısız:", e));
-  }
+  const manualKick = false; // Kuyruğa eklemek üretimi başlatmaz; zamanlama veya kullanıcı butonu başlatır.
 
   return NextResponse.json({
     ok: true,
