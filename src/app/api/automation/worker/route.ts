@@ -144,7 +144,8 @@ async function discoverPublicSources(query: string): Promise<string[]> {
   return urls;
 }
 
-async function verifyScriptSources(script: string, narration: string, topic: string): Promise<FactGateResult> {
+async function verifyScriptSources(contentId: number, script: string, narration: string, topic: string): Promise<FactGateResult> {
+  await reportScriptProgress(contentId, 58, "Senaryodaki kaynaklar inceleniyor…", "running", "Taslak içindeki KAYNAK bölümünden HTTPS bağlantıları çıkarılıyor ve güvenilir alan adları denetleniyor.", "Kaynak yoksa otomatik arama başlatacağım.");
   const sections = parseDraftScript(script);
   const sourceSection = sections["KAYNAK"]?.trim() || "";
   let candidates = [...sourceSection.matchAll(/https:\/\/[^\s)\]>]+/gi)]
@@ -155,6 +156,7 @@ async function verifyScriptSources(script: string, narration: string, topic: str
   let searchedAutomatically = false;
   if (!candidates.length) {
     searchedAutomatically = true;
+    await reportScriptProgress(contentId, 60, "Güvenilir kaynak aranıyor…", "running", "Taslakta kullanılabilir güvenilir HTTPS kaynağı bulunmadı; otomatik arama başlatılıyor.", "Arama sonuçlarından güvenilir alan adlarına ait bağlantıları seçeceğim.");
     try {
       candidates = await discoverPublicSources((topic + " " + narration.slice(0, 220) + " scientific evidence source"));
     } catch (error) {
@@ -162,14 +164,18 @@ async function verifyScriptSources(script: string, narration: string, topic: str
         (error instanceof Error ? error.message : String(error)).slice(0, 300) };
     }
     if (!candidates.length) {
+      await reportScriptProgress(contentId, 62, "Güvenilir kaynak bulunamadı", "failed", "Otomatik arama güvenilir HTTPS alan adına ait kaynak döndürmedi.", "Kaynak bağlantısı eklenmeli veya konu doğrulanabilir kaynakla yeniden hazırlanmalı.");
       return { ok: false, sourceUrls: [], reason: "Kaynak verilmedi; otomatik aramada güvenilir HTTPS kaynağı bulunamadı." };
     }
   }
+  await reportScriptProgress(contentId, 63, "Kaynak bağlantıları bulundu…", "running", `${candidates.length} güvenilir kaynak adayı bulundu: ${candidates.join(" ; ")}`, "Bağlantıları açıp okunabilir kaynak metni olup olmadığını kontrol edeceğim.");
   try {
     const pages = await Promise.all(candidates.map(readPublicSource));
     const untrustedFinalPage = pages.find((page) => !isTrustedSourceUrl(page.url));
     if (untrustedFinalPage) throw new Error("Kaynak güvenilir/kanonik alan adına yönlenmedi; doğrulama reddedildi.");
+    await reportScriptProgress(contentId, 66, "Kaynak sayfaları okundu…", "running", `${pages.length} kaynak sayfası açıldı ve metni alındı; şimdi seslendirmedeki iddialarla karşılaştırılacak.`, "Ana iddiaları yalnızca okunan kaynak metnine göre denetleyeceğim.");
     const evidence = pages.map((page, index) => "KAYNAK " + (index + 1) + ": " + page.url + "\n" + page.text).join("\n\n");
+    await reportScriptProgress(contentId, 70, "İddialar kaynaklarla karşılaştırılıyor…", "running", "Seslendirme metni, açılıp okunan kaynak sayfalarının metniyle karşılaştırılıyor; arama sonucu başlığı tek başına kanıt sayılmıyor.", "Karşılaştırma sonucunu ve gerekçesini kaydedeceğim.");
     const check = await generateWithFallback({
       system: [
         "Sen katı bir bilgi doğrulama denetçisisin. Yalnızca verilen kaynak metninde açıkça desteklenen iddiaları kabul et.",
@@ -186,7 +192,11 @@ async function verifyScriptSources(script: string, narration: string, topic: str
     const reason = typeof parsed.reason === "string" ? parsed.reason.slice(0, 400) : "Model gerekçe vermedi.";
     const sourceUrls = pages.map((p) => p.url);
     const prefix = searchedAutomatically ? "Otomatik arama yapıldı. " : "";
-    if (parsed.supported !== true) return { ok: false, sourceUrls, reason: prefix + reason };
+    if (parsed.supported !== true) {
+      await reportScriptProgress(contentId, 76, "Kaynak kontrolü başarısız", "failed", `${prefix}${reason} Kaynaklar: ${sourceUrls.join(" ; ")}`, "Desteklenmeyen iddiayı düzeltmeden video üretimine geçme.");
+      return { ok: false, sourceUrls, reason: prefix + reason };
+    }
+    await reportScriptProgress(contentId, 76, "Kaynak kontrolü geçti", "running", `${prefix}${reason} Kaynaklar: ${sourceUrls.join(" ; ")}`, "Senaryo ve kaynak kontrolü sonucunu kaydediyorum.");
     return { ok: true, sourceUrls, reason: prefix + reason };
   } catch (error) {
     return { ok: false, sourceUrls: candidates, reason: (error instanceof Error ? error.message : String(error)).slice(0, 400) };
@@ -262,7 +272,7 @@ export async function POST(req: Request) {
     try {
       const topic = claimed.topic?.trim() || claimed.title;
       const archiveContext = await loadArchiveContext(topic);
-      await reportScriptProgress(claimed.id, 8, "Konu analizi yapılıyor…", "running", "Konu tek bir ana bilgiye indirgeniyor; belirsiz veya çok geniş noktalar ayıklanıyor.", "Uygun kapsam belirlenince senaryo taslağını oluşturacağım.");
+      await reportScriptProgress(claimed.id, 8, "Konu ve arşiv bağlamı inceleniyor…", "running", archiveContext ? "Konu arşivinde eşleşen bağlam bulundu; bu bilgi taslak istemine eklenecek." : "Konu arşivinde yeterli eşleşme bulunmadı; taslak kullanıcının verdiği konu üzerinden hazırlanacak.", "Kanal yönergesini kontrol edip senaryo modelini çağıracağım.");
       let signalDirective: Record<string, unknown> | null = null;
       try {
         signalDirective = await loadLatestSignalDirective();
@@ -298,6 +308,7 @@ export async function POST(req: Request) {
       });
 
       const generated = result.content.trim();
+      await reportScriptProgress(claimed.id, 28, "İlk senaryo taslağı alındı…", "running", `Model yanıt verdi (${result.provider}/${result.model}); çıktı ${generated.length} karakter. Şimdi zorunlu başlıklar ve biçim denetleniyor.`, "Eksik bölüm varsa düzeltme deneyeceğim.");
       const refusalPattern = /üzgünüm[!, ]|bu isteği yerine getiremiyorum|i cannot help|i can.t help with that/i;
       if (refusalPattern.test(generated)) {
         throw new Error("Model içerik yerine ret/hata mesajı döndürdü; taslak kaydedilmedi.");
@@ -369,7 +380,8 @@ export async function POST(req: Request) {
       await reportScriptProgress(claimed.id, 58, "Kaynak araştırılıyor…", "running", "Kaynak URL’leri kontrol edilecek; URL yoksa güvenilir bilimsel kaynaklar web’de otomatik aranacak.", "Okunabilen kaynak metnini ana iddialarla karşılaştıracağım.");
       await reportScriptProgress(claimed.id, 68, "Bilgilerin doğruluğu kontrol ediliyor…", "running", "Bulunan kaynak sayfaları okunup seslendirmedeki ana iddialarla karşılaştırılacak; arama sonucu tek başına kanıt sayılmayacak.", "Sonucu kaydedip senaryoyu onayına sunacağım; doğrulama başarısızsa nedeni açıkça göstereceğim.");
       const rawNarration = extractNarration(scriptText, `${claimed.title}. ${topic}`);
-      const factCheck = await verifyScriptSources(scriptText, rawNarration, claimed.title + ". " + topic);
+      await reportScriptProgress(claimed.id, 54, "Senaryo metni çıkarıldı…", "running", `Seslendirme metni ayrıştırıldı; ${rawNarration.split(/\\s+/).filter(Boolean).length} kelime bulundu. Kaynak denetimi başlıyor.`, "Kaynak bağlantılarını açıp ana iddiaları karşılaştıracağım.");
+      const factCheck = await verifyScriptSources(claimed.id, scriptText, rawNarration, claimed.title + ". " + topic);
       await db.insert(operations).values({
         action: factCheck.ok ? "fact_check_passed" : "fact_check_blocked",
         summary: factCheck.ok ? `Kaynak kontrolü geçti: ${claimed.title}` : `Kaynak/doğruluk kontrolü başarısız: ${claimed.title}`,
