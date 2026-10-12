@@ -255,6 +255,38 @@ export default function Home() {
     }
   }
 
+  async function retryManualItem(item: QueueItem) {
+    if (queueBusyId !== null) return;
+    if (!window.confirm(`“${item.title}” (#${item.id}) aynı kayıt üzerinden yeniden denensin mi? Yeni konu oluşturulmayacak; YouTube'a yükleme yapılmayacak.`)) return;
+    setQueueBusyId(item.id);
+    setManualTopicResult(`#${item.id} mevcut görevi yeniden kuyruğa alıyor…`);
+    try {
+      const retryRes = await fetch('/api/automation/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ retryContentId: item.id }),
+      });
+      const retryData = await retryRes.json().catch(() => null);
+      if (!retryRes.ok || retryData?.ok !== true) throw new Error(retryData?.error || `Yeniden kuyruğa alınamadı (HTTP ${retryRes.status}).`);
+
+      const workerRes = await fetch(`/api/automation/worker?contentId=${item.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manualProduce: false, manualTopic: true }),
+      });
+      const workerData = await workerRes.json().catch(() => null);
+      if (!workerRes.ok || workerData?.started !== true) throw new Error(workerData?.error || 'Mira yeniden denemeyi başlatamadı.');
+      setQueueItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'processing' } : entry));
+      setManualTopicResult(`#${item.id} aynı kayıt üzerinden yeniden denendi. Mira güncel kaynak aramasını çalıştırıyor; yeni bir içerik oluşturulmadı ve YouTube yüklemesi başlatılmadı.`);
+      void pollManualScriptProgress(item.id, item.title);
+    } catch (error) {
+      setManualTopicResult(error instanceof Error ? error.message : 'Yeniden deneme başlatılamadı.');
+    } finally {
+      setQueueBusyId(null);
+      void loadManualQueue();
+    }
+  }
+
   async function pollManualScriptProgress(contentId: number, title: string) {
     const deadline = Date.now() + 5 * 60 * 1000;
     while (Date.now() < deadline) {
@@ -807,7 +839,7 @@ export default function Home() {
           <div className="mt-3 rounded-lg border border-sky-500/20 bg-slate-900/70 p-3">
             <div className="mb-2 flex items-center justify-between gap-2"><p className="text-sm font-semibold text-white">Manuel konu kuyruğu</p><button type="button" onClick={() => void loadManualQueue()} disabled={queueLoading} className="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-700 disabled:opacity-50">{queueLoading ? 'Yükleniyor…' : 'Kuyruğu yenile'}</button></div>
             <p className="mb-3 text-xs text-slate-400">Tek satırlık konu veya KONU / KANCA / GELİŞME / KAYNAKLAR / BAŞLIK / AÇIKLAMA / ETİKETLER / FORMAT alanları olan hazır paketi yapıştırabilirsin. Mira verdiğin ayrıntıları korur, kaynak adaylarını doğrular ve senaryoyu onayına sunar. Onayın olmadan video üretimi veya YouTube yüklemesi başlamaz.</p>
-            {queueItems.length === 0 ? <p className="text-xs text-slate-500">Bekleyen manuel konu yok.</p> : <div className="space-y-2">{queueItems.map((item) => <div key={item.id} className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-950/70 p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="break-words text-sm font-medium text-white">{item.title}</p><p className="mt-1 text-xs text-slate-400">#{item.id} · {item.status === 'queued' ? 'Sırada' : item.status === 'processing' ? 'İşleniyor' : 'Hata / yeniden denenebilir'}</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void startManualVideo(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="rounded-lg border border-slate-500 px-3 py-2 text-xs font-medium hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '✍ Senaryo hazırla'}</button><button type="button" onClick={() => void startManualProduction(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="rounded-lg border border-emerald-400/50 bg-emerald-600/20 px-3 py-2 text-xs font-semibold hover:bg-emerald-600/40 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '▶ Bu videoyu şimdi üret'}</button></div></div>)}</div>}
+            {queueItems.length === 0 ? <p className="text-xs text-slate-500">Bekleyen manuel konu yok.</p> : <div className="space-y-2">{queueItems.map((item) => <div key={item.id} className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-950/70 p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="break-words text-sm font-medium text-white">{item.title}</p><p className="mt-1 text-xs text-slate-400">#{item.id} · {item.status === 'queued' ? 'Sırada' : item.status === 'processing' ? 'İşleniyor' : 'Hata / yeniden denenebilir'}</p></div><div className="flex flex-wrap gap-2">{item.status === 'failed' && <button type="button" onClick={() => void retryManualItem(item)} disabled={queueBusyId !== null} className="rounded-lg border border-amber-400/50 bg-amber-600/20 px-3 py-2 text-xs font-semibold hover:bg-amber-600/40 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Yeniden deneniyor…' : '↻ Yeniden dene'}</button>}<button type="button" onClick={() => void startManualVideo(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="rounded-lg border border-slate-500 px-3 py-2 text-xs font-medium hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '✍ Senaryo hazırla'}</button><button type="button" onClick={() => void startManualProduction(item)} disabled={queueBusyId !== null || item.status !== 'queued'} className="rounded-lg border border-emerald-400/50 bg-emerald-600/20 px-3 py-2 text-xs font-semibold hover:bg-emerald-600/40 disabled:cursor-not-allowed disabled:opacity-40">{queueBusyId === item.id ? 'Başlatılıyor…' : '▶ Bu videoyu şimdi üret'}</button></div></div>)}</div>}
           </div>
           {analysisOpen && (
             <div className="mt-3 space-y-2">
