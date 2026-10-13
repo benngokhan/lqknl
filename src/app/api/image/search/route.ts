@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({})) as { query?: unknown };
     const requestedQuery = typeof body.query === "string" ? body.query : "";
     // Keep searches focused on the intended photo-search feature.
-    const query = requestedQuery.trim().slice(0, 100) || "mirror selfie outfit aesthetic";
+    const query = requestedQuery.trim().slice(0, 100) || "body selfie sensual girl";
     const params = new URLSearchParams({
       key: apiKey,
       q: query,
