@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generateNarration } from "@/lib/narration";
+import { generateNarration, type MiraSolMode, type MiraTtsEmotion } from "@/lib/narration";
 
 export const runtime = "nodejs";
 
@@ -25,7 +25,13 @@ export async function POST(req: Request) {
     if (!text.trim()) return NextResponse.json({ error: "Metin gerekli" }, { status: 400 });
     if (text.length > 5000) return NextResponse.json({ error: "Metin çok uzun" }, { status: 413 });
 
-    const narration = await generateNarration(text);
+    const rawEmotion = body.emotion;
+    const allowedEmotions: MiraTtsEmotion[] = ["happy", "surprised", "sad", "playful", "focused"];
+    const emotion: MiraTtsEmotion = allowedEmotions.includes(rawEmotion) ? rawEmotion : "happy";
+    const rawMode = body.solMode;
+    const allowedModes: MiraSolMode[] = ["sweet", "flirty", "serious", "excited", "close"];
+    const solMode: MiraSolMode = allowedModes.includes(rawMode) ? rawMode : "close";
+    const narration = await generateNarration(text, { emotion, solMode });
 
     // format:"json" → ses + senkron altyazı + gerçek süre (içerik hattı için)
     if (body.format === "json") {
