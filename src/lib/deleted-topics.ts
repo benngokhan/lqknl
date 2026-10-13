@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { desc, eq } from "drizzle-orm";
+import { db as appDb } from "@/db";
 import { operations } from "@/db/schema";
 import { normalizeTitleKey } from "@/lib/dedupe-content";
 
@@ -9,10 +10,10 @@ export function deletedTopicHash(value: string | null | undefined): string | nul
   return normalized ? createHash("sha256").update(normalized, "utf8").digest("hex") : null;
 }
 
-export async function isPermanentlyDeletedTopic(db: any, candidates: Array<string | null | undefined>): Promise<boolean> {
+export async function isPermanentlyDeletedTopic(database: typeof appDb, candidates: Array<string | null | undefined>): Promise<boolean> {
   const candidateHashes = new Set(candidates.map(deletedTopicHash).filter((value): value is string => Boolean(value)));
   if (!candidateHashes.size) return false;
-  const tombstones = await db.select({ metadata: operations.metadata })
+  const tombstones = await database.select({ metadata: operations.metadata })
     .from(operations)
     .where(eq(operations.action, "content_permanently_deleted"))
     .orderBy(desc(operations.id))
