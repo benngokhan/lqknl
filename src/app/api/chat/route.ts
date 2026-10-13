@@ -257,13 +257,13 @@ export async function POST(req: Request) {
           const meta = op.metadata && typeof op.metadata === 'object' ? op.metadata as Record<string, unknown> : {};
           const id = Number(meta.contentId);
           if (!Number.isInteger(id) || id <= 0 || byId.has(id)) continue;
-          const title = typeof meta.title === 'string' ? meta.title : op.summary.replace(/^.*?:\\s*/, '').slice(0, 180);
+          const title = typeof meta.title === 'string' ? meta.title : op.summary.replace(/^.*?:\s*/, '').slice(0, 180);
           byId.set(id, { title: title || 'Başlıksız taslak', status: 'yalnızca işçi kaydında', platform: 'bilinmiyor', createdAt: op.createdAt ? new Date(op.createdAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : 'tarih yok' });
         }
         const entries = [...byId.entries()].sort((a, b) => b[0] - a[0]);
         return NextResponse.json({
           reply: entries.length
-            ? ['📚 Kayıtlı taslaklar (silinmiş kayıtlar hariç):', '', ...entries.map(([id, row]) => `#${id} — ${row.title} | Durum: ${row.status} | Platform: ${row.platform} | ${row.createdAt}`), '', 'Görmek için: /taslak <id>', 'Silmek için: /taslak-sil <id>'].join('\\n')
+            ? ['📚 Kayıtlı taslaklar (silinmiş kayıtlar hariç):', '', ...entries.map(([id, row]) => `#${id} — ${row.title} | Durum: ${row.status} | Platform: ${row.platform} | ${row.createdAt}`), '', 'Görmek için: /taslak <id>', 'Silmek için: /taslak-sil <id>'].join('\n')
             : 'Kayıtlı taslak bulunamadı.',
           emotion: 'focused',
         });
@@ -330,8 +330,8 @@ export async function POST(req: Request) {
 
       try {
         const [content] = await db.select().from(contentItems).where(eq(contentItems.id, id)).limit(1);
-        if (!content) {
-          return NextResponse.json({ reply: `❌ ID ${id} numaralı taslak veritabanında bulunamadı.`, emotion: 'focused' });
+        if (content?.status === 'deleted') {
+          return NextResponse.json({ reply: `ℹ️ Taslak #${id} silinmiş olarak işaretli. /taslak-list komutunda gösterilmez.`, emotion: 'focused' });
         }
 
         const draftOperations = await db.select().from(operations)
@@ -342,16 +342,20 @@ export async function POST(req: Request) {
           const metadata = operation.metadata && typeof operation.metadata === 'object'
             ? operation.metadata as Record<string, unknown>
             : {};
-          return Number(metadata.contentId) === id && typeof metadata.script === 'string';
+          return Number(metadata.contentId) === id && operation.status !== 'deleted' && typeof metadata.script === 'string';
         });
         const metadata = draftOperation?.metadata && typeof draftOperation.metadata === 'object'
           ? draftOperation.metadata as Record<string, unknown>
           : {};
         const script = typeof metadata.script === 'string' ? metadata.script : '';
 
+        if (!content && !draftOperation) {
+          return NextResponse.json({ reply: `❌ #${id} numaralı taslak veritabanında veya işçi kayıtlarında bulunamadı.`, emotion: 'focused' });
+        }
+        const title = content?.title || (typeof metadata.title === 'string' ? metadata.title : draftOperation?.summary || `Taslak #${id}`);
         if (!script) {
           return NextResponse.json({
-            reply: `⚠️ ID ${id} (${content.title}) bulundu; ancak kayıtlı senaryo metni bulunamadı. Taslak değiştirilmedi.`,
+            reply: `⚠️ ID ${id} (${title}) bulundu; ancak kayıtlı senaryo metni bulunamadı. Taslak değiştirilmedi.`,
             emotion: 'focused',
           });
         }
@@ -370,8 +374,8 @@ export async function POST(req: Request) {
 
         return NextResponse.json({
           reply: [
-            `📄 Kayıtlı taslak #${content.id}: ${content.title}`,
-            `Durum: ${content.status}`,
+            `📄 Kayıtlı taslak #${id}: ${title}`,
+            `Durum: ${content?.status || 'yalnızca işçi kaydında'}`,
             '',
             'KAYITLI SENARYO (aynen):',
             script,
