@@ -81,53 +81,17 @@ async function fromGeminiImage(prompt: string): Promise<GeneratedImage> {
   return { bytes, extension, provider: "gemini-2.5-flash-image" };
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Pollinations anonim kademesi hız aşımını HTTP 402/500 olarak yansıtıyor (testle doğrulandı):
-// art arda istekler kısa kovada reddediliyor. Üst üste çağrı çıkaran pipeline için
-// modül düzeyinde minimum çağrı aralığı + rate-limit yanıtında soğuma tekrarı.
-let lastPollinationsCall = 0;
-
-async function fromPollinations(prompt: string): Promise<GeneratedImage> {
-  const seed = Math.floor(Math.random() * 1_000_000_000);
-  const encoded = encodeURIComponent(prompt.slice(0, 800));
-  // Not: safe=true parametresi Pollinations'da 402'ye düşüyor (premium'a taşınmış); güvenlik
-  // LLM prompt şablonunun "safe for work" şartıyla sağlanıyor.
-  const url = [
-    "https://image.pollinations.ai/prompt/",
-    `${encoded}?width=576&height=1024&seed=${seed}&nologo=true&model=flux`,
-  ].join("");
-
-  let lastError = "bilinmeyen hata";
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    const waitMs = 25_000 - (Date.now() - lastPollinationsCall);
-    if (lastPollinationsCall > 0 && waitMs > 0) await sleep(waitMs);
-    lastPollinationsCall = Date.now();
-    try {
-      return { ...(await downloadImageBytes(url)), provider: "pollinations" };
-    } catch (error) {
-      lastError = errMessage(error);
-      if (/HTTP (402|429|5\d\d)/.test(lastError) && attempt < 5) {
-        await sleep(45_000); // anonim kova soğuması
-        continue;
-      }
-      throw new Error(lastError);
-    }
-  }
-  throw new Error(lastError);
-}
-
 export async function generateImage(prompt: string): Promise<GeneratedImage> {
   const errors: string[] = [];
-  for (const fn of [fromTensorArt, fromGeminiImage, fromPollinations]) {
+  for (const fn of [fromTensorArt, fromGeminiImage]) {
     try {
       return await fn(prompt);
     } catch (error) {
       const detail = errMessage(error).slice(0, 200);
       errors.push(`${fn.name}: ${detail}`);
-      // Zincirin hangi halkasının neden patladığı Railway logunda görünür kalsın
+      // Pollinations bilerek kullanılmıyor: filigran/logo riski nedeniyle devre dışı.
       console.error(`[Görsel] ${fn.name} başarısız; zincir devam ediyor: ${detail}`);
     }
   }
-  throw new Error(`3 görsel sağlayıcısı da başarısız oldu → ${errors.join(" | ")}`);
+  throw new Error(`Görsel sağlayıcıları başarısız oldu (Pollinations devre dışı) → ${errors.join(" | ")}`);
 }

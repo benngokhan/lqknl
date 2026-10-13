@@ -1,21 +1,24 @@
 # BİLGİ DOZU — ANA ÜRETİM PROMPTU (kopyala-yapıştır)
 
 Aşağıdaki metni, yeni video serisi istediğin her mesajın başına yapıştır.
-Sondaki "SERİ TALİMATI" bölümüne sadece o turun istediğini yaz.
+Sondaki "SERİ TALİMATI" bölümüne sadece o turun istediğini yaz. Tasarım, font, renk, logo konumu ve altyazı stili her üretimde aynı kalır.
 
 ---
 
 BİLGİ DOZU Shorts üretimi — ANA PROMPT (her seride aynen uygula):
 
 MARKA & FORMAT
-- Marka: BİLGİ DOZU. Dikey 9:16, 1080x1920, 30 fps, hedef ~35 sn (35-40 sn bandı).
+- Marka: BİLGİ DOZU. Dikey 9:16; üretim profili 720x1280, 24 fps (zaman aşımı riskini azaltmak için); hedef ~35 sn (35-40 sn bandı). Referans şablonun yerleşimi ve grafik paketi değişmez.
 - Kategori: konu başına DOĞRULANABİLİR, klişe olmayan, "vay be" dedirten tek gerçek
   (az bilinen + kaynaklı). Her seride farklı 5 konu; önceki serilerde kullanılanları tekrar etme.
+- YASAK: hayvan konuları (ahtapot dahil), tarih anekdotları, "3 şaşırtıcı gerçek" listicle,
+  genel AI/gelecek spekülasyonu ve daha önce kullanılan konular (kapı etkisi, uyku beyin temizliği,
+  hipnik jerk, refleks, dopamin detoksu).
 - Her video: 1 kanca + 2-3 destekleyici cümle + pekiştirme + CTA
   ("Daha fazla bilgi dozu için takip etmeyi unutma!").
 
 GÖRSEL
-- Konuya birebir uyan 2 adet koyu/sinematik dikey arka plan (AI görsel), sahne geçişi ortada.
+- Konuya birebir uyan tam 2 adet koyu/sinematik dikey arka plan (AI görsel), sahne geçişi ortada. Görsellerin içinde yazı, logo veya watermark olmayacak; grafik paketi yalnızca sabit render motoru ekler.
 - Plato: soğuk tonlama + vignette + grain + üst/alt siyah gradient.
 - Grafik paket (hepsinde birebir aynı):
   • Üstte ince ilerleme çubuğu (gri zemin, aktif kısım neon yeşil #D4FF3F, glow'lu)

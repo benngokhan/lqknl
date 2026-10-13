@@ -37,11 +37,15 @@
 ### 8. Teknolojik ilkler
 - Doğrulanabilir İLK belge/patent kaydının hikâyesi (ilk e-posta, ilk faks idi çıkış...). "İlk X" diye başlamayan teknoloji haberi bu kümeye girmez.
 
-## AÇIK TEST KÜMESİ — HAYVAN, TARİH VE LİSTİCLE
-- Hayvan konuları (ahtapot dahil) ve tarih anekdotları **yasak değildir**; işçiler bunları yeni konu adayı olarak üretebilir.
-- "3 şaşırtıcı gerçek" gibi listicle biçimleri de **yasak değildir**; tek-gerçek formatıyla birlikte test edilebilir.
-- Önceki düşük görüntülenme örnekleri tek başına kalıcı dışlama gerekçesi sayılmaz. Kullanıcının belirttiği 30–40 beğeni sinyali de dikkate alınır; performans yalnızca konu adına göre değil, görüntülenme, beğeni, izlenme süresi/tutma oranı ve örnek sayısı birlikte değerlendirilerek ölçülür.
-- Haftalık sinyal direktifi (ağırlık_artır/azalt_durdur) varsa uygulanır; yeni adaylar yine kaynak doğrulaması ve kalite kontrolünden geçer.
+## KESİN KONU YASAKLARI
+- Hayvan konuları (ahtapot dahil), tarih anekdotları ve "3 şaşırtıcı gerçek" listicle biçimi YASAKTIR.
+- Genel AI/gelecek spekülasyonu, kanıtsız teknoloji tahmini ve birbirinden bağımsız gerçekler listesi YASAKTIR.
+- Kullanıcının açıkça yasakladığı veya önceki serilerde kullandığı konuyu yeniden üretme. Kapı etkisi, uyku beyin temizliği, hipnik jerk, refleks ve dopamin detoksu daha önce kullanılmıştır; bunları yeni aday olarak seçme.
+- Haftalık sinyal direktifi yalnızca izinli konu kümeleri arasında öncelik belirler; kesin yasakları geçersiz kılamaz.
+
+## KONU SEÇİM DAVRANIŞI
+- Öncelik kümeleri: uyku/beyin, nöroloji paradoksları, günlük hayat paradoksları, dopamin/davranış ve uzay ölçekleri.
+- Kaynak doğrulaması ve tek ana gerçek kuralı her koşulda geçerlidir; uygun aday yoksa daha az öğe üret, yasaklı kategoriyle kotayı doldurma.
 
 ## BAŞLIK FORMÜLÜ (kanıtlı, zayıf başlıkların hepsi bundan çıkmıştı)
 2. tekil şahıs ("Sen / Beynin") + somut eylem/nesne + sürpriz fiil + "!" + tek emoji (🧠/🤯). 3. şahıs/soyut başlık = otomatik düşük puan.

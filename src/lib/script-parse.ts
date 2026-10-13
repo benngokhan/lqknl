@@ -51,13 +51,13 @@ export function extractNarration(script: string, fallback = ""): string {
 const countWords = (s: string) => s.split(/\s+/).filter(Boolean).length;
 
 /**
- * Seslendirme metnini cümle sınırlarında kırpar: hedef ~44 kelime (≈20sn), tavan 58 (≈26sn).
- * Edge TTS +%5 hızla ölçülen ~2.2 kelime/sn bütçesiyle video 30sn altında kalır.
+ * Seslendirme metnini cümle sınırlarında kırpar: hedef ~72 kelime, tavan 82 kelime.
+ * Bilgi Dozu üretim sözleşmesi 35–40 saniyedir; gerçek ses süresi ayrıca QC'de doğrulanır.
  * Tek bir şişkin cümle maxWords'ü aşarsa kelime sınırında "…" ile keser.
  */
 export function capNarrationForDuration(text: string, opts?: { targetWords?: number; maxWords?: number }) {
-  const targetWords = opts?.targetWords ?? 44;
-  const maxWords = opts?.maxWords ?? 58;
+  const targetWords = opts?.targetWords ?? 72;
+  const maxWords = opts?.maxWords ?? 82;
   const cleaned = text.replace(/\s+/g, " ").trim();
   if (!cleaned) return { text: "", wasCapped: false, words: 0 };
   const sentences = cleaned.split(/(?<=[.!?…])\s+/u).map((s) => s.trim()).filter(Boolean);

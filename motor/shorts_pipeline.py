@@ -5,7 +5,7 @@ Stages:
   plates  - grade/crop bg images into 1620x2880 plates
   timing  - tighten VO pauses, word timings, caption chunks -> timing.json
   music   - tension bed sized to video duration
-  render  - full 1080x1920x30fps MP4
+  render  - fixed Bilgi Dozu template, 720x1280x24fps MP4
   all     - plates+timing+music
 """
 import contextlib, json, os, re, subprocess, sys, unicodedata, wave
@@ -45,7 +45,7 @@ FPS = int(os.environ.get("MIRA_MOTOR_FPS", "24"))
 S_SCALE = W / 1080.0
 def S_(v):
     return max(1, int(round(v * S_SCALE)))
-MX = 72
+MX = S_(72)
 CW = W - 2 * MX
 LEAD = 0.40
 GREEN = (212, 255, 63, 255)
@@ -294,7 +294,7 @@ def stage_timing(vdir):
         c["rows"] = wrap_rows(meas, c["words"], f_cap)
 
     vo_dur = tight_dur
-    total = round(min(30.0, LEAD + vo_dur + 0.8), 2)  # MIRA: kullanıcı ≤30s kuralı (orijinal: max 35.2 floor)
+    total = round(min(40.0, LEAD + vo_dur + 0.8), 2)  # Sabit şablon hedefi: 35–40 sn; 40 sn üst sınır.
     out = {"fps": FPS, "total": total, "vo_dur": round(vo_dur, 3),
            "vo_file": "vo_final.wav", "chunks": chunks, "last_end": last_end,
            "scene_switch": round(LEAD + vo_dur * 0.46, 2)}

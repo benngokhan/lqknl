@@ -24,7 +24,7 @@ export type Caption = { start: number; end: number; text: string };
 export type RenderImage = { bytes: Buffer; extension: string };
 
 export type RenderInput = {
-  images: RenderImage[]; // tam olarak 3
+  images: RenderImage[]; // 2 marka sahnesi (eski mock'lar için 3 de desteklenir)
   audio: Buffer;
   captions?: Caption[];
   narrationText?: string;
@@ -219,8 +219,8 @@ export async function renderShort(input: RenderInput): Promise<RenderOutput> {
 }
 
 async function renderShortWithProfile(input: RenderInput, profile: RenderProfile): Promise<RenderOutput> {
-  if (!Array.isArray(input.images) || input.images.length !== 3) {
-    throw new Error("Tam olarak 3 görsel gerekli");
+  if (!Array.isArray(input.images) || (input.images.length !== 2 && input.images.length !== 3)) {
+    throw new Error("2 sahne görseli gerekli (eski mock uyumluluğu için 3 de kabul edilir)");
   }
   for (const [index, image] of input.images.entries()) {
     if (!image || !image.bytes || !image.bytes.length) throw new Error(`Görsel ${index + 1} boş`);
@@ -251,7 +251,7 @@ async function renderShortWithProfile(input: RenderInput, profile: RenderProfile
     const requested = Number(input.durationSeconds);
     const probed = await probeAudioDuration(audioPath);
     const base = Number.isFinite(requested) && requested > 0 ? requested : (probed ?? 20);
-    const maxVideoSeconds = Number(process.env.MIRA_MAX_VIDEO_SECONDS) > 0 ? Number(process.env.MIRA_MAX_VIDEO_SECONDS) : 30;
+    const maxVideoSeconds = Number(process.env.MIRA_MAX_VIDEO_SECONDS) > 0 ? Number(process.env.MIRA_MAX_VIDEO_SECONDS) : 40;
     const duration = Math.max(4, Math.min(maxVideoSeconds, base + 0.4));
 
     const captions = safeCaptions(input.captions, duration);
@@ -284,7 +284,7 @@ async function renderShortWithProfile(input: RenderInput, profile: RenderProfile
     // libass'ın FontSize/MarginV değerleri PlayResY=288 birimindedir; çerçeve yüksekliğine ölçeklenir.
     const subtitleStyle = `FontName=DejaVu Sans,FontSize=${profile.fontSize},Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=34`;
 
-    const segment = duration / 3;
+    const segment = duration / imagePaths.length;
     const { width, height, fps } = profile;
 
     // 1-3) Her görsel ayrı .mp4 segmentine kodlanır; o segmentin zaman penceresine düşen

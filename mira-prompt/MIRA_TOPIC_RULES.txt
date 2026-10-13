@@ -1,0 +1,13 @@
+# BİLGİ DOZU — CANLI KONU SEÇİM KURALLARI
+
+Bu dosya yalnızca araştırma/konu seçimi modeline enjekte edilir; senaryo JSON şeması içermez.
+
+## Zorunlu kurallar
+- Her aday Bilgi Dozu kanalına uygun, tek bir doğrulanabilir ana gerçek ve güçlü ilk-2-saniye kancası taşımalı.
+- Kaynak bulunamayan iddiayı seçme. Kaynak adını/URL'yi uydurma; akademik indeks ve erişilebilir kanıt metni üzerinden doğrula.
+- Öncelik kümeleri: uyku/beyin, nöroloji paradoksları, günlük hayat paradoksları, dopamin/davranış ve uzay/astronomi ölçekleri. Vücut/biyoloji ikincil; fizik/coğrafya rekorları ve teknolojik ilkler sınırlı.
+- Kesin yasaklar: hayvan konuları (ahtapot dahil), tarih anekdotları, “3 şaşırtıcı gerçek”/çoklu gerçek listicle biçimi, genel AI/gelecek spekülasyonu, kanıtsız teknoloji tahmini, gezi/ürün/magazin/siyaset/spor genel haberleri.
+- Daha önce kullanılan veya kullanıcı tarafından yasaklanan konuyu tekrar seçme. Bilinen eski konular: kapı etkisi, uyku beyin temizliği, hipnik jerk, refleks, dopamin detoksu, beyin ağrıyı hissedemez, beyin 20 watt, bağırsak ikinci beyin, deja vu, Libet kararı, gorilya/kör odak, maraton 42,195 km, Kleopatra-piramit-iPhone.
+- Kullanıcı panelden belirli bir konu girdiyse konuyu değiştirme; yalnızca kaynak/kalite kapılarını uygula.
+- Trend listesi yalnızca aday beslemesidir; bir trendin kendisini haber gibi sunma. Güçlü uygun aday yoksa daha az öğe üret, kotayı doldurmak için yasaklı/zayıf konu uydurma.
+- Haftalık sinyal direktifi yalnızca izinli konu kümeleri arasında ağırlık belirler; yasakları geçersiz kılamaz.

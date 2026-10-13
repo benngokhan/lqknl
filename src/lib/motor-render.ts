@@ -7,9 +7,9 @@ import ffmpegPath from "ffmpeg-static";
 /**
  * MİRA × BİLGİ DOZU PYTHON MOTOR KÖPRÜSÜ
  * Vendored motoru (motor/shorts_pipeline.py) TS hattından çağırır:
- * TTS + 3 görsel + anlatı metni → PIL şablonlu 720x1280@24 MP4 (marka çerçevesi,
+ * TTS + tam 2 görsel + anlatı metni → sabit PIL şablonlu 720x1280@24 MP4 (marka çerçevesi,
  * kelime-kelime altyazı, müzik yatağı + ducking, -14 LUFS master).
- * Herhangi bir hata durumunda çağıran taraf (produce) TS/ffmpeg merdivenine düşer.
+ * Şablon motoru başarısız olursa produce üretimi durdurur; alternatif tasarım kullanılmaz.
  */
 
 const MOTOR_DIR = path.join(process.cwd(), "motor");
@@ -138,8 +138,8 @@ export async function renderWithMotor(input: MotorRenderInput): Promise<MotorRen
     const conv = await run(ffmpegPath, ["-y", "-hide_banner", "-loglevel", "error", "-i", mp3Path, "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", wavPath], { timeoutMs: 60_000 });
     if (conv.code !== 0) throw new Error(`ses dönüşümü başarısız: ${conv.stderr.slice(-150)}`);
 
-    const pick = [input.images[0], input.images[Math.min(2, input.images.length - 1)]].filter(Boolean);
-    if (pick.length < 1) throw new Error("bg görsel yok");
+    const pick = [input.images[0], input.images[1]].filter(Boolean);
+    if (pick.length !== 2) throw new Error(`Sabit Bilgi Dozu şablonu tam 2 görsel ister; gelen: ${pick.length}`);
     await fs.writeFile(path.join(vd, "bg1.png"), Buffer.from(pick[0].bytes));
     await fs.writeFile(path.join(vd, "bg2.png"), Buffer.from(pick[pick.length - 1].bytes));
 
@@ -160,7 +160,7 @@ export async function renderWithMotor(input: MotorRenderInput): Promise<MotorRen
     };
     await fs.writeFile(cfgPath, JSON.stringify(cfg, null, 1), "utf8");
 
-    const env = { ...process.env, MIRA_SHORTS_CONFIG: cfgPath, MIRA_MOTOR_FFMPEG: ffmpegPath };
+    const env = { ...process.env, MIRA_SHORTS_CONFIG: cfgPath, MIRA_MOTOR_FFMPEG: ffmpegPath, MIRA_MOTOR_W: "720", MIRA_MOTOR_H: "1280", MIRA_MOTOR_FPS: "24" };
     const render = await run(py, [PIPELINE, "all", vd, cfgPath], { env, timeoutMs: 15 * 60_000 });
     const videoPath = path.join(vd, "video.mp4");
     const st = await fs.stat(videoPath).catch(() => null);
@@ -168,7 +168,7 @@ export async function renderWithMotor(input: MotorRenderInput): Promise<MotorRen
       throw new Error(`motor render başarısız (kod ${render.code}): ${(render.stderr || render.stdout).slice(-300)}`);
     }
 
-    const lo = Number(process.env.MIRA_MOTOR_QC_LO) > 0 ? Number(process.env.MIRA_MOTOR_QC_LO) : 30;
+    const lo = Number(process.env.MIRA_MOTOR_QC_LO) > 0 ? Number(process.env.MIRA_MOTOR_QC_LO) : 35;
     const hi = Number(process.env.MIRA_MOTOR_QC_HI) > 0 ? Number(process.env.MIRA_MOTOR_QC_HI) : 40;
     const qc = await run(py, [QC, videoPath, String(lo), String(hi)], { env, timeoutMs: 60_000 });
     const qcText = (qc.stdout + qc.stderr).slice(-500);

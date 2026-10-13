@@ -160,37 +160,6 @@ async function readPublicSource(raw: string): Promise<{ url: string; text: strin
   throw new Error("Kaynak yönlendirmesi çözülemedi.");
 }
 
-async function discoverPublicSources(query: string): Promise<string[]> {
-  const searchUrl = new URL("https://html.duckduckgo.com/html/");
-  searchUrl.searchParams.set("q", query.slice(0, 500));
-  const response = await fetch(searchUrl, {
-    signal: AbortSignal.timeout(8000),
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; MiraFactCheck/1.0)" },
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error("Otomatik kaynak araması HTTP " + response.status + " döndürdü.");
-  const html = (await response.text()).slice(0, 300_000);
-  const matches = [...html.matchAll(/class=["\']result__a["\'][^>]*href=["\']([^"\']+)["\']/gi)];
-  const trusted = TRUSTED_SOURCE_DOMAINS;
-  const urls: string[] = [];
-  for (const match of matches) {
-    let candidate = match[1].replace(/&amp;/g, "&");
-    try {
-      const wrapped = new URL(candidate, "https://html.duckduckgo.com");
-      const redirected = wrapped.searchParams.get("uddg");
-      if (redirected) candidate = redirected;
-      const safe = isPublicHttpsUrl(candidate);
-      if (!safe) continue;
-      const host = safe.hostname.toLowerCase().replace(/^www\./, "");
-      if (!trusted.some((domain) => host === domain || host.endsWith("." + domain)) && !/\.edu(?:\.tr)?$/.test(host) && !/\.ac\.uk$/.test(host) && !/\.gov(?:\.tr)?$/.test(host)) continue;
-      const normalized = safe.toString();
-      if (!urls.includes(normalized)) urls.push(normalized);
-      if (urls.length >= 3) break;
-    } catch { /* Ignore malformed search results. */ }
-  }
-  return urls;
-}
-
 async function verifyScriptSources(contentId: number, script: string, narration: string, topic: string): Promise<FactGateResult> {
   await reportScriptProgress(contentId, 58, "Senaryodaki kaynaklar inceleniyor…", "running", "Taslak içindeki KAYNAK bölümünden HTTPS bağlantıları çıkarılıyor ve güvenilir alan adları denetleniyor.", "Kaynak yoksa otomatik arama başlatacağım.");
   const sections = parseDraftScript(script);
@@ -213,19 +182,9 @@ async function verifyScriptSources(contentId: number, script: string, narration:
       searchChannel = `akademik indeksler (openalex:${academic.engines.openalex} crossref:${academic.engines.crossref} pubmed:${academic.engines.pubmed})`;
     }
     if (!candidates.length) {
-      await reportScriptProgress(contentId, 61, "Akademik indeksler boş döndü; DuckDuckGo yedeği deneniyor…", "running", `Akademik keşif boş döndü${academic.errors.length ? ` (motor hataları: ${academic.errors.join(" | ")})` : ""}; web keşfiyle devam ediyorum.`, "Arama sonuçlarından güvenilir alan adlarına ait bağlantıları seçeceğim.");
-      try {
-        candidates = await discoverPublicSources((topic + " " + narration.slice(0, 220) + " scientific evidence source"));
-        if (candidates.length) searchChannel = "duckduckgo-web";
-      } catch (error) {
-        const reason = "Akademik keşif boş döndü; DDG araması da hata verdi: " + (error instanceof Error ? error.message : String(error)).slice(0, 300);
-        await reportScriptProgress(contentId, 62, "Kaynak araması hata verdi", "failed", reason, "Kaynak araması hatasını inceleyip güvenilir bir bağlantı sağlandıktan sonra yeniden dene.");
-        return { ok: false, sourceUrls: [], reason: "Kaynak verilmedi; " + reason, engines: academicStats };
-      }
-    }
-    if (!candidates.length) {
-      await reportScriptProgress(contentId, 62, "Güvenilir kaynak bulunamadı", "failed", "Akademik indeksler (OpenAlex/Crossref/PubMed) ve web keşfi güvenilir HTTPS kaynağı döndürmedi.", "Kaynak bağlantısı eklenmeli veya konu doğrulanabilir kaynakla yeniden hazırlanmalı.");
-      return { ok: false, sourceUrls: [], reason: "Kaynak verilmedi; akademik indekslerde ve web keşfinde güvenilir HTTPS kaynağı bulunamadı.", engines: academicStats };
+      const reason = `Kaynak bulunamadı: OpenAlex/Crossref/PubMed sonuç vermedi${academic.errors.length ? ` (motor hataları: ${academic.errors.join(" | ")})` : ""}. DuckDuckGo kullanılmıyor; kaynak uydurulmayacak.`;
+      await reportScriptProgress(contentId, 62, "Akademik indekslerde güvenilir kaynak bulunamadı", "failed", reason, "Konuyu kaynak bulunduktan sonra yeniden dene; doğrulanmamış iddia üretme.");
+      return { ok: false, sourceUrls: [], reason, engines: academicStats };
     }
   }
   await reportScriptProgress(contentId, 63, "Kaynak bağlantıları bulundu…", "running", `${candidates.length} güvenilir kaynak adayı bulundu: ${candidates.join(" ; ")}`, "Bağlantıları açıp okunabilir kaynak metni olup olmadığını kontrol edeceğim.");
@@ -357,6 +316,8 @@ export async function POST(req: Request) {
       const topic = claimed.topic?.trim() || claimed.title;
       const archiveContext = await loadArchiveContext(topic);
       const topicSelectionSpec = await readFile(path.join(process.cwd(), "mira_konu_secim_spec.md"), "utf8").catch(() => "");
+      const templateSpec = await readFile(path.join(process.cwd(), "mira-prompt", "BILGI_DOZU_TEMPLATE_SPEC.md"), "utf8").catch(() => "");
+      if (!templateSpec.trim()) throw new Error("Sabit Bilgi Dozu şablon spesifikasyonu okunamadı; taslak üretilmedi.");
 
       await reportScriptProgress(claimed.id, 8, "Konu ve arşiv bağlamı inceleniyor…", "running", archiveContext ? "Konu arşivinde eşleşen bağlam bulundu; bu bilgi taslak istemine eklenecek." : "Konu arşivinde yeterli eşleşme bulunmadı; taslak kullanıcının verdiği konu üzerinden hazırlanacak.", "Kanal yönergesini kontrol edip senaryo modelini çağıracağım.");
       let signalDirective: Record<string, unknown> | null = null;
@@ -366,23 +327,23 @@ export async function POST(req: Request) {
         console.error("[Worker] Kanal sinyal direktifi okunamadı; normal üretim devam edecek:",
           signalError instanceof Error ? signalError.message : String(signalError));
       }
-      await reportScriptProgress(claimed.id, 18, "Senaryo hazırlanıyor…", "running", "Zorunlu bölümler, üç ayrı görsel ve kısa seslendirme hazırlanıyor.", "Taslak biçimini denetleyip eksik bölüm varsa otomatik düzeltmeyi deneyeceğim.");
+      await reportScriptProgress(claimed.id, 18, "Senaryo hazırlanıyor…", "running", "Zorunlu bölümler, iki sinematik arka plan ve 35–40 saniyelik seslendirme hazırlanıyor.", "Taslak biçimini ve zorunlu TASARIM bloğunu denetleyeceğim.");
       const result = await generateWithFallback({
         system: [
           "Sen Mira'nın Bilgi Dozu adlı YouTube Shorts kanalı için Türkçe içerik üretim motorusun.",
-          "OTOMATİK KONU SEÇİMİNDE mira_konu_secim_spec.md tek otoritedir: ana kümeler uyku/beyin, nöroloji paradoksları, günlük hayat paradoksları, dopamin/davranış ve uzay ölçekleri; vücut-biyoloji ikincil; fizik/coğrafya rekorları ve teknolojik ilkler sınırlıdır. Hayvan konuları (ahtapot dahil), tarih anekdotları ve '3 şaşırtıcı gerçek' listicle biçimi yasak değildir; yeni aday olarak test edilebilir. Başlık formülü öneridir, performans verisiyle test edilir. Her iddia kaynak doğrulamasından geçmelidir.",
+          "OTOMATİK KONU SEÇİMİNDE mira_konu_secim_spec.md tek otoritedir. Hayvan konuları (ahtapot dahil), tarih anekdotları, '3 şaşırtıcı gerçek' listicle biçimi ve genel AI/gelecek spekülasyonu YASAKTIR. Tek doğrulanabilir ana gerçek seç; önceki kullanılan konuları tekrar etme. Her iddia kaynak doğrulamasından geçmelidir.",
           "Konu kullanıcı tarafından panelden açıkça verilmişse konuyu sessizce başka konuyla değiştirme; ancak tek gerçek, kaynak doğrulama ve kalite kapılarını uygula.",
           ...(topicSelectionSpec.trim() ? [`CANONICAL KONU SEÇİM SPEC'İ (kuralları aynen uygula):\n${topicSelectionSpec}`] : ["Konu seçim spec dosyası okunamadı: otomatik konu önerme; verilen manuel konuyu koru ve kaynak doğrulamasını uygula."]),
           "Her taslak yalnızca TEK bir konu ve TEK bir doğrulanabilir ana bilgi içersin. Üçlü liste, günlük hack listesi, gezi turu veya birbirinden bağımsız iddialar üretme.",
-          "Varsayılan Türkçe Shorts süresi en fazla 30 saniyedir; kullanıcı açıkça 30-40 saniye gibi farklı süre verdiyse o süreyi uygula. Varsayılan kısa formatta seslendirme 60-65 kelimeyi geçmesin; kullanıcı daha uzun süre istediyse konuşma hızına uygun metin uzunluğu seç. İlk 1-2 saniyede güçlü, merak uyandıran ama yanıltmayan KANCA/HOOK kullan. Zaman akışını istenen toplam süreye göre ölçekle; CTA mutlaka kullanıcının verdiği biçimde yer alsın.",
-          "Her taslak tam 3 ayrı görselden oluşmalı: GÖRSEL 1 (0-3 sn, kancayı destekleyen güçlü açılış), GÖRSEL 2 (3-18 sn, ana bilgiyi gösteren kanıta uygun görüntü), GÖRSEL 3 (18-30 sn, sonucu/ölçeği gösteren kapanış). Her görsel için ayrı, üretime hazır görsel promptu ve ekranda görünecek kısa metin ver. Tek görsel veya tek sahne önerme.",
-          "Kullanıcı yalnızca kısa konu yazmışsa varsayılan format en fazla 30 saniye, tam 3 görsel ve ilk 1-2 saniyede güçlü hook kullanır. Kullanıcı açıkça farklı süre/format belirttiyse onun talimatı önceliklidir (ör. 30-40 saniye).",
+          "Standart video süresi 35–40 saniyedir. SESLENDİRME 70–80 kelime olsun; kanca, 2–3 destek cümlesi, pekiştirme ve sabit CTA 'Daha fazla bilgi dozu için takip etmeyi unutma!' içersin. İlk 2 saniyede güçlü ama yanıltmayan kanca kullan. Sayıları seslendirmede yazıyla yaz.",
+          "Her video için tam 2 ayrı görsel promptu üret: GÖRSEL 1 (açılış ve kanca), GÖRSEL 2 (ana bilgiyi ve sonucu gösteren sahne). İkisi de konuya birebir uyan koyu/sinematik dikey 9:16 arka plan olsun; sahne geçişi yaklaşık ortada olsun. Her görsel için üretime hazır prompt ver; görselin içine yazı ekleme.",
+          "Kullanıcı yalnızca kısa konu yazmışsa varsayılan format 35–40 saniye, tam 2 görsel ve ilk 2 saniyede güçlü hook kullanır. Kullanıcının açıkça verdiği farklı süre/format talimatı önceliklidir.",
           "Kullanıcı girdisi KONU, KANCA, GELİŞME, KAYNAKLAR, BAŞLIK, AÇIKLAMA, ETİKETLER veya FORMAT gibi alanlar içeriyorsa bunu hazır içerik paketi kabul et. Alanları tek tek oku; kullanıcının kancasını, gelişmesini, başlığını, açıklamasını, CTA ve etiketlerini, süre/format talimatlarını koru. Metni genel bir konu başlığına indirgeme, alanları kaybetme veya verilen ayrıntıları baştan uydurarak değiştirme. Gerekirse yalnızca bilimsel doğruluk ve kısa video akışı için gerekli düzenlemeyi yap; önemli değişiklikleri sonuçta belirt.",
           "Kullanıcının KAYNAKLAR bölümünde belirttiği kurumlar veya yayınlar yalnızca araştırma adaylarıdır; ilgili kanıt bulunmadan doğrulanmış gibi sunma. Erişilebilir kaynak metnini kontrol et, her ana iddiayı ayrı değerlendir, desteklenmeyen iddiayı düzelt/yumuşat veya doğrulama gerektiğini açıkça belirt.",
           "Güvenilir kaynağı gerçekten bilmiyorsan kaynak veya URL uydurma; KAYNAK bölümüne yalnızca 'DOĞRULAMA GEREKLİ' yaz. Doğrulanmamış sayısal değer, rekor, teknik özellik veya kesin iddia ekleme.",
           "Balık kabuğunun ilk telefon olduğu, uzayda çikolatanın yıldız gibi parladığı veya bir köpeğin yedi dil bildiği gibi temelsiz/kanıtsız iddiaları üretme.",
           "Çıktı başlıkları: KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI, SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER.",
-          "Görsel formatı: dikey 9:16, 1080x1920, 30 fps; üç ayrı ama görsel olarak tutarlı sinematik görüntü, hafif Ken Burns hareketi; koyu tonlar, üst-alt siyah gradyan; ince gri ilerleme çubuğu ve #D4FF3F neon yeşil vurgu; üst solda 'BİLGİ DOZU', altta marka adı.",
+          `SABİT GÖRSEL ŞABLON — yerleşim, renk, logo, font ve altyazı stili değiştirilemez; aşağıdaki spesifikasyonu aynen uygula:\n${templateSpec}`,
           "Ekran metni kısa, okunaklı ve 2-3 satır olsun; anahtar son ifade neon yeşil vurgulansın. Türkçe doğal ve otoriter ses, kelime kelime senkron altyazı, düşük seviyeli gizemli müzik kullan.",
           "Taslağın en sonuna TASARIM başlıklı bölüm ekle; içinde YALNIZCA tek satır JSON olsun: {\"title\":[[\"SATIR1\"],[\"SATIR2\"],[[\"SON SATIR\",\"g\"]]],\"note1\":\"GERÇEK ÖZETİ (CAPS, ≤80 kr)\",\"note2\":\"SOYADI • KAYNAK (YIL)\",\"accents\":[\"k1\",\"k2\",\"k3\"]}. Başlık = içerik başlığının 2-3 satırlık BÜYÜK HARF hâli, son satır \"g\" işaretli (yeşil segment). accents = SESLENDİRME metninde birebir geçen 3-5 vurucu kelime. Kaynak belli değilse note2 olarak 'BİLGİ DOZU EDİTÖR DERLEMESİ (2026)' yaz.",
           "İçeriği yayınlama, video dosyası oluştuğunu iddia etme; yalnızca metin taslağı hazırla. Taslağın onay beklediğini açıkça belirt.",
@@ -393,7 +354,7 @@ export async function POST(req: Request) {
           ] : [])
         ].join("\n"),
         history: [],
-        message: `Kullanıcının verdiği tam konu girdisi (varsa tüm alanları ve ayrıntıları koru):\n${topic}\n\nKayıt başlığı: ${claimed.title}\nTalimat: Kullanıcının açıkça belirttiği süre, kanca, gelişme, CTA, kaynak adayları, başlık, açıklama ve etiketlere uy. Yalnızca kısa konu girdisiyse varsayılan Bilgi Dozu Shorts formatını kullan. Tam 3 ayrı görsel için zaman kodlu promptlar ver. Kaynak adaylarını gerçekten kontrol et; erişilemeyen veya iddiayı desteklemeyen kaynağı doğrulanmış gösterme. Tüm zorunlu başlıkları doldur. ${signalDirective ? `\nHaftalık kanal sinyal direktifi: ${JSON.stringify(signalDirective)}` : ""}`,
+        message: `Kullanıcının verdiği tam konu girdisi (varsa tüm alanları ve ayrıntıları koru):\n${topic}\n\nKayıt başlığı: ${claimed.title}\nTalimat: Kullanıcının açıkça belirttiği süre, kanca, gelişme, CTA, kaynak adayları, başlık, açıklama ve etiketlere uy. Yalnızca kısa konu girdisiyse varsayılan Bilgi Dozu Shorts formatını kullan. Tam 2 ayrı görsel için zaman kodlu promptlar ver. Kaynak adaylarını gerçekten kontrol et; erişilemeyen veya iddiayı desteklemeyen kaynağı doğrulanmış gösterme. Tüm zorunlu başlıkları doldur. ${signalDirective ? `\nHaftalık kanal sinyal direktifi: ${JSON.stringify(signalDirective)}` : ""}`,
       });
 
       const generated = result.content.trim();
@@ -402,11 +363,12 @@ export async function POST(req: Request) {
       if (refusalPattern.test(generated)) {
         throw new Error("Model içerik yerine ret/hata mesajı döndürdü; taslak kaydedilmedi.");
       }
-      const requiredHeadings = ["KANCA", "SESLENDİRME", "EKRAN METNİ", "GÖRSEL TASARIMI", "SES VE MÜZİK", "KAYNAK", "AÇIKLAMA", "ETİKETLER"];
-      const findMissingHeadings = (text: string) => {
-        const normalized = text.toLocaleUpperCase("tr-TR");
-        return requiredHeadings.filter((heading) => !normalized.includes(heading));
-      };
+      const requiredHeadings = ["KANCA", "SESLENDİRME", "EKRAN METNİ", "GÖRSEL TASARIMI", "SES VE MÜZİK", "KAYNAK", "AÇIKLAMA", "ETİKETLER", "TASARIM"];
+      const findMissingHeadings = (text: string) => requiredHeadings.filter((heading) => {
+        // Başlık tam bir satır olmalı; GÖRSEL TASARIMI, TASARIM yerine geçemez.
+        const exactHeading = new RegExp("^\\s*(?:#{1,4}\\s*)?(?:\\*\\*)?" + heading + "(?:\\*\\*)?\\s*:?\\s*$", "im");
+        return !exactHeading.test(text);
+      });
       let missingHeadings = findMissingHeadings(generated);
       let scriptText = generated;
       let scriptProvider = { provider: result.provider, model: result.model };
@@ -419,7 +381,7 @@ export async function POST(req: Request) {
             "Sen Mira'nın taslak biçimi düzeltme motorusun.",
             "Verilen senaryoyu baştan sona yeniden döndür. Konunun anlamını, doğrulanabilir iddiaları ve mevcut bilgileri koru; yeni doğrulanmamış bilgi veya kaynak uydurma.",
             "Aşağıdaki başlıkların HER BİRİ ayrı bir bölüm başlığı olarak, tam yazımıyla zorunludur: KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI, SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER, TASARIM.",
-            "EKRAN METNİ bölümünde ekranda gösterilecek kısa Türkçe metinleri, GÖRSEL TASARIMI bölümünde tam 3 ayrı görsel için zaman kodu ve promptları yaz.",
+            "EKRAN METNİ bölümünde kısa Türkçe metinleri, GÖRSEL TASARIMI bölümünde tam 2 ayrı görsel promptunu yaz. TASARIM bölümünde geçerli JSON ve title, note1, note2, accents alanları zorunludur.",
             "Kaynak güvenilir biçimde bilinmiyorsa KAYNAK bölümüne yalnızca DOĞRULAMA GEREKLİ yaz; URL veya kaynak adı uydurma.",
             "Yalnızca düzeltilmiş tam taslağı döndür; açıklama, özür veya eksik başlık listesi yazma.",
           ].join("\n"),
@@ -442,12 +404,12 @@ export async function POST(req: Request) {
 
       // SESLENDİRME uzunluk tabanı: 38 kelime altı ≈ 10sn'lik video; bir kez uzatma denemesi.
       let narrationWords = extractNarration(scriptText, scriptText).split(/\s+/).filter(Boolean).length;
-      if (narrationWords > 0 && narrationWords < 38) {
+      if (narrationWords > 0 && narrationWords < 65) {
         try {
           const lengthen = await generateWithFallback({
             system: [
               "Sen Mira'nın Bilgi Dozu adlı YouTube Shorts kanalı için Türkçe içerik üretim motorusun.",
-              "Verilen taslaktaki SESLENDİRME bölümünü 40-48 kelime arasına çıkar: kancayı, konuyu ve tüm başlık yapısını koru; aynı üslupla, konu hakkında 1-2 somut ve doğrulanabilir bilgi ekle.",
+              "Verilen taslaktaki SESLENDİRME bölümünü 70-80 kelime arasına çıkar: kancayı, konuyu, CTA'yı ve tüm başlık yapısını koru; yalnızca kaynakla doğrulanabilir bilgi ekle.",
               "TASLAKIN TAMAMINI aynı başlıklarla döndür; başlık adları ve diğer bölümler değişmesin; hata/ret açıklaması yazma.",
             ].join("\n"),
             history: [],
@@ -455,8 +417,8 @@ export async function POST(req: Request) {
           });
           const retryText = lengthen.content.trim();
           const retryWords = extractNarration(retryText, retryText).split(/\s+/).filter(Boolean).length;
-          const retryMissing = requiredHeadings.filter((h) => !retryText.toLocaleUpperCase("tr-TR").includes(h));
-          if (retryMissing.length === 0 && retryWords >= 38 && !refusalPattern.test(retryText)) {
+          const retryMissing = findMissingHeadings(retryText);
+          if (retryMissing.length === 0 && retryWords >= 65 && retryWords <= 90 && !refusalPattern.test(retryText)) {
             scriptText = retryText;
             narrationWords = retryWords;
             scriptProvider = { provider: lengthen.provider, model: lengthen.model };

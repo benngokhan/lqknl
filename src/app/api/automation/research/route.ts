@@ -63,15 +63,16 @@ export async function POST(req: Request) {
   const createdToday = await db.select({ id: contentItems.id })
     .from(contentItems)
     .where(gte(contentItems.createdAt, start));
-  const remaining = Math.max(0, 4 - createdToday.length);
+  const dailyTarget = 2;
+  const remaining = Math.max(0, dailyTarget - createdToday.length);
 
   if (remaining === 0) {
     return NextResponse.json({
       ok: true,
       researched: false,
       queued: 0,
-      message: "Bugünün 4 içerik kotası dolu.",
-      dailyTarget: 4,
+      message: `Bugünün ${dailyTarget} içerik kotası dolu.`,
+      dailyTarget,
       createdToday: createdToday.length,
     });
   }
@@ -122,9 +123,9 @@ export async function POST(req: Request) {
   // kaynak zorunluluğu + kullanılmış-konu yasak listesi) intake prompt'una aynen enjekte et.
   let topicRules = "";
   try {
-    topicRules = (await fs.readFile(path.join(process.cwd(), "mira-prompt", "MIRA_SYSTEM_PROMPT.txt"), "utf8")).trim();
+    topicRules = (await fs.readFile(path.join(process.cwd(), "mira-prompt", "MIRA_TOPIC_RULES.txt"), "utf8")).trim();
   } catch (rulesError) {
-    console.error("[Research] MIRA_SYSTEM_PROMPT.txt okunamadı; kural enjeksiyonu olmadan devam:",
+    console.error("[Research] MIRA_TOPIC_RULES.txt okunamadı; konu kuralları eksik:",
       rulesError instanceof Error ? rulesError.message : String(rulesError));
   }
 
@@ -141,11 +142,11 @@ export async function POST(req: Request) {
       "Sen Mira'nın Bilgi Dozu kanalı için Türkçe YouTube Shorts konu araştırmacısısın — konu araştırmacısı, haberci DEĞİL.",
       "Yalnızca verilen güncel Google Trends listesini kaynak olarak kullan.",
       ...(topicRules ? [
-        "BİLGİ DOZU KONU KURALLARI (mira-prompt/MIRA_SYSTEM_PROMPT.txt'in bütünü, aynen geçerli — drift engeli):",
+        "BİLGİ DOZU KONU KURALLARI (mira-prompt/MIRA_TOPIC_RULES.txt, aynen geçerli):",
         topicRules
       ] : []),
       "MARKA KAPSAMI DIŞI (listedeki trend bunlara girse bile ASLA SEÇME): gezi/mekan önerileri (şehir, tatil yeri, plaj...), ürün/marka/şirket tanıtımları, magazin-ünlü dedikodusu, siyaset-parti-hükümet haberciliği, spor transfer skoru vb. genel haberler, algoritma şaşırtmacası bileşimi olmayan düz gündem. Bunlar Bilgi Dozu kümeleri değildir; onlar 'genel trend çöpü'.",
-      "KONU SEÇİM SİGORTASI: Aşağıdaki canonical spec dosyasını uygula; konu kümeleri, test edilecek adaylar, başlık ilkeleri ve akademik doğrulama kapısı bu dosyada tanımlıdır. Spec okunamazsa hayvan/tarih konularını veya listicle biçimini yasaklama; doğrulanabilir, kaliteli adaylar üret ve manuel verilen konuyu değiştirme.",
+      "KONU SEÇİM SİGORTASI: Canonical spec dosyasını uygula. Hayvan, tarih anekdotu, '3 şaşırtıcı gerçek' listicle ve genel AI/gelecek spekülasyonu seçme. Spec okunamazsa da bu yasaklar geçerlidir; güçlü uygun aday yoksa daha az öğe üret.",
       ...(topicSelectionSpec ? ["CANONICAL KONU SEÇİM SPEC'İ:", topicSelectionSpec] : []),
       "İzlenme potansiyeli ve görsel anlatılabilirlik ikincil filtre; birinci filtre her zaman: Bilgi Dozu kümesi + doğrulanabilir kalıcı bilgi + güçlü 2 saniyelik kanca.",
       "Birbirine benzeyen konuları seçme; listeden ilham alan ama trendmiş gibi sunulmayan, açıkça Shorts bilgi fikri olan başlıklar üret.",
@@ -242,7 +243,7 @@ export async function POST(req: Request) {
     ok: true,
     researched: true,
     queued: added.length,
-    dailyTarget: 4,
+    dailyTarget,
     createdBeforeResearch: createdToday.length,
     items: added,
     provider: selected.provider,

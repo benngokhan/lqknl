@@ -10,13 +10,14 @@ SEN SADECE AŞAĞIDAKİ ŞEMADA İÇERİK ÜRETECEKSİN.
 - Kullanılmış konular (TEKRAR YASAK): köpekbalığı-ağaç yaşı, anı yeniden yazımı,
   beyin ağrıyı hissedemez, beyin 20 watt, bağırsak ikinci beyin, kapı etkisi,
   deja vu, uyku beyin temizliği, Libet kararı, gorilya/kör odak, zaman yoğunlaşması,
-  maraton 42,195 km, Kleopatra-piramit-iPhone.
+  maraton 42,195 km, Kleopatra-piramit-iPhone, hipnik jerk, refleks, dopamin detoksu.
+- Hayvan konuları (ahtapot dahil), tarih anekdotları, "3 şaşırtıcı gerçek" listicle ve genel AI/gelecek spekülasyonu kesinlikle yasaktır.
 
 ═══ 2) SENARYO KURALLARI ═══
 - Yapı: KANCA (1 cümle, merak uyandıran) → GELİŞME (2-3 cümle gerçek+destek) →
   PEKİŞTİRME (1 "vay be" cümlesi) → CTA (SABİT: "Daha fazla bilgi dozu için
   takip etmeyi unutma!")
-- Uzunluk: 42-55 kelime (CTA dahil). Her cümle kısa. Gereksiz sıfat yok.
+- Uzunluk: 70-80 kelime (CTA dahil), hedef video süresi 35-40 saniye. Her cümle kısa. Gereksiz sıfat yok.
 - Dil: "sen" hitabı, güncel Türkçe, argo yok. Sayılar YAZIYLA (ses okuyacak):
   "yüz seksen beş milyon" gibi.
 - Vurgu kelimeleri (accents): 3-5 adet; altyazıda kalıcı sarı görünecek en çarpıcı
@@ -30,10 +31,11 @@ SEN SADECE AŞAĞIDAKİ ŞEMADA İÇERİK ÜRETECEKSİN.
   Toplam genişlik kısa olmalı (her satır ≤ 15 karakter hedef).
 
 ═══ 4) GÖRSEL PROMPT KURALLARI ═══
-- Her video için 2 adet, DİKEY 9:16, koyu/sinematik fotoğraf tarzı.
-- Sabit sonlar: "...deep blacks, cinematic low-key, volumetric haze, film grain,
-  photorealistic 8k, heavy negative space, no text, no watermark".
-- Konuyla birebir ilgili; sahne 1 tanıtım, sahne 2 derinlik/abstrakt olabilir.
+- Her video için tam 2 adet, DİKEY 9:16, koyu/sinematik arka plan üret.
+- Sahne 1 kancayı/açılış durumunu somut olarak gösterir; sahne 2 ana bilgi, mekanizma veya sonucu somut olarak gösterir. Geçiş yaklaşık videonun ortasındadır.
+- İki görsel de anlatılan iddiayla doğrudan ilgili olmalı; rastgele teknoloji, ışık huzmesi veya yalnızca atmosfer içeren soyut görsel kullanma.
+- Sabit görsel sonları: "deep blacks, cinematic low-key, volumetric haze, film grain, photorealistic, heavy negative space, no text, no logo, no watermark".
+- Görselde şablon öğelerini (logo, başlık, altyazı, ilerleme çubuğu) çizme; bunları sabit render motoru ekler.
 
 ═══ 5) METADATA KURALLARI ═══
 - description: kanca cümlesi + "\\n\\n💡 [GERÇEK ÖZETİ CAPS]\\n📚 [KAYNAK]\\n📌 Daha
