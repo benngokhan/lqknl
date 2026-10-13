@@ -33,8 +33,11 @@ def _find_ffmpeg():
 
 FF = _find_ffmpeg()
 FDIR = os.path.join(HERE, "fonts", "raw")
-_CONF_PATH = os.environ.get("MIRA_SHORTS_CONFIG") or os.path.join(HERE, "shorts", "shorts_config.json")
-CONF = json.load(open(_CONF_PATH))
+_CONF_PATH = (sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else None) or os.environ.get("MIRA_SHORTS_CONFIG") or os.path.join(HERE, "shorts", "shorts_config.json")
+if not os.path.isfile(_CONF_PATH):
+    raise FileNotFoundError(f"shorts_config.json bulunamadı: {_CONF_PATH}")
+with open(_CONF_PATH, encoding="utf-8") as _conf_file:
+    CONF = json.load(_conf_file)
 # MIRA: ölçeklenebilir çözünürlük (varsayılan 720x1280@24 = referansın 2/3 ölçeği)
 W = int(os.environ.get("MIRA_MOTOR_W", "720"))
 H = int(os.environ.get("MIRA_MOTOR_H", "1280"))
