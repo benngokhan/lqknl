@@ -200,8 +200,23 @@ export function useSpeaker() {
         if (typeof window !== "undefined" && "speechSynthesis" in window) {
           const utterance = new SpeechSynthesisUtterance(cleanText);
           utterance.lang = "tr-TR";
-          utterance.rate = Math.min(2, Math.max(0.5, opts.rate ?? 1));
-          utterance.pitch = Math.min(2, Math.max(0.5, opts.pitch ?? 1.1));
+          const emotion = opts.emotion ?? "happy";
+          const rateFactor: Record<NonNullable<SpeakerOptions["emotion"]>, number> = {
+            happy: 1.02,
+            surprised: 1.08,
+            sad: 0.9,
+            playful: 1.04,
+            focused: 0.96,
+          };
+          const pitchDelta: Record<NonNullable<SpeakerOptions["emotion"]>, number> = {
+            happy: 0.03,
+            surprised: 0.12,
+            sad: -0.12,
+            playful: 0.08,
+            focused: -0.08,
+          };
+          utterance.rate = Math.min(2, Math.max(0.5, (opts.rate ?? 1) * rateFactor[emotion]));
+          utterance.pitch = Math.min(2, Math.max(0.5, (opts.pitch ?? 1.1) + pitchDelta[emotion]));
           const voices = window.speechSynthesis.getVoices();
           const turkishVoice = voices.find((voice) => voice.lang.toLowerCase().startsWith("tr"));
           if (turkishVoice) utterance.voice = turkishVoice;
