@@ -72,7 +72,8 @@ export async function POST(req: Request) {
     ].join(" ");
 
     const token = process.env.HF_TOKEN?.trim();
-    const client = await Client.connect(HF_SPACE, token ? { token } : {});
+    const clientOptions = token ? { token: token as `hf_${string}` } : undefined;
+    const client = await Client.connect(HF_SPACE, clientOptions);
 
     // The official Space uses a two-stage chain: prepare_request stores the uploaded
     // reference and prompt state, then generate_request performs the GPU image edit.
