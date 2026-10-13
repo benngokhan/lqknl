@@ -166,7 +166,7 @@ export async function generateWithGoogleTts(text: string): Promise<Uint8Array> {
 }
 
 function emotionAwareRate(options: NarrationOptions): string {
-  const baseMatch = EDGE_TTS_RATE.match(/([+-]?\\d+(?:\\.\\d+)?)%/);
+  const baseMatch = EDGE_TTS_RATE.match(/([+-]?\d+(?:\.\d+)?)%/);
   const base = baseMatch ? Number(baseMatch[1]) : 0;
   const emotionDelta: Record<MiraTtsEmotion, number> = {
     happy: 2,
