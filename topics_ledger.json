@@ -1,0 +1,14 @@
+{
+  "banned": ["hayvan konulari", "tarih konulari", "3 sasirtici gercek listicle", "jenetik AI/gelecek spekulasyonu"],
+  "ban_evidence": "ahtapot 22, Kleopatra 42, maraton 67, deja vu 67, gorilla 4 izlenme",
+  "used": ["kapi etkisi", "uyku temizligi", "hipnik jerk", "refleks", "dopamin detoksu"],
+  "daily_limit": 2,
+  "next": [
+    {"topic": "Uyurken beynin ismini kontrol eder - kendi adini duyunca uyanirsin", "url": "https://pubmed.ncbi.nlm.nih.gov/10616121/"},
+    {"topic": "Ay\u0027daki ayak izleri milyonlarca yil kalir", "url": "https://science.nasa.gov/moon/facts/"},
+    {"topic": "Merkur gunduz 430C gece -180C", "url": "https://science.nasa.gov/mercury/facts/"},
+    {"topic": "Karninda ikinci beyin: 500 milyon noron", "url": "https://pubmed.ncbi.nlm.nih.gov/22392290/"},
+    {"topic": "Kor nokta: beynin boslugu boyuyor", "url": "https://open.lib.umn.edu/sensationandperception/chapter/the-retinal-network-draft/"},
+    {"topic": "TMSF guvence limiti 1.200.000 TL (2026)", "url": "https://www.tmsf.org.tr"}
+  ]
+}
