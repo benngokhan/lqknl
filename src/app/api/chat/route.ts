@@ -679,7 +679,7 @@ export async function POST(req: Request) {
     // Yalnızca açık gönderme/test isteğinde Telegram API çağrısı yapılır.
     const asksForTelegramNotification =
       !isPromptTemplateOrClarification &&
-      /(?:telegram(?:'a|a)?\\s+(?:bildirim|mesaj)\\s+(?:gönder|yolla|at)|(?:bildirim|mesaj)\\s+(?:gönder|yolla|at)\\s+(?:telegram(?:'a|a)?|telegram üzerinden)|telegram\\s+(?:bağlantısını|bildirimini)\\s+test\\s+et|telefonuma\\s+bildirim\\s+gönder|haber\\s+ver\\s+(?:telegramdan|telegram üzerinden))/iu.test(message);
+      /(?:telegram(?:'a|a)?\s+(?:bildirim|mesaj)\s+(?:gönder|yolla|at)|(?:bildirim|mesaj)\s+(?:gönder|yolla|at)\s+(?:telegram(?:'a|a)?|telegram üzerinden)|telegram\s+(?:bağlantısını|bildirimini)\s+test\s+et|telefonuma\s+bildirim\s+gönder|haber\s+ver\s+(?:telegramdan|telegram üzerinden))/iu.test(message);
     const hasUsableDraftReply =
       typeof result.reply === "string" &&
       result.reply.trim().length > 40 &&
@@ -688,14 +688,14 @@ export async function POST(req: Request) {
     // Model metnindeki işlem iddiaları kanıt değildir. Sahte taslak numarası ve
     // gönderim başarı cümlelerini kaldır; gerçek başarıyı yalnızca aşağıdaki API/DB sonuçları ekler.
     const modelClaimedFakeAction =
-      /taslak\\s*(?:no|numarası|numara)\\s*[:#]?\\s*\\d+|telegram\\s+(?:bildirim(?:i|ini)?|mesaj(?:ı|ını)?)\\s+(?:gönderildi|gönderdim|yollandı|atıldı|ilettim)|(?:taslak|bildirim)\\s+(?:başarıyla\\s+)?(?:kaydedildi|oluşturuldu|gönderildi)/iu.test(result.reply);
+      /taslak\s*(?:no|numarası|numara)\s*[:#]?\s*\\d+|telegram\s+(?:bildirim(?:i|ini)?|mesaj(?:ı|ını)?)\s+(?:gönderildi|gönderdim|yollandı|atıldı|ilettim)|(?:taslak|bildirim)\s+(?:başarıyla\s+)?(?:kaydedildi|oluşturuldu|gönderildi)/iu.test(result.reply);
     result.reply = result.reply
-      .replace(/[^\\n]*(?:taslak\\s*(?:no|numarası|numara)\\s*[:#]?\\s*\\d+|telegram\\s+(?:bildirim(?:i|ini)?|mesaj(?:ı|ını)?)\\s+(?:gönderildi|gönderdim|yollandı|atıldı|ilettim)|(?:taslak|bildirim)\\s+(?:başarıyla\\s+)?(?:kaydedildi|oluşturuldu|gönderildi))[^\\n]*(?:\\n|$)/giu, "")
+      .replace(/[^\n]*(?:taslak\s*(?:no|numarası|numara)\s*[:#]?\s*\\d+|telegram\s+(?:bildirim(?:i|ini)?|mesaj(?:ı|ını)?)\s+(?:gönderildi|gönderdim|yollandı|atıldı|ilettim)|(?:taslak|bildirim)\s+(?:başarıyla\s+)?(?:kaydedildi|oluşturuldu|gönderildi))[^\n]*(?:\n|$)/giu, "")
       .trim();
     if (!result.reply && modelClaimedFakeAction) {
       result.reply = "Bu işlem için doğrulanmış bir sonuç henüz yok; taslak veya Telegram gönderimi gerçekleşti diyemem.";
     } else if (modelClaimedFakeAction && !asksForContentDraft && !asksForTelegramNotification) {
-      result.reply += "\\n\\nNot: Bu sohbette taslak kaydı veya Telegram gönderimi yapılmadı; bu işlem iddiası doğrulanmış değil.";
+      result.reply += "\n\nNot: Bu sohbette taslak kaydı veya Telegram gönderimi yapılmadı; bu işlem iddiası doğrulanmış değil.";
     }
 
     if (asksForContentDraft && hasUsableDraftReply) {
