@@ -8,6 +8,7 @@ import { formatMemoriesForContext, getRelevantMemories, generateForgetApprovalMe
 import { remember } from '@/lib/memory';
 import { NextResponse } from 'next/server';
 import { sendTelegramMessage } from '@/lib/telegram';
+import { isPermanentlyDeletedTopic } from "@/lib/deleted-topics";
 
 const PRIVATE_MODE_COOKIE = 'mira_private_mode';
 const ENTRY_COOKIE = 'mira_entry';
