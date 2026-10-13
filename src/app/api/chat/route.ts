@@ -668,13 +668,13 @@ export async function POST(req: Request) {
     // Prompt şablonları ve konu isteyen talimat metinleri içerik üretim komutu değildir.
     // Bunlar "yaz/üret", "Telegram" gibi kelimeler içerse bile taslak veya bildirim yan etkisi oluşturamaz.
     const isPromptTemplateOrClarification =
-      /sen\\s+(?:usta|uzman|profesyonel)\\s+bir\\s+.{0,120}(?:yazar(?:ısın|sın)?|yazarı)|thumb[\\s-]?stop|hangi\\s+konu\\s+için|konuyu\\s+ver|konu(?:yu)?\\s+ver,?\\s*hemen\\s+yazayım/iu.test(trimmedIntent);
+      /sen\s+(?:usta|uzman|profesyonel)\s+bir\s+.{0,120}(?:yazar(?:ısın|sın)?|yazarı)|thumb[\s-]?stop|hangi\s+konu\s+için|konuyu\s+ver|konu(?:yu)?\s+ver,?\s*hemen\s+yazayım/iu.test(trimmedIntent);
     const asksForContentDraft =
       !isPromptTemplateOrClarification &&
       !isDiscussionOrQuestion &&
       (hasExplicitDraftCommand ||
-        (/\\b(?:oluştur|hazırla|üret|yaz)\\s*[.!…]*$/iu.test(trimmedIntent) &&
-          /\\b(?:taslak|shorts|reels|video|içerik|senaryo)\\b/iu.test(trimmedIntent)));
+        (/\b(?:oluştur|hazırla|üret|yaz)\s*[.!…]*$/iu.test(trimmedIntent) &&
+          /\b(?:taslak|shorts|reels|video|içerik|senaryo)\b/iu.test(trimmedIntent)));
     const asksForTelegramNotification =
       !isPromptTemplateOrClarification && /telegram|bildirim|haber ver|bilgi ver/iu.test(message);
     const hasUsableDraftReply =
