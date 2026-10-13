@@ -662,8 +662,8 @@ export async function POST(req: Request) {
     // taslakları listelemek veya "video üret" komutunu tartışmak kayıt başlatmaz.
     const asksForContentDraft =
       !isDiscussionOrQuestion &&
-      /\\b(?:oluştur|hazırla|üret|yaz)\\s*[.!…]*$/iu.test(trimmedIntent) &&
-      /\\b(?:taslak|shorts|reels|video|içerik|senaryo)\\b/iu.test(trimmedIntent);
+      /\b(?:oluştur|hazırla|üret|yaz)\s*[.!…]*$/iu.test(trimmedIntent) &&
+      /\b(?:taslak|shorts|reels|video|içerik|senaryo)\b/iu.test(trimmedIntent);
     const asksForTelegramNotification = /telegram|bildirim|haber ver|bilgi ver/iu.test(message);
     const hasUsableDraftReply =
       typeof result.reply === "string" &&
