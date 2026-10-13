@@ -2,10 +2,11 @@ import { NextResponse, after } from "next/server";
 import { selfOrigin } from "@/lib/self-url";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { and, desc, eq, like, lt } from "drizzle-orm";
+import { and, desc, eq, inArray, like, lt } from "drizzle-orm";
 import { db } from "@/db";
 import { logEvent } from "@/lib/logger";
-import { contentItems, operations, tasks } from "@/db/schema";
+import { contentAssets, contentItems, operations, tasks } from "@/db/schema";
+import { isPermanentlyDeletedTopic } from "@/lib/deleted-topics";
 import { generateWithFallback } from "@/lib/model-manager";
 import { sendTelegramMessage } from "@/lib/telegram";
 import { extractNarration, parseDraftScript } from "@/lib/script-parse";
@@ -25,6 +26,49 @@ async function reportScriptProgress(contentId: number, percentage: number, stage
     action: "content_produce_progress", summary: stage, status, platform: "youtube",
     metadata: { contentId, percentage, stage, status, detail, nextAction, updatedAt: new Date().toISOString(), workflow: "manual_script" },
   }).catch((error) => console.error("[Worker] progress write failed:", error instanceof Error ? error.message : String(error)));
+}
+
+async function removePermanentlyDeletedItem(contentId: number, title: string, topic: string) {
+  const terms = [...new Set([title, topic].filter((value) => value.trim()))];
+  await db.delete(contentAssets).where(eq(contentAssets.contentId, contentId)).catch(() => undefined);
+  await db.delete(contentItems).where(eq(contentItems.id, contentId)).catch(() => undefined);
+  const allTasks = await db.select().from(tasks).catch(() => []);
+  const taskIds = allTasks.filter((task) => {
+    const text = `${task.title} ${task.notes || ""}`.toLocaleLowerCase("tr-TR");
+    return text.includes(`"contentid":${contentId}`) || terms.some((term) => text.includes(term.toLocaleLowerCase("tr-TR")));
+  }).map((task) => task.id);
+  if (taskIds.length) await db.delete(tasks).where(inArray(tasks.id, taskIds)).catch(() => undefined);
+  const allOps = await db.select().from(operations).catch(() => []);
+  for (const op of allOps) {
+    const metadata = op.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {};
+    if (Number(metadata.contentId) === contentId) {
+      await db.delete(operations).where(eq(operations.id, op.id)).catch(() => undefined);
+      continue;
+    }
+    const scrub = (value: unknown): unknown => {
+      if (typeof value === "string") {
+        let next = value;
+        for (const term of terms.sort((a, b) => b.length - a.length)) {
+          next = next.replace(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\async function reportScriptProgress(contentId: number, percentage: number, stage: string, status = "running", detail?: string, nextAction?: string) {
+  await db.insert(operations).values({
+    action: "content_produce_progress", summary: stage, status, platform: "youtube",
+    metadata: { contentId, percentage, stage, status, detail, nextAction, updatedAt: new Date().toISOString(), workflow: "manual_script" },
+  }).catch((error) => console.error("[Worker] progress write failed:", error instanceof Error ? error.message : String(error)));
+}
+"), "giu"), "[kalıcı olarak silindi]");
+        }
+        return next;
+      }
+      if (Array.isArray(value)) return value.map(scrub);
+      if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, scrub(item)]));
+      return value;
+    };
+    const summary = scrub(op.summary) as string;
+    const nextMetadata = scrub(metadata);
+    if (summary !== op.summary || JSON.stringify(nextMetadata) !== JSON.stringify(metadata)) {
+      await db.update(operations).set({ summary, metadata: nextMetadata }).where(eq(operations.id, op.id)).catch(() => undefined);
+    }
+  }
 }
 type EEngineStats = { openalex: number; crossref: number; pubmed: number };
 type FactGateResult = { ok: boolean; sourceUrls: string[]; reason: string; engines?: EEngineStats };
@@ -307,6 +351,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, processed: false, message: "İçerik başka bir işlem tarafından alındı." });
   }
 
+  const initialTopic = claimed.topic?.trim() || claimed.title;
+  if (await isPermanentlyDeletedTopic(db, [claimed.title, initialTopic])) {
+    await removePermanentlyDeletedItem(claimed.id, claimed.title, initialTopic);
+    return NextResponse.json({ ok: true, processed: false, permanentlyBlocked: true, message: "Bu konu kalıcı silme listesinde; üretim durduruldu." }, { status: 410 });
+  }
+
   after(async () => {
     try {
       const topic = claimed.topic?.trim() || claimed.title;
@@ -430,6 +480,11 @@ export async function POST(req: Request) {
       // panelde görünür, istersen kaynak ekleyip tekrar denetletirsin. Otomatik araştırma akışı için
       // kapı eskiden olduğu gibi SERT çalışır (otomatik kalite duvarı aynen ayakta).
       const manualGrace = body.manualTopic === true;
+      // Silme isteği üretim sürerken geldiyse senaryo kaydına yazmadan önce tekrar denetle.
+      if (await isPermanentlyDeletedTopic(db, [claimed.title, topic])) {
+        await removePermanentlyDeletedItem(claimed.id, claimed.title, topic);
+        return;
+      }
       const gatePass = factCheck.ok || manualGrace;
       await db.insert(operations).values({
         action: factCheck.ok ? "fact_check_passed" : "fact_check_blocked",
