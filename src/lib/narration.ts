@@ -4,6 +4,9 @@
 // Edge TTS'nin kelime zaman damgaları (offset/duration 100ns tick) altyazı gruplarına dönüştürülür.
 
 export type CaptionGroup = { start: number; end: number; text: string };
+export type MiraTtsEmotion = "happy" | "surprised" | "sad" | "playful" | "focused";
+export type MiraSolMode = "sweet" | "flirty" | "serious" | "excited" | "close";
+export type NarrationOptions = { emotion?: MiraTtsEmotion; solMode?: MiraSolMode };
 
 export type NarrationResult = {
   audio: Uint8Array;
@@ -105,11 +108,11 @@ function groupWords(words: EdgeWord[]): CaptionGroup[] {
   return groups;
 }
 
-export async function generateWithEdgeTts(text: string): Promise<{ audio: Uint8Array; captions: CaptionGroup[]; durationSeconds: number | null }> {
+export async function generateWithEdgeTts(text: string, rate = EDGE_TTS_RATE): Promise<{ audio: Uint8Array; captions: CaptionGroup[]; durationSeconds: number | null }> {
   const { EdgeTTS } = await import("@andresaya/edge-tts");
   const tts = new EdgeTTS();
   await tts.synthesize(text, EDGE_TTS_VOICE, {
-    rate: EDGE_TTS_RATE,
+    rate,
     outputFormat: "audio-24khz-96kbitrate-mono-mp3",
   });
   const audio = tts.toBuffer();
@@ -162,7 +165,30 @@ export async function generateWithGoogleTts(text: string): Promise<Uint8Array> {
   return new Uint8Array(audio);
 }
 
-export async function generateNarration(rawText: string): Promise<NarrationResult> {
+function emotionAwareRate(options: NarrationOptions): string {
+  const baseMatch = EDGE_TTS_RATE.match(/([+-]?\\d+(?:\\.\\d+)?)%/);
+  const base = baseMatch ? Number(baseMatch[1]) : 0;
+  const emotionDelta: Record<MiraTtsEmotion, number> = {
+    happy: 2,
+    surprised: 7,
+    sad: -9,
+    playful: 4,
+    focused: -4,
+  };
+  const modeDelta: Record<MiraSolMode, number> = {
+    sweet: -1,
+    flirty: -3,
+    serious: -2,
+    excited: 5,
+    close: -2,
+  };
+  const emotion = options.emotion ?? "happy";
+  const mode = options.solMode ?? "close";
+  const rate = Math.max(-20, Math.min(20, Math.round(base + emotionDelta[emotion] + modeDelta[mode])));
+  return `${rate >= 0 ? "+" : ""}${rate}%`;
+}
+
+export async function generateNarration(rawText: string, options: NarrationOptions = {}): Promise<NarrationResult> {
   const text = stripForTts(rawText);
   if (!text) throw new Error("Seslendirilecek metin boş");
   if (text.length > 5000) throw new Error("Metin çok uzun");
@@ -177,7 +203,7 @@ export async function generateNarration(rawText: string): Promise<NarrationResul
     }
   }
   try {
-    const edge = await generateWithEdgeTts(text);
+    const edge = await generateWithEdgeTts(text, emotionAwareRate(options));
     return { audio: edge.audio, provider: "edge-tts", captions: edge.captions, durationSeconds: edge.durationSeconds };
   } catch (edgeError) {
     const message = edgeError instanceof Error ? edgeError.message : String(edgeError);
