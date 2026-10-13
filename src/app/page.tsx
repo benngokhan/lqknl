@@ -813,7 +813,7 @@ export default function Home() {
       const res = await fetch(wantsOnlinePhoto ? '/api/image/search' : wantsSelfie ? '/api/image/selfie' : '/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(wantsOnlinePhoto ? { query: 'tumblr mirror selfie outfit pose bedroom' } : wantsSelfie ? {} : { message: userMessage }),
+        body: JSON.stringify(wantsOnlinePhoto ? { query: 'body selfie sensual girl' } : wantsSelfie ? {} : { message: userMessage }),
       });
 
       // Do not blindly call res.json(): deployment/proxy errors can return
