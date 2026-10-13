@@ -413,7 +413,7 @@ export async function POST(req: Request) {
 
     // Son üretilen video hakkında soru: yanıtı model tahmininden değil, gerçek video varlığından oluştur.
     const asksLatestVideoDetails =
-      /(?:en\\s+son|son)(?:\\s+ürettiğin|\\s+üretilen|\\s+hazırladığın|\\s+hazırlanan)?[\\s\\S]{0,70}(?:video|mp4)|(?:video|mp4)[\\s\\S]{0,70}(?:en\\s+son|son)(?:\\s+ürettiğin|\\s+üretilen|\\s+hazırladığın|\\s+hazırlanan)?/iu.test(message) &&
+      /(?:en\s+son|son)(?:\s+ürettiğin|\s+üretilen|\s+hazırladığın|\s+hazırlanan)?[\s\S]{0,70}(?:video|mp4)|(?:video|mp4)[\s\S]{0,70}(?:en\s+son|son)(?:\s+ürettiğin|\s+üretilen|\s+hazırladığın|\s+hazırlanan)?/iu.test(message) &&
       /(?:bahset|içeriğ|konu|neydi|anlat|göster|detay|sonuç)/iu.test(message);
     if (asksLatestVideoDetails) {
       try {
@@ -446,19 +446,19 @@ export async function POST(req: Request) {
         const date = latest.createdAt
           ? new Date(latest.createdAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })
           : 'tarih kaydı yok';
-        const baseUrl = (process.env.NEXT_PUBLIC_MIRA_BASE_URL || 'https://aimira.up.railway.app').replace(/\\/$/, '');
+        const baseUrl = (process.env.NEXT_PUBLIC_MIRA_BASE_URL || 'https://aimira.up.railway.app').replace(/\/$/, '');
         const previewUrl = baseUrl + '/api/video/asset/' + latest.assetId;
         const topicLine = latest.topic && latest.topic.trim() && latest.topic !== latest.title
-          ? '\\nKonu: ' + latest.topic
+          ? '\nKonu: ' + latest.topic
           : '';
-        const durationLine = duration !== null ? '\\nSüre: yaklaşık ' + duration + ' saniye' : '';
-        const sizeLine = typeof latest.bytes === 'number' ? '\\nDosya boyutu: ' + (latest.bytes / (1024 * 1024)).toFixed(1) + ' MB' : '';
+        const durationLine = duration !== null ? '\nSüre: yaklaşık ' + duration + ' saniye' : '';
+        const sizeLine = typeof latest.bytes === 'number' ? '\nDosya boyutu: ' + (latest.bytes / (1024 * 1024)).toFixed(1) + ' MB' : '';
         return NextResponse.json({
           reply: 'En son kaydedilmiş video: “' + latest.title + '”.' + topicLine +
-            '\\nDurum: ' + latest.status + durationLine + sizeLine +
-            '\\nKaydedilme: ' + date +
-            '\\nÖnizleme: ' + previewUrl +
-            '\\nBu bilgi veritabanındaki gerçek MP4 kaydından alındı; YouTube’da yayımlandığı anlamına gelmez.',
+            '\nDurum: ' + latest.status + durationLine + sizeLine +
+            '\nKaydedilme: ' + date +
+            '\nÖnizleme: ' + previewUrl +
+            '\nBu bilgi veritabanındaki gerçek MP4 kaydından alındı; YouTube’da yayımlandığı anlamına gelmez.',
           emotion: 'focused',
         });
       } catch (error) {
