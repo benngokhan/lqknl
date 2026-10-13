@@ -64,11 +64,12 @@ export async function POST(req: Request) {
     }
 
     const prompt = [
-      "Edit reference image 1; do not create a different woman.",
-      "The subject is the same fictional adult woman Mira. Preserve her recognizable identity: exact face, eyes, facial proportions, skin tone, hairstyle and hair color. Preserve her body proportions and the same bedroom, mirror, furniture, room layout, camera perspective and warm lighting.",
-      "Change only her pose and outfit. Make this a realistic, confident, playful mirror selfie in the SAME bedroom. Choose a clearly different natural pose for this generation, such as a three-quarter turn with one hip angled, one knee softly bent, a relaxed over-the-shoulder look, or one hand resting at the waist while the other holds the phone. Avoid repeating the source pose.",
-      "Use a stylish, bold outfit that differs from the reference: for example an elegant black satin camisole with matching high-waisted shorts and an open satin shirt, or a tasteful opaque fitted fashion set. Adult fashion editorial, alluring but non-explicit, natural anatomy, realistic fabric and skin texture.",
-      "Keep the phone and mirror reflection believable. One phone only. No extra people, no face changes, no room changes, no body reshaping, no nudity, no explicit sexual content, no distorted hands, no extra fingers, no text, no watermark, no logo.",
+      "Edit reference image 1; do not create a different woman. The subject is the same fictional adult woman Mira.",
+      "STRICT REFERENCE LOCK: preserve her recognizable face, eyes, facial proportions, skin tone, hairstyle, hair color and body proportions. Keep the exact same bedroom, mirror, furniture, room layout and nighttime city view.",
+      "STYLE: bold, fiery, sultry, seductive adult fashion selfie; confident, alluring expression and provocative fashion-editorial energy. Do not make the mood cute, innocent, shy or ordinary.",
+      "CREATIVE FREEDOM: invent a completely random, attractive pose and outfit for this generation. The pose, body position, hand placement, head angle, expression, camera angle, framing and outfit are all open choices. Do not use a fixed pose list. Do not merely change clothes while copying the reference pose. Make the composition visibly different from the reference and vary it freely on each request.",
+      "Choose any stylish, daring, fitted or lingerie-inspired fashion outfit that remains opaque and non-explicit. Keep the image photorealistic with realistic fabric, skin texture and anatomy.",
+      "Keep the mirror reflection and phone believable, with one phone only. No extra people, no face or room changes, no body reshaping, no nudity, no explicit sexual content, no distorted hands, no extra fingers, no text, no watermark, no logo.",
     ].join(" ");
 
     const token = process.env.HF_TOKEN?.trim();
