@@ -421,7 +421,7 @@ export async function POST(req: Request) {
       /\b(?:video(?:yu|nun)?|mp4(?:\s+video)?)\s+(?:üret|oluştur|hazırla)\s*[.!…]*$/iu.test(trimmedIntent) ||
       /\b(?:videoyu|bunu|şunu|taslağı)\s+(?:üret|oluştur|hazırla)\s*[.!…]*$/iu.test(trimmedIntent);
     const wantsVideoProduction = !isDiscussionOrQuestion && endsWithVideoAction;
-    if (command === '/video' || message.startsWith('/video') || wantsVideoProduction) {
+    if (command === '/video' || /^\\/video(?:\\s|$)/iu.test(trimmedIntent) || wantsVideoProduction) {
       // ID'yi yalnızca bağımsız sayı olarak al ("MP4" içindeki 4 sayılmaz)
       const idMatch = message.replace(/^\/video/i, '').match(/(?:^|[^\w])(\d+)(?=$|[^\w])/);
       const contentId = idMatch ? Number(idMatch[1]) : null;
