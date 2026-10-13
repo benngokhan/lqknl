@@ -21,8 +21,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Selfie özelliği yalnızca Mira özel modunda kullanılabilir. Önce KIRMIZI2206 yaz." }, { status: 403 });
     }
 
-    const referenceMatch = MIRA_AVATAR.match(/^data:(image\\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/);
-    if (!referenceMatch) {
+    const referenceMatch = MIRA_AVATAR.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/);
+    if (!referenceMatch || !referenceMatch[1].startsWith("image/")) {
       return NextResponse.json({ error: "Mira'nın kayıtlı referans görseli okunamadı." }, { status: 503 });
     }
     const referenceBytes = Buffer.from(referenceMatch[2], "base64");
