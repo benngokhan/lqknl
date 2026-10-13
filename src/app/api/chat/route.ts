@@ -2,7 +2,7 @@ import { think } from '../../../lib/brain';
 import { logEvent } from "@/lib/logger";
 import { selfOrigin } from "@/lib/self-url";
 import { db } from '@/db';
-import { contentItems, messages, memories, operations } from '@/db/schema';
+import { contentAssets, contentItems, messages, memories, operations } from '@/db/schema';
 import { desc, eq, ilike, sql } from 'drizzle-orm';
 import { formatMemoriesForContext, getRelevantMemories, generateForgetApprovalMessage, generateSaveApprovalMessage, parseConfirmationResponse, parseMemoryCommand } from '@/lib/memory-chat';
 import { remember } from '@/lib/memory';
@@ -408,6 +408,65 @@ export async function POST(req: Request) {
         });
       } catch {
         return NextResponse.json({ reply: 'n8n durumunu şu anda doğrulayamıyorum.', emotion: 'focused' });
+      }
+    }
+
+    // Son üretilen video hakkında soru: yanıtı model tahmininden değil, gerçek video varlığından oluştur.
+    const asksLatestVideoDetails =
+      /(?:en\\s+son|son)(?:\\s+ürettiğin|\\s+üretilen|\\s+hazırladığın|\\s+hazırlanan)?[\\s\\S]{0,70}(?:video|mp4)|(?:video|mp4)[\\s\\S]{0,70}(?:en\\s+son|son)(?:\\s+ürettiğin|\\s+üretilen|\\s+hazırladığın|\\s+hazırlanan)?/iu.test(message) &&
+      /(?:bahset|içeriğ|konu|neydi|anlat|göster|detay|sonuç)/iu.test(message);
+    if (asksLatestVideoDetails) {
+      try {
+        const [latest] = await db.select({
+          contentId: contentItems.id,
+          title: contentItems.title,
+          topic: contentItems.topic,
+          status: contentItems.status,
+          platform: contentItems.platform,
+          createdAt: contentAssets.createdAt,
+          assetId: contentAssets.id,
+          bytes: contentAssets.bytes,
+          meta: contentAssets.meta,
+        })
+          .from(contentAssets)
+          .innerJoin(contentItems, eq(contentAssets.contentId, contentItems.id))
+          .where(eq(contentAssets.kind, 'video'))
+          .orderBy(desc(contentAssets.createdAt))
+          .limit(1);
+
+        if (!latest) {
+          return NextResponse.json({
+            reply: 'Kayıtlarda henüz oluşturulmuş bir MP4 video bulamadım. Taslak veya senaryo, tek başına video dosyasının üretildiğini kanıtlamaz.',
+            emotion: 'focused',
+          });
+        }
+
+        const meta = latest.meta && typeof latest.meta === 'object' ? latest.meta as Record<string, unknown> : {};
+        const duration = typeof meta.durationSeconds === 'number' ? Math.round(meta.durationSeconds) : null;
+        const date = latest.createdAt
+          ? new Date(latest.createdAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })
+          : 'tarih kaydı yok';
+        const baseUrl = (process.env.NEXT_PUBLIC_MIRA_BASE_URL || 'https://aimira.up.railway.app').replace(/\\/$/, '');
+        const previewUrl = baseUrl + '/api/video/asset/' + latest.assetId;
+        const topicLine = latest.topic && latest.topic.trim() && latest.topic !== latest.title
+          ? '\\nKonu: ' + latest.topic
+          : '';
+        const durationLine = duration !== null ? '\\nSüre: yaklaşık ' + duration + ' saniye' : '';
+        const sizeLine = typeof latest.bytes === 'number' ? '\\nDosya boyutu: ' + (latest.bytes / (1024 * 1024)).toFixed(1) + ' MB' : '';
+        return NextResponse.json({
+          reply: 'En son kaydedilmiş video: “' + latest.title + '”.' + topicLine +
+            '\\nDurum: ' + latest.status + durationLine + sizeLine +
+            '\\nKaydedilme: ' + date +
+            '\\nÖnizleme: ' + previewUrl +
+            '\\nBu bilgi veritabanındaki gerçek MP4 kaydından alındı; YouTube’da yayımlandığı anlamına gelmez.',
+          emotion: 'focused',
+        });
+      } catch (error) {
+        console.error('Mira latest video lookup failed:', error);
+        return NextResponse.json({
+          reply: 'Son videonun kaydını şu anda okuyamadım; içeriğini tahmin edip varmış gibi anlatmayacağım.',
+          emotion: 'focused',
+        });
       }
     }
 
