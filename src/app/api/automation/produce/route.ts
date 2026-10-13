@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { logEvent } from "@/lib/logger";
 import { contentAssets, contentItems, operations, tasks } from "@/db/schema";
+import { isPermanentlyDeletedTopic } from "@/lib/deleted-topics";
 import { like } from "drizzle-orm";
 import { generateWithFallback } from "@/lib/model-manager";
 import { generateNarration, type CaptionGroup } from "@/lib/narration";
@@ -395,6 +396,10 @@ export async function POST(req: Request) {
     if (!content) {
       return NextResponse.json({ ok: true, produced: false, message: "Video üretimi için onaylanmış içerik yok." });
     }
+    const requestedTopic = content.topic?.trim() || content.title;
+    if (await isPermanentlyDeletedTopic(db, [content.title, requestedTopic])) {
+      return NextResponse.json({ ok: true, produced: false, permanentlyBlocked: true, message: "Bu konu kalıcı olarak silindi; video üretimi engellendi." }, { status: 410 });
+    }
 
     // 2) Senaryo metni ve kalıcı ara kayıtlar
     const draftOps = await db.select().from(operations)
@@ -407,6 +412,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, produced: false, message: "Taslak senaryosu bulunamadı; görev korunuyor ve tekrar denenebilir.", contentId: content.id });
     }
     const topic = content.topic?.trim() || content.title;
+    if (await isPermanentlyDeletedTopic(db, [content.title, topic])) {
+      return NextResponse.json({ ok: true, produced: false, permanentlyBlocked: true, message: "Bu konu kalıcı olarak silindi; video üretimi engellendi." }, { status: 410 });
+    }
     const rawNarration = extractNarration(script, `${content.title}. ${topic}`);
     const narrationCap = capNarrationForDuration(rawNarration);
     let narrationText = narrationCap.text;
@@ -557,6 +565,9 @@ export async function POST(req: Request) {
       const fresh = await retryStage(content.id, "Seslendirme", 40, () => generateAudibleNarration(narrationText));
       narration = fresh.narration;
       narrationMeanDb = fresh.meanDb;
+      if (await isPermanentlyDeletedTopic(db, [content.title, topic])) {
+        return NextResponse.json({ ok: true, produced: false, permanentlyBlocked: true, message: "Silme isteği sırasında konu kalıcı olarak silindi; medya kaydı durduruldu." }, { status: 410 });
+      }
       await db.insert(contentAssets).values({
         contentId: content.id,
         kind: "audio",
@@ -582,6 +593,9 @@ export async function POST(req: Request) {
         return generateImage(prompts[i]);
       });
       images.push(image);
+      if (await isPermanentlyDeletedTopic(db, [content.title, topic])) {
+        return NextResponse.json({ ok: true, produced: false, permanentlyBlocked: true, message: "Silme isteği sırasında konu kalıcı olarak silindi; medya kaydı durduruldu." }, { status: 410 });
+      }
       await db.insert(contentAssets).values({
         contentId: content.id,
         kind: "image",
@@ -677,6 +691,9 @@ export async function POST(req: Request) {
     await reportProgress(content.id, 93, "Video oluşturuldu; dosya kaydediliyor");
 
     // 7) Varlığı Postgres'e yaz, içeriği 'ready' yap (insan onayı öncesi)
+    if (await isPermanentlyDeletedTopic(db, [content.title, topic])) {
+      return NextResponse.json({ ok: true, produced: false, permanentlyBlocked: true, message: "Silme isteği sırasında konu kalıcı olarak silindi; medya kaydı durduruldu." }, { status: 410 });
+    }
     const [asset] = await db.insert(contentAssets).values({
       contentId: content.id,
       kind: "video",
