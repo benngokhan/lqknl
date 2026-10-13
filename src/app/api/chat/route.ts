@@ -420,7 +420,9 @@ export async function POST(req: Request) {
     const endsWithVideoAction =
       /\b(?:video(?:yu|nun)?|mp4(?:\s+video)?)\s+(?:üret|oluştur|hazırla)\s*[.!…]*$/iu.test(trimmedIntent) ||
       /\b(?:videoyu|bunu|şunu|taslağı)\s+(?:üret|oluştur|hazırla)\s*[.!…]*$/iu.test(trimmedIntent);
-    const wantsVideoProduction = !isDiscussionOrQuestion && endsWithVideoAction;
+    const startsWithExplicitVideoAction =
+      /^(?:(?:lütfen|bana|şimdi|hemen)\s+)*(?:video(?:yu)?|mp4\s+video)\s+(?:üret|oluştur|hazırla)\s*[:：-]/iu.test(trimmedIntent);
+    const wantsVideoProduction = !isDiscussionOrQuestion && (endsWithVideoAction || startsWithExplicitVideoAction);
     if (command === '/video' || /^\/video(?:\s|$)/iu.test(trimmedIntent) || wantsVideoProduction) {
       // ID'yi yalnızca bağımsız sayı olarak al ("MP4" içindeki 4 sayılmaz)
       const idMatch = message.replace(/^\/video/i, '').match(/(?:^|[^\w])(\d+)(?=$|[^\w])/);
@@ -661,10 +663,13 @@ export async function POST(req: Request) {
 
     // Taslak kaydı yalnızca açık bir üretim isteğiyle yapılır; konu hakkında konuşmak,
     // taslakları listelemek veya "video üret" komutunu tartışmak kayıt başlatmaz.
+    const hasExplicitDraftCommand =
+      /^(?:(?:lütfen|bana)\s+)*(?:bir\s+)?(?:taslak|senaryo|içerik)\s+(?:oluştur|hazırla|üret|yaz)\s*[:：-]\s*\S/iu.test(trimmedIntent);
     const asksForContentDraft =
       !isDiscussionOrQuestion &&
-      /\b(?:oluştur|hazırla|üret|yaz)\s*[.!…]*$/iu.test(trimmedIntent) &&
-      /\b(?:taslak|shorts|reels|video|içerik|senaryo)\b/iu.test(trimmedIntent);
+      (hasExplicitDraftCommand ||
+        (/\b(?:oluştur|hazırla|üret|yaz)\s*[.!…]*$/iu.test(trimmedIntent) &&
+          /\b(?:taslak|shorts|reels|video|içerik|senaryo)\b/iu.test(trimmedIntent)));
     const asksForTelegramNotification = /telegram|bildirim|haber ver|bilgi ver/iu.test(message);
     const hasUsableDraftReply =
       typeof result.reply === "string" &&
