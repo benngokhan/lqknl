@@ -4,6 +4,7 @@ import path from "node:path";
 import { desc, eq, gte, and } from "drizzle-orm";
 import { db } from "@/db";
 import { contentItems, operations, tasks, trends } from "@/db/schema";
+import { isPermanentlyDeletedTopic } from "@/lib/deleted-topics";
 import { generateWithFallback } from "@/lib/model-manager";
 
 export const dynamic = "force-dynamic";
@@ -177,6 +178,7 @@ export async function POST(req: Request) {
     const title = typeof item.title === "string" ? item.title.trim().slice(0, 300) : "";
     const sourceTrend = typeof item.sourceTrend === "string" ? item.sourceTrend.trim() : "";
     if (!topic || !title || !sourceTrend) continue;
+    if (await isPermanentlyDeletedTopic(db, [title, topic])) continue;
     const key = title.toLocaleLowerCase("tr-TR");
     if (existingKeys.has(key)) continue;
     existingKeys.add(key);
