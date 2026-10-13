@@ -311,7 +311,7 @@ export async function POST(req: Request) {
     try {
       const topic = claimed.topic?.trim() || claimed.title;
       const archiveContext = await loadArchiveContext(topic);
-      const topicSelectionSpec = await readFile(path.join(process.cwd(), "mira-prompt", "mira_konu_secim_spec.md"), "utf8").catch(() => "");
+      const topicSelectionSpec = await readFile(path.join(process.cwd(), "mira_konu_secim_spec.md"), "utf8").catch(() => "");
 
       await reportScriptProgress(claimed.id, 8, "Konu ve arşiv bağlamı inceleniyor…", "running", archiveContext ? "Konu arşivinde eşleşen bağlam bulundu; bu bilgi taslak istemine eklenecek." : "Konu arşivinde yeterli eşleşme bulunmadı; taslak kullanıcının verdiği konu üzerinden hazırlanacak.", "Kanal yönergesini kontrol edip senaryo modelini çağıracağım.");
       let signalDirective: Record<string, unknown> | null = null;
@@ -325,7 +325,7 @@ export async function POST(req: Request) {
       const result = await generateWithFallback({
         system: [
           "Sen Mira'nın Bilgi Dozu adlı YouTube Shorts kanalı için Türkçe içerik üretim motorusun.",
-          "OTOMATİK KONU SEÇİMİNDE mira-prompt/mira_konu_secim_spec.md tek otoritedir: ana kümeler uyku/beyin, nöroloji paradoksları, günlük hayat paradoksları, dopamin/davranış ve uzay ölçekleri; vücut-biyoloji ikincil; fizik/coğrafya rekorları ve teknolojik ilkler sınırlıdır. Hayvan ve tarih konularını kendin önerme; '3 şaşırtıcı gerçek' listesi üretme. Başlıkta Sen/Beynin + somut eylem/nesne + sürpriz + ünlem + tek emoji formülünü kullan.",
+          "OTOMATİK KONU SEÇİMİNDE mira_konu_secim_spec.md tek otoritedir: ana kümeler uyku/beyin, nöroloji paradoksları, günlük hayat paradoksları, dopamin/davranış ve uzay ölçekleri; vücut-biyoloji ikincil; fizik/coğrafya rekorları ve teknolojik ilkler sınırlıdır. Hayvan ve tarih konularını kendin önerme; '3 şaşırtıcı gerçek' listesi üretme. Başlıkta Sen/Beynin + somut eylem/nesne + sürpriz + ünlem + tek emoji formülünü kullan.",
           "Konu kullanıcı tarafından panelden açıkça verilmişse konuyu sessizce başka konuyla değiştirme; ancak tek gerçek, kaynak doğrulama ve kalite kapılarını uygula.",
           ...(topicSelectionSpec.trim() ? [`CANONICAL KONU SEÇİM SPEC'İ (kuralları aynen uygula):\n${topicSelectionSpec}`] : ["Konu seçim spec dosyası okunamadı: otomatik konu önerme; verilen manuel konuyu koru ve kaynak doğrulamasını uygula."]),
           "Her taslak yalnızca TEK bir konu ve TEK bir doğrulanabilir ana bilgi içersin. Üçlü liste, günlük hack listesi, gezi turu veya birbirinden bağımsız iddialar üretme.",
