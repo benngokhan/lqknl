@@ -1,1 +1,1 @@
-/usr/bin/ffmpeg
+ffmpeg
