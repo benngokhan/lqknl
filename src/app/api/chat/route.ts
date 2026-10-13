@@ -668,9 +668,8 @@ export async function POST(req: Request) {
 
       try {
         if (await isPermanentlyDeletedTopic(db, [title, topic])) {
-          result.reply += "\\n\\nBu başlık/konu daha önce kalıcı olarak silindi; yeni taslak olarak kaydedilmedi.";
-          return NextResponse.json({ reply: result.reply, emotion: result.emotion, privateMode });
-        }
+          result.reply += "\n\nBu başlık/konu daha önce kalıcı olarak silindi; yeni taslak olarak kaydedilmedi.";
+        } else {
         const savedDraft = await db.transaction(async (tx) => {
           const [draft] = await tx.insert(contentItems).values({
             title,
@@ -717,6 +716,7 @@ export async function POST(req: Request) {
             console.error("[Chat] Telegram draft notification error:", telegramError instanceof Error ? telegramError.message : String(telegramError));
             result.reply = `Taslak no: ${savedDraft.id} kaydedildi. Video üretilmedi ve yayınlanmadı. Telegram bildiriminin gönderildiği DOĞRULANAMADI.`;
           }
+        }
         }
       } catch (saveError) {
         console.error("Mira content draft save failed:", saveError);
