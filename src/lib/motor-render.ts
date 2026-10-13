@@ -87,54 +87,37 @@ export function buildMotorDesign(opts: {
   narration: string;
   sections: Record<string, string>;
 }): MotorDesign {
-  if (opts.designSection) {
-    const jsonLine = opts.designSection.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-      .find((l) => l.startsWith("{") && l.includes("\"title\""));
-    if (jsonLine) {
-      try {
-        const parsed = JSON.parse(jsonLine) as Partial<MotorDesign>;
-        if (Array.isArray(parsed.title) && parsed.note1 && parsed.note2) {
-          return {
-            title: parsed.title as unknown[][],
-            note1: String(parsed.note1).slice(0, 90),
-            note2: String(parsed.note2).slice(0, 90),
-            accents: Array.isArray(parsed.accents) ? parsed.accents.slice(0, 5).map(String) : [],
-            seoTitle: typeof parsed.seoTitle === "string" ? parsed.seoTitle.slice(0, 95) : opts.title.slice(0, 95),
-          };
-        }
-      } catch { /* sezgisel moda düş */ }
+  const fail = () => new Error("Belirtilen video şablonunun TASARIM bloğu bulunamadı veya okunamadı. Bu işlem gerçekleştirilmedi; alternatif tasarımla video üretilmeyecek.");
+  if (!opts.designSection?.trim()) throw fail();
+
+  // Tasarım JSON'u tek satır veya çok satırlı/fenced JSON olabilir.
+  const raw = opts.designSection.trim()
+    .replace(/^\`\`\`(?:json)?\s*/i, "")
+    .replace(/\s*\`\`\`$/i, "")
+    .trim();
+  let parsed: Partial<MotorDesign> | null = null;
+  try {
+    parsed = JSON.parse(raw) as Partial<MotorDesign>;
+  } catch {
+    const first = raw.indexOf("{");
+    const last = raw.lastIndexOf("}");
+    if (first >= 0 && last > first) {
+      try { parsed = JSON.parse(raw.slice(first, last + 1)) as Partial<MotorDesign>; } catch { /* fail closed below */ }
     }
   }
-
-  const tr = (t: string) => t.toLocaleUpperCase("tr-TR");
-  // Başlık: ~22 karakter/s satıra böl; son satır yeşil segment (referans şablonla aynı)
-  const words = tr(opts.title).split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let cur = "";
-  for (const w of words) {
-    if ((cur + " " + w).trim().length > 22 && cur) { lines.push(cur); cur = w; }
-    else cur = (cur + " " + w).trim();
+  if (!parsed || !Array.isArray(parsed.title) || parsed.title.length === 0 ||
+      !parsed.note1 || !parsed.note2 ||
+      !parsed.title.every((line) => Array.isArray(line) && line.length > 0)) {
+    throw fail();
   }
-  if (cur) lines.push(cur);
-  const titleLines = lines.slice(0, 3).map((l, i, arr) =>
-    i === arr.length - 1 ? [[l, "g"]] : [l]);
-  if (lines.length > 3) titleLines[2] = [[lines.slice(2).join(" "), "g"]];
 
-  const firstLine = (s: string) => (s.split(/\r?\n/).map((l) => l.replace(/^\s*[-*•]\s+/, "").trim())
-    .find((l) => l.length > 4) || "").replace(/\*\*/g, "");
-  const note1Src = firstLine(opts.sections["EKRAN METNİ"] || "") || firstLine(opts.sections["AÇIKLAMA"] || "") || opts.topic;
-  const note1 = tr(note1Src).replace(/\[[^\]]*\]/g, "").slice(0, 82);
-  const kaynakRaw = firstLine(opts.sections["KAYNAK"] || "");
-  const note2 = kaynakRaw && !/DOĞRULAMA GEREKLİ/i.test(kaynakRaw)
-    ? tr(kaynakRaw).slice(0, 82)
-    : "BİLGİ DOZU EDİTÖR DERLEMESİ (2026)";
-
-  const accWords = new Set<string>();
-  for (const m of opts.narration.matchAll(/\d[\d.,]*\s*TL|TMSF|TSDF|[A-ZÇĞİÖŞÜ]{4,}/g)) accWords.add(m[0].toLowerCase());
-  const setWords = new Set(opts.narration.toLocaleLowerCase("tr-TR").split(/\s+/).map((w) => w.replace(/[.,!?]/g, "")));
-  const accents = [...accWords].filter((a) => setWords.has(a)).slice(0, 5);
-
-  return { title: titleLines, note1, note2, accents, seoTitle: opts.title.slice(0, 95) };
+  return {
+    title: parsed.title as unknown[][],
+    note1: String(parsed.note1).slice(0, 90),
+    note2: String(parsed.note2).slice(0, 90),
+    accents: Array.isArray(parsed.accents) ? parsed.accents.slice(0, 5).map(String) : [],
+    seoTitle: typeof parsed.seoTitle === "string" ? parsed.seoTitle.slice(0, 95) : opts.title.slice(0, 95),
+  };
 }
 
 export async function renderWithMotor(input: MotorRenderInput): Promise<MotorRenderResult> {
