@@ -216,43 +216,37 @@ export async function getRelevantMemories(
   limit: number = 5
 ): Promise<(typeof memories.$inferSelect)[]> {
   try {
-    // Extract keywords from message (simple tokenization, min 3 chars)
-    const keywords = userMessage
-      .toLocaleLowerCase('tr-TR')
-      .match(/\b[a-zçğıöşü]{3,}\b/giu) || [];
+    // Stopwords are excluded so generic chat words do not pull unrelated memories.
+    const stopwords = new Set([
+      'ben', 'sen', 'bana', 'sana', 'bunu', 'şunu', 'böyle', 'şöyle', 'olan',
+      'olarak', 'için', 'ama', 'fakat', 'veya', 'ile', 'bir', 'şey', 'çok',
+      'daha', 'gibi', 'var', 'yok', 'mi', 'mı', 'mu', 'mü', 'nasıl', 'neden',
+      'şimdi', 'sonra', 'önce', 'lütfen', 'tamam', 'selam', 'merhaba',
+    ]);
+    const keywords = [...new Set(
+      (userMessage.toLocaleLowerCase('tr-TR').match(/\b[a-zçğıöşü]{3,}\b/giu) || [])
+        .filter((word) => !stopwords.has(word)),
+    )];
 
-    // If no keywords, return top-importance memories
-    if (keywords.length === 0) {
-      return db
-        .select()
-        .from(memories)
-        .orderBy(desc(memories.importance), desc(memories.updatedAt))
-        .limit(limit);
-    }
+    // A greeting or a message without meaningful keywords should not inject
+    // unrelated high-importance memories into the conversation.
+    if (keywords.length === 0) return [];
 
-    // Query all memories and score them
     const allMemories = await db.select().from(memories);
 
-    // Score each memory based on keyword overlap
+    // Score only lexical matches; importance breaks ties, it does not create relevance.
     const scoredMemories = allMemories
       .map((m) => {
-        const memText = `${m.key} ${m.value}`.toLowerCase();
+        const memText = `${m.key} ${m.value}`.toLocaleLowerCase('tr-TR');
         const keywordMatches = keywords.filter((kw) => memText.includes(kw)).length;
-        const score = keywordMatches * 10 + m.importance;
-        return { memory: m, score };
+        return { memory: m, score: keywordMatches * 10 + (keywordMatches > 0 ? m.importance : 0) };
       })
-      .filter((x) => x.score > 0) // Only include memories that matched something
+      .filter((x) => x.score > 0)
       .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
+      .slice(0, Math.max(0, limit))
       .map((x) => x.memory);
 
-    // If no matches by keyword, return top-importance memories as fallback
-    if (scoredMemories.length === 0) {
-      return allMemories
-        .sort((a, b) => b.importance - a.importance)
-        .slice(0, limit);
-    }
-
+    // No match means no memory context. Never fill the prompt with unrelated facts.
     return scoredMemories;
   } catch (err) {
     console.error('[Memory] getRelevantMemories error:', err);
