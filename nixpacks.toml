@@ -1,7 +1,7 @@
 # Railway service builder must be set to NIXPACKS.
 
 [phases.setup]
-nixPkgs = ["nodejs", "python3", "uv", "ffmpeg"]
+nixPkgs = ["nodejs", "python3", "uv", "ffmpeg", "zlib"]
 
 [phases.install]
 cmds = [
