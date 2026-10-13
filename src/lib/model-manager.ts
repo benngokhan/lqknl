@@ -278,7 +278,7 @@ const providers: Record<ModelProvider, (request: ModelRequest) => Promise<ModelR
 };
 
 // Provider priority requested for Mira: OpenRouter first, Groq second, then Gemini and Ollama backups.
-const DEFAULT_PROVIDER_ORDER: ModelProvider[] = ["openrouter", "groq", "gemini", "ollama"];
+const DEFAULT_PROVIDER_ORDER: ModelProvider[] = ["groq", "openrouter", "gemini", "ollama"];
 const ALLOWED_PROVIDER_ORDER = new Set<ModelProvider>(["openrouter", "groq", "gemini", "ollama"]);
 
 function getProviderOrder(): ModelProvider[] {
@@ -287,7 +287,7 @@ function getProviderOrder(): ModelProvider[] {
     .map((value) => value.trim().toLowerCase())
     .filter((value): value is ModelProvider => ALLOWED_PROVIDER_ORDER.has(value as ModelProvider));
 
-  // Keep the requested priority fixed: OpenRouter first, Groq second.
+  // Keep the requested priority fixed: Groq first, OpenRouter second.
   // Remaining providers are backups if the first two fail.
   return DEFAULT_PROVIDER_ORDER;
 }
