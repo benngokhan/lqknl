@@ -187,7 +187,11 @@ async function callOpenRouter(request: ModelRequest): Promise<ModelResult> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error("OPENROUTER_API_KEY missing");
 
-  const model = process.env.OPENROUTER_MODEL || "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free";
+  // KIRMIZI2206 özel oturumunda istenen OpenRouter modeli kullanılır;
+  // normal oturumun OPENROUTER_MODEL ayarı değiştirilmez.
+  const model = request.privateMode
+    ? "nvidia/nemotron-3-ultra-550b-a55b:free"
+    : process.env.OPENROUTER_MODEL || "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free";
   const res = await fetchWithRetry("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -331,11 +335,14 @@ function getProviderOrder(): ModelProvider[] {
 }
 
 export async function generateWithFallback(request: ModelRequest): Promise<ModelResult> {
-  // Private mode keeps its own system/persona prompt, but provider failures
-  // must still fall through to the standard provider chain.
+  // KIRMIZI2206 modunda OpenRouter ve istenen Nemotron modeli ilk sırada denenir.
+  // Model/sağlayıcı erişilemezse diğer sağlayıcılar yedek olarak kullanılabilir.
   const failures: string[] = [];
+  const providerOrder = request.privateMode
+    ? (["openrouter", ...getProviderOrder().filter((provider) => provider !== "openrouter")] as ModelProvider[])
+    : getProviderOrder();
 
-  for (const provider of getProviderOrder()) {
+  for (const provider of providerOrder) {
     try {
       const result = await providers[provider](request);
       console.info("[Mira LLM] provider success", { provider: result.provider, model: result.model });
