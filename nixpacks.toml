@@ -11,4 +11,3 @@ cmds = [
 
 [variables]
 PYTHONPATH = "/app/pylib"
-UV_PYTHON_DOWNLOADS = "never"
