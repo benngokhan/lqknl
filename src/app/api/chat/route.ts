@@ -667,6 +667,10 @@ export async function POST(req: Request) {
       const topic = message.trim().slice(0, 2000);
 
       try {
+        if (await isPermanentlyDeletedTopic(db, [title, topic])) {
+          result.reply += "\\n\\nBu başlık/konu daha önce kalıcı olarak silindi; yeni taslak olarak kaydedilmedi.";
+          return NextResponse.json({ reply: result.reply, emotion: result.emotion, privateMode });
+        }
         const savedDraft = await db.transaction(async (tx) => {
           const [draft] = await tx.insert(contentItems).values({
             title,
