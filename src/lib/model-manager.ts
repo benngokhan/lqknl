@@ -211,30 +211,70 @@ async function callOpenRouter(request: ModelRequest): Promise<ModelResult> {
   return { provider: "openrouter", model, content };
 }
 
+const DEFAULT_GROQ_MODELS = [
+  "openai/gpt-oss-120b",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "moonshotai/kimi-k2-instruct",
+  "qwen/qwen3.8-27b",
+  "openai/gpt-oss-20b",
+];
+
+function getGroqModelOrder(): string[] {
+  const configuredList = (process.env.GROQ_MODELS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const configuredSingle = (process.env.GROQ_MODEL || "").trim();
+  return [...new Set([
+    ...(configuredSingle ? [configuredSingle] : []),
+    ...configuredList,
+    ...DEFAULT_GROQ_MODELS,
+  ])];
+}
+
 async function callGroq(request: ModelRequest): Promise<ModelResult> {
   const key = process.env.GROQ_API_KEY;
   if (!key) throw new Error("GROQ_API_KEY missing");
 
-  const model = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
-  const res = await fetchWithRetry("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: historyForOpenAI(request),
-      temperature: 0.7,
-    }),
-  });
+  const failures: string[] = [];
+  for (const model of getGroqModelOrder()) {
+    try {
+      const res = await fetchWithRetry("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: historyForOpenAI(request),
+          temperature: 0.7,
+        }),
+      });
 
-  if (!res.ok) throw new Error(`Groq ${model} ${res.status}: ${await readError(res)}`);
+      if (!res.ok) {
+        const detail = `Groq ${model} ${res.status}: ${await readError(res)}`;
+        failures.push(detail);
+        console.error("[Mira LLM] Groq model failed; trying next model", { model, status: res.status });
+        continue;
+      }
 
-  const data = await res.json();
-  const content = cleanText(data?.choices?.[0]?.message?.content);
-  if (!content) throw new Error("Groq returned empty content");
-  return { provider: "groq", model, content };
+      const data = await res.json();
+      const content = cleanText(data?.choices?.[0]?.message?.content);
+      if (!content) {
+        failures.push(`Groq ${model}: empty content`);
+        console.error("[Mira LLM] Groq model returned empty content; trying next model", { model });
+        continue;
+      }
+      return { provider: "groq", model, content };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(`Groq ${model}: ${message}`);
+      console.error("[Mira LLM] Groq model request failed; trying next model", { model, error: message });
+    }
+  }
+
+  throw new Error(`All Groq models failed. Tried: ${getGroqModelOrder().join(" -> ")}. Details: ${failures.join(" | ")}`);
 }
 
 async function callOpenAI(request: ModelRequest): Promise<ModelResult> {
