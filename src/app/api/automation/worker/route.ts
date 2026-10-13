@@ -30,6 +30,7 @@ async function reportScriptProgress(contentId: number, percentage: number, stage
 
 async function removePermanentlyDeletedItem(contentId: number, title: string, topic: string) {
   const terms = [...new Set([title, topic].filter((value) => value.trim()))];
+  const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, (character) => `\\${character}`);
   await db.delete(contentAssets).where(eq(contentAssets.contentId, contentId)).catch(() => undefined);
   await db.delete(contentItems).where(eq(contentItems.id, contentId)).catch(() => undefined);
   const allTasks = await db.select().from(tasks).catch(() => []);
@@ -48,14 +49,8 @@ async function removePermanentlyDeletedItem(contentId: number, title: string, to
     const scrub = (value: unknown): unknown => {
       if (typeof value === "string") {
         let next = value;
-        for (const term of terms.sort((a, b) => b.length - a.length)) {
-          next = next.replace(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\async function reportScriptProgress(contentId: number, percentage: number, stage: string, status = "running", detail?: string, nextAction?: string) {
-  await db.insert(operations).values({
-    action: "content_produce_progress", summary: stage, status, platform: "youtube",
-    metadata: { contentId, percentage, stage, status, detail, nextAction, updatedAt: new Date().toISOString(), workflow: "manual_script" },
-  }).catch((error) => console.error("[Worker] progress write failed:", error instanceof Error ? error.message : String(error)));
-}
-"), "giu"), "[kalıcı olarak silindi]");
+        for (const term of [...terms].sort((a, b) => b.length - a.length)) {
+          next = next.replace(new RegExp(escapeRegex(term), "giu"), "[kalıcı olarak silindi]");
         }
         return next;
       }
