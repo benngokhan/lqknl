@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { contentItems, operations } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, ne } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -14,8 +14,9 @@ function authorized(req: Request) {
 export async function GET(req: Request) {
   if (!authorized(req)) return NextResponse.json({ error: "Giriş gerekli." }, { status: 401 });
   const status = new URL(req.url).searchParams.get("status");
+  if (status === "deleted") return NextResponse.json([]);
   const rows = await db.select().from(contentItems)
-    .where(status ? eq(contentItems.status, status) : undefined)
+    .where(status ? eq(contentItems.status, status) : ne(contentItems.status, "deleted"))
     .orderBy(desc(contentItems.updatedAt))
     .limit(100);
   return NextResponse.json(rows);
