@@ -18,7 +18,7 @@ export type NarrationResult = {
 };
 
 const EDGE_TTS_VOICE = process.env.EDGE_TTS_VOICE || "tr-TR-EmelNeural";
-const EDGE_TTS_RATE = process.env.EDGE_TTS_RATE || "+0%";
+const EDGE_TTS_RATE = process.env.EDGE_TTS_RATE || "+5%";
 const MAX_GROUPS = 24;
 const MAX_GROUP_CHARS = 44;
 const MAX_GROUP_WORDS = 4;
