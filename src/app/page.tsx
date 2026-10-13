@@ -571,9 +571,11 @@ export default function Home() {
       if (action === 'generate_script') {
         setReviewNotice(data?.message || 'Senaryo oluşturuldu; taslak kartı güncelleniyor.');
         void loadDrafts();
+        void loadManagedDrafts();
         return;
       }
       setDrafts((current) => current.filter((draft) => draft.id !== id));
+      void loadManagedDrafts();
       if (action === 'reject' || action === 'approve_text' || action === 'approve_video') {
         setAnalysis((current) => current ? {
           ...current,
@@ -1009,6 +1011,13 @@ export default function Home() {
                         ) : (
                           <button type="button" onClick={() => void manageContentAction(item.id, 'archive')} disabled={managedBusyId !== null} className="rounded-lg border border-amber-400/40 px-3 py-2 text-xs text-amber-200 hover:bg-amber-600/20 disabled:opacity-50">Arşivle</button>
                         )}
+                        {item.status === 'queued' && <button type="button" onClick={() => void reviewDraft(item.id, 'generate_script')} disabled={reviewBusyId !== null || managedBusyId !== null} className="rounded-lg border border-sky-400/40 px-3 py-2 text-xs text-sky-200 hover:bg-sky-600/20 disabled:opacity-50">{reviewBusyId === item.id ? 'Senaryo hazırlanıyor…' : 'Senaryo üret'}</button>}
+                        {item.status === 'draft' && item.generatedScript && <>
+                          <button type="button" onClick={() => void reviewDraft(item.id, 'approve_video')} disabled={reviewBusyId !== null || managedBusyId !== null} className="rounded-lg border border-emerald-400/40 px-3 py-2 text-xs text-emerald-200 hover:bg-emerald-600/20 disabled:opacity-50">Onayla ve video üret</button>
+                          <button type="button" onClick={() => void reviewDraft(item.id, 'approve_text')} disabled={reviewBusyId !== null || managedBusyId !== null} className="rounded-lg border border-slate-500 px-3 py-2 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50">Onayla, videosuz</button>
+                        </>}
+                        {item.status === 'failed' && <button type="button" onClick={() => void retryManualItem(item)} disabled={queueBusyId !== null || managedBusyId !== null} className="rounded-lg border border-amber-400/40 px-3 py-2 text-xs text-amber-200 hover:bg-amber-600/20 disabled:opacity-50">↻ Yeniden dene</button>}
+                        {!['archived', 'deleted', 'approved', 'rejected'].includes(item.status) && <button type="button" onClick={() => void reviewDraft(item.id, 'reject')} disabled={reviewBusyId !== null || managedBusyId !== null} className="rounded-lg border border-red-400/40 px-3 py-2 text-xs text-red-200 hover:bg-red-600/20 disabled:opacity-50">Reddet</button>}
                         {item.status !== 'deleted' && <button type="button" onClick={() => void manageContentAction(item.id, 'delete')} disabled={managedBusyId !== null} className="rounded-lg border border-red-400/40 px-3 py-2 text-xs text-red-200 hover:bg-red-600/20 disabled:opacity-50">Sil</button>}
                       </div>
                     </div>
