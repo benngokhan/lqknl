@@ -11,3 +11,4 @@ cmds = [
 
 [variables]
 PYTHONPATH = "/app/pylib"
+LD_LIBRARY_PATH = "/root/.nix-profile/lib"
