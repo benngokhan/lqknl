@@ -125,7 +125,9 @@ export async function POST(req: Request) {
           '',
           '/yardım — Bu komut listesini gösterir.',
           '/durum — Mira backend ve veritabanı sağlık durumunu kontrol eder.',
+          '/taslak-list — Kayıtlı taslakları listeler; işçi kayıtlarında kalanları da gösterir.',
           '/taslak <id> — Kayıtlı içerik taslağının tam metnini gösterir.',
+          '/taslak-sil <id> — Taslağı listeden kaldırır; denetim için kaydı korur.',
           '/n8n — n8n bağlantı durumunu kontrol eder.',
           '/yt-viral <konu> — YouTube Shorts otomasyonunu başlatır.',
           '/video <id> — Taslağı MP4 olarak üretir (id yoksa en eski onaylı taslak).',
@@ -229,6 +231,89 @@ export async function POST(req: Request) {
           reply: `❌ n8n Agent bağlantısı başarısız: ${reason.slice(0, 300)}`,
           emotion: 'focused',
         });
+      }
+    }
+
+    // /taslak-list: List saved drafts from both the content table and worker operation records.
+    if (command === '/taslak-list') {
+      try {
+        const rows = await db.select().from(contentItems).orderBy(desc(contentItems.updatedAt)).limit(100);
+        const draftOps = await db.select().from(operations)
+          .where(eq(operations.action, 'autonomous_content_draft'))
+          .orderBy(desc(operations.id))
+          .limit(500);
+        const byId = new Map<number, { title: string; status: string; platform: string; createdAt: string }>();
+        for (const row of rows) {
+          if (row.status === 'deleted') continue;
+          byId.set(row.id, {
+            title: row.title,
+            status: row.status,
+            platform: row.platform,
+            createdAt: row.createdAt ? new Date(row.createdAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : 'tarih yok',
+          });
+        }
+        for (const op of draftOps) {
+          if (op.status === 'deleted') continue;
+          const meta = op.metadata && typeof op.metadata === 'object' ? op.metadata as Record<string, unknown> : {};
+          const id = Number(meta.contentId);
+          if (!Number.isInteger(id) || id <= 0 || byId.has(id)) continue;
+          const title = typeof meta.title === 'string' ? meta.title : op.summary.replace(/^.*?:\\s*/, '').slice(0, 180);
+          byId.set(id, { title: title || 'Başlıksız taslak', status: 'yalnızca işçi kaydında', platform: 'bilinmiyor', createdAt: op.createdAt ? new Date(op.createdAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : 'tarih yok' });
+        }
+        const entries = [...byId.entries()].sort((a, b) => b[0] - a[0]);
+        return NextResponse.json({
+          reply: entries.length
+            ? ['📚 Kayıtlı taslaklar (silinmiş kayıtlar hariç):', '', ...entries.map(([id, row]) => `#${id} — ${row.title} | Durum: ${row.status} | Platform: ${row.platform} | ${row.createdAt}`), '', 'Görmek için: /taslak <id>', 'Silmek için: /taslak-sil <id>'].join('\\n')
+            : 'Kayıtlı taslak bulunamadı.',
+          emotion: 'focused',
+        });
+      } catch (error) {
+        console.error('Mira /taslak-list failed:', error);
+        return NextResponse.json({ reply: '❌ Taslak listesi okunamadı. Hata kaydedildi; hiçbir kayıt değiştirilmedi.', emotion: 'focused' }, { status: 500 });
+      }
+    }
+
+    // /taslak-sil <id>: Soft-delete a draft and retain its audit trail for recovery/diagnostics.
+    if (command === '/taslak-sil') {
+      const idText = message.trim().split(/\\s+/)[1];
+      const id = Number(idText);
+      if (!idText || !Number.isInteger(id) || id <= 0) {
+        return NextResponse.json({ reply: 'Kullanım: /taslak-sil 17 — Silmek istediğin taslak numarasını yaz.', emotion: 'focused' });
+      }
+      try {
+        const [row] = await db.select().from(contentItems).where(eq(contentItems.id, id)).limit(1);
+        const matchingOps = await db.select().from(operations)
+          .where(eq(operations.action, 'autonomous_content_draft'))
+          .orderBy(desc(operations.id))
+          .limit(500);
+        const relatedOps = matchingOps.filter((op) => {
+          const meta = op.metadata && typeof op.metadata === 'object' ? op.metadata as Record<string, unknown> : {};
+          return Number(meta.contentId) === id && op.status !== 'deleted';
+        });
+        if (!row && relatedOps.length === 0) {
+          return NextResponse.json({ reply: `❌ #${id} numaralı taslak bulunamadı.`, emotion: 'focused' });
+        }
+        if (row && ['published', 'uploaded', 'live'].includes(row.status.toLocaleLowerCase('tr-TR'))) {
+          return NextResponse.json({ reply: `⛔ #${id} yayınlanmış görünüyor; güvenlik için silinmedi.`, emotion: 'focused' });
+        }
+        if (row) {
+          await db.update(contentItems).set({ status: 'deleted', updatedAt: new Date() }).where(eq(contentItems.id, id));
+        }
+        for (const op of relatedOps) {
+          await db.update(operations).set({ status: 'deleted', summary: `Taslak #${id} kullanıcı komutuyla silindi (kayıt korundu).` }).where(eq(operations.id, op.id));
+        }
+        await db.insert(operations).values({
+          action: 'content_soft_delete',
+          status: 'success',
+          summary: `Taslak #${id} silinmek üzere gizlendi; kayıt denetim için korundu.`,
+          platform: row?.platform ?? null,
+          externalId: row?.externalId ?? null,
+          metadata: { contentId: id, softDeleted: true, relatedDraftOperations: relatedOps.length },
+        });
+        return NextResponse.json({ reply: `🗑️ Taslak #${id} listeden kaldırıldı. Kayıt kalıcı olarak veritabanından silinmedi; denetim ve kurtarma için korundu.`, emotion: 'focused' });
+      } catch (error) {
+        console.error('Mira /taslak-sil failed:', error);
+        return NextResponse.json({ reply: '❌ Taslak silinemedi. Hata kaydedildi; işlem tamamlandı diye işaretlenmedi.', emotion: 'focused' }, { status: 500 });
       }
     }
 
