@@ -46,6 +46,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Geçersiz mesaj' }, { status: 400 });
     }
 
+    // A bare wake word is a conversational cue, not a request to inspect source code.
+    if (/^mira[!.… ]*$/iu.test(message.trim())) {
+      return NextResponse.json({ reply: 'Buradayım, söyle.', emotion: 'happy' });
+    }
+
     // Yardım ve sistem komutları
     const command = message.trim().split(/\s+/)[0].toLocaleLowerCase('tr-TR');
 
@@ -127,6 +132,7 @@ export async function POST(req: Request) {
           '/yardım — Bu komut listesini gösterir.',
           '/durum — Mira backend ve veritabanı sağlık durumunu kontrol eder.',
           '/taslak-list — Kayıtlı taslakları listeler; işçi kayıtlarında kalanları da gösterir.',
+          '/uretim-list — Son üretim/işlem kayıtlarını veritabanından listeler.',
           '/taslak <id> — Kayıtlı içerik taslağının tam metnini gösterir.',
           '/taslak-sil <id> — Taslağı listeden kaldırır; denetim için kaydı korur.',
           '/n8n — n8n bağlantı durumunu kontrol eder.',
@@ -232,6 +238,35 @@ export async function POST(req: Request) {
           reply: `❌ n8n Agent bağlantısı başarısız: ${reason.slice(0, 300)}`,
           emotion: 'focused',
         });
+      }
+    }
+
+    // /uretim-list: Read recent operation/production records from the database.
+    if (command === '/uretim-list') {
+      try {
+        const rows = await db.select({
+          action: operations.action,
+          status: operations.status,
+          summary: operations.summary,
+          createdAt: operations.createdAt,
+        }).from(operations).orderBy(desc(operations.id)).limit(30);
+        return NextResponse.json({
+          reply: rows.length
+            ? ['🧾 Son işlem/üretim kayıtları:', '', ...rows.map((row) => {
+                const date = row.createdAt
+                  ? new Date(row.createdAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })
+                  : 'tarih yok';
+                return `${date} | ${row.status || 'durum yok'} | ${row.action || 'işlem'} | ${row.summary || 'özet yok'}`;
+              })].join('\\n')
+            : 'Veritabanında işlem/üretim kaydı bulunamadı.',
+          emotion: 'focused',
+        });
+      } catch (error) {
+        console.error('Mira /uretim-list failed:', error);
+        return NextResponse.json({
+          reply: '❌ İşlem/üretim kayıtlarını veritabanından okuyamadım. Hata kaydedildi; hiçbir kayıt değiştirilmedi.',
+          emotion: 'focused',
+        }, { status: 500 });
       }
     }
 
