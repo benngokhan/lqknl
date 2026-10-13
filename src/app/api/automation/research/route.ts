@@ -144,7 +144,7 @@ export async function POST(req: Request) {
         topicRules
       ] : []),
       "MARKA KAPSAMI DIŞI (listedeki trend bunlara girse bile ASLA SEÇME): gezi/mekan önerileri (şehir, tatil yeri, plaj...), ürün/marka/şirket tanıtımları, magazin-ünlü dedikodusu, siyaset-parti-hükümet haberciliği, spor transfer skoru vb. genel haberler, algoritma şaşırtmacası bileşimi olmayan düz gündem. Bunlar Bilgi Dozu kümeleri değildir; onlar 'genel trend çöpü'.",
-      "KONU SEÇİM SİGORTASI: Aşağıdaki canonical spec dosyasını uygula; bu dosya konu kümeleri, ölü kümeler, başlık formülü ve akademik doğrulama kapısının tek kaynağıdır. Spec okunamadıysa hayvan/tarih konularını ve listicle biçimini seçme; doğrulanabilir ana kümeler dışına çıkma.",
+      "KONU SEÇİM SİGORTASI: Aşağıdaki canonical spec dosyasını uygula; konu kümeleri, test edilecek adaylar, başlık ilkeleri ve akademik doğrulama kapısı bu dosyada tanımlıdır. Spec okunamazsa hayvan/tarih konularını veya listicle biçimini yasaklama; doğrulanabilir, kaliteli adaylar üret ve manuel verilen konuyu değiştirme.",
       ...(topicSelectionSpec ? ["CANONICAL KONU SEÇİM SPEC'İ:", topicSelectionSpec] : []),
       "İzlenme potansiyeli ve görsel anlatılabilirlik ikincil filtre; birinci filtre her zaman: Bilgi Dozu kümesi + doğrulanabilir kalıcı bilgi + güçlü 2 saniyelik kanca.",
       "Birbirine benzeyen konuları seçme; listeden ilham alan ama trendmiş gibi sunulmayan, açıkça Shorts bilgi fikri olan başlıklar üret.",
