@@ -228,14 +228,11 @@ export async function getRelevantMemories(
         .filter((word) => !stopwords.has(word)),
     )];
 
-    // A greeting or a message without meaningful keywords should not inject
-    // unrelated high-importance memories into the conversation.
-    if (keywords.length === 0) return [];
+    const allMemories = await db.select().from(memories)
+      .orderBy(desc(memories.importance), desc(memories.updatedAt));
 
-    const allMemories = await db.select().from(memories);
-
-    // Score only lexical matches; importance breaks ties, it does not create relevance.
-    const scoredMemories = allMemories
+    // Relevant memories are recalled by keyword overlap.
+    const relevant = keywords.length === 0 ? [] : allMemories
       .map((m) => {
         const memText = `${m.key} ${m.value}`.toLocaleLowerCase('tr-TR');
         const keywordMatches = keywords.filter((kw) => memText.includes(kw)).length;
@@ -246,8 +243,19 @@ export async function getRelevantMemories(
       .slice(0, Math.max(0, limit))
       .map((x) => x.memory);
 
-    // No match means no memory context. Never fill the prompt with unrelated facts.
-    return scoredMemories;
+    // Persistent user preferences/instructions must survive greetings and topic changes.
+    // Add up to three approved core memories even when the current wording doesn't match.
+    const core = allMemories
+      .filter((m) => ['personal', 'preference', 'instruction'].includes(m.category))
+      .filter((m) => !relevant.some((r) => r.id === m.id))
+      .slice(0, 3);
+
+    const combined = [...relevant, ...core];
+    if (combined.length > 0) return combined.slice(0, Math.max(0, limit + 3));
+
+    // If no lexical match and no core category exists, provide a small baseline
+    // of approved high-importance memories instead of acting as if memory is empty.
+    return allMemories.slice(0, Math.min(3, Math.max(0, limit)));
   } catch (err) {
     console.error('[Memory] getRelevantMemories error:', err);
     return [];
