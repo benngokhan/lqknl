@@ -1,5 +1,6 @@
 import { db } from "@/db";
 import { contentItems, operations } from "@/db/schema";
+import { isPermanentlyDeletedTopic } from "@/lib/deleted-topics";
 import { desc, eq, ne } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
@@ -27,6 +28,9 @@ export async function POST(req: Request) {
   const b = await req.json().catch(() => ({}));
   if (typeof b.title !== "string" || typeof b.platform !== "string") {
     return NextResponse.json({ error: "title ve platform gerekli" }, { status: 400 });
+  }
+  if (await isPermanentlyDeletedTopic(db, [b.title, typeof b.topic === "string" ? b.topic : ""])) {
+    return NextResponse.json({ error: "Bu başlık/konu kalıcı olarak silindi; tekrar kaydedilemez." }, { status: 410 });
   }
   const [row] = await db.insert(contentItems).values({
     title: b.title.slice(0, 300),
