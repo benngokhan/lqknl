@@ -178,7 +178,7 @@ export async function renderWithMotor(input: MotorRenderInput): Promise<MotorRen
     await fs.writeFile(cfgPath, JSON.stringify(cfg, null, 1), "utf8");
 
     const env = { ...process.env, MIRA_SHORTS_CONFIG: cfgPath, MIRA_MOTOR_FFMPEG: ffmpegPath };
-    const render = await run(py, [PIPELINE, "all", vd], { env, timeoutMs: 15 * 60_000 });
+    const render = await run(py, [PIPELINE, "all", vd, cfgPath], { env, timeoutMs: 15 * 60_000 });
     const videoPath = path.join(vd, "video.mp4");
     const st = await fs.stat(videoPath).catch(() => null);
     if (!st || st.size < 50_000 || render.code !== 0) {
