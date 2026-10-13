@@ -60,9 +60,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Pixabay bu aramayla fotoğraf bulamadı. Daha genel bir arama terimi deneyebilirsin." }, { status: 404 });
     }
 
-    // Choose among popular results to avoid showing the exact same first result every time.
-    const shortlist = hits.slice(0, Math.min(10, hits.length));
-    const chosen = shortlist[Math.floor(Math.random() * shortlist.length)];
+    // Rank results by how closely their Pixabay tags match the requested style.
+    // Keep a small random choice among the strongest matches so results do not feel fixed.
+    const queryTerms = query
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((term) => term.length > 2 && !["the", "and", "with", "body"].includes(term));
+    const styleTerms = ["selfie", "woman", "girl", "portrait", "fashion", "outfit", "mirror", "pose", "bedroom", "model"];
+    const ranked = hits
+      .map((hit) => {
+        const tags = (hit.tags ?? "").toLowerCase();
+        const tagWords = new Set(tags.split(/[^a-z0-9]+/).filter(Boolean));
+        const queryScore = queryTerms.reduce((score, term) => score + (tagWords.has(term) ? 3 : 0), 0);
+        const styleScore = styleTerms.reduce((score, term) => score + (tagWords.has(term) ? 1 : 0), 0);
+        return { hit, score: queryScore + styleScore };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    const bestScore = ranked[0]?.score ?? 0;
+    const bestMatches = ranked.filter((item) => item.score === bestScore).slice(0, 5);
+    const chosen = bestMatches[Math.floor(Math.random() * bestMatches.length)]?.hit ?? hits[0];
 
     return NextResponse.json({
       reply: "Al canım, iyi mi?",
