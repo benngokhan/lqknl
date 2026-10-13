@@ -4,6 +4,7 @@ import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { contentItems, operations, tasks } from "@/db/schema";
 import { normalizeTitleKey } from "@/lib/dedupe-content";
+import { isPermanentlyDeletedTopic } from "@/lib/deleted-topics";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,15 @@ export async function POST(req: Request) {
 
   if (!topic) {
     return NextResponse.json({ error: "topic gerekli" }, { status: 400 });
+  }
+
+  // Kalıcı silinen başlık/konular hash üzerinden engellenir; silinen metin hiçbir zaman modele verilmez.
+  if (await isPermanentlyDeletedTopic(db, [title, topic])) {
+    return NextResponse.json({
+      ok: false,
+      error: "Bu konu kalıcı olarak silindi ve yeniden kuyruğa alınamaz. Başka bir konu seç.",
+      permanentlyBlocked: true,
+    }, { status: 410 });
   }
 
   // Kopya koruması: son 30 günde aynı normalize başlık/konu varsa yeni kayıt açma.
