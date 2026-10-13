@@ -37,9 +37,11 @@
 ### 8. Teknolojik ilkler
 - Doğrulanabilir İLK belge/patent kaydının hikâyesi (ilk e-posta, ilk faks idi çıkış...). "İlk X" diye başlamayan teknoloji haberi bu kümeye girmez.
 
-## 🚫 ÖLÜ KÜME (kanıt: <100 izlenme — 12 Ekim tablosu)
-- Hayvan alemi ("ahtapot" 22) ve tarih anekdotları (Kleopatra 42, maraton 67): **yenisi üretilmez.** Haftalık sinyal direktifi açıkça diriltmediyse seçici sepetten dışla; kullanıcı elle manuel konu verirse üretilebilir (manuelGrace konu-seçmeyi etkilemez).
-- Format yasak: "3 şaşırtıcı gerçek" listicle kalıbı öldü — **tek gerçek, tek video**.
+## AÇIK TEST KÜMESİ — HAYVAN, TARİH VE LİSTİCLE
+- Hayvan konuları (ahtapot dahil) ve tarih anekdotları **yasak değildir**; işçiler bunları yeni konu adayı olarak üretebilir.
+- "3 şaşırtıcı gerçek" gibi listicle biçimleri de **yasak değildir**; tek-gerçek formatıyla birlikte test edilebilir.
+- Önceki düşük görüntülenme örnekleri tek başına kalıcı dışlama gerekçesi sayılmaz. Kullanıcının belirttiği 30–40 beğeni sinyali de dikkate alınır; performans yalnızca konu adına göre değil, görüntülenme, beğeni, izlenme süresi/tutma oranı ve örnek sayısı birlikte değerlendirilerek ölçülür.
+- Haftalık sinyal direktifi (ağırlık_artır/azalt_durdur) varsa uygulanır; yeni adaylar yine kaynak doğrulaması ve kalite kontrolünden geçer.
 
 ## BAŞLIK FORMÜLÜ (kanıtlı, zayıf başlıkların hepsi bundan çıkmıştı)
 2. tekil şahıs ("Sen / Beynin") + somut eylem/nesne + sürpriz fiil + "!" + tek emoji (🧠/🤯). 3. şahıs/soyut başlık = otomatik düşük puan.
