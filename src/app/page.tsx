@@ -30,6 +30,11 @@ interface QueueItem {
   createdAt: string;
 }
 
+interface ManagedContent extends ContentDraft {
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface DraftAnalysis {
   report: string | null;
   createdAt: string | null;
@@ -135,6 +140,17 @@ export default function Home() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [drafts, setDrafts] = useState<ContentDraft[]>([]);
   const [draftPanelOpen, setDraftPanelOpen] = useState(true);
+  const [taskCenterOpen, setTaskCenterOpen] = useState(false);
+  const [managedDrafts, setManagedDrafts] = useState<ManagedContent[]>([]);
+  const [managedLoading, setManagedLoading] = useState(false);
+  const [managedError, setManagedError] = useState('');
+  const [managedNotice, setManagedNotice] = useState('');
+  const [taskCenterFilter, setTaskCenterFilter] = useState<'active' | 'archived' | 'deleted' | 'all'>('active');
+  const [editingManagedId, setEditingManagedId] = useState<number | null>(null);
+  const [managedTitle, setManagedTitle] = useState('');
+  const [managedTopic, setManagedTopic] = useState('');
+  const [managedScript, setManagedScript] = useState('');
+  const [managedBusyId, setManagedBusyId] = useState<number | null>(null);
   const [draftsLoading, setDraftsLoading] = useState(false);
   const [reviewBusyId, setReviewBusyId] = useState<number | null>(null);
   const [draftsError, setDraftsError] = useState('');
@@ -396,6 +412,81 @@ export default function Home() {
       setManualTopicResult(error instanceof Error ? error.message.slice(0, 180) : 'Senaryo üretimi başlatılamadı.');
     } finally {
       setManualTopicLoading(false);
+    }
+  }
+
+  async function loadManagedDrafts() {
+    setManagedLoading(true);
+    setManagedError('');
+    try {
+      const res = await fetch('/api/content/manage', { cache: 'no-store' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Görev Merkezi kayıtları alınamadı (HTTP ${res.status}).`);
+      setManagedDrafts(Array.isArray(data) ? data as ManagedContent[] : []);
+    } catch (error) {
+      setManagedError(error instanceof Error ? error.message : 'Görev Merkezi kayıtları alınamadı.');
+    } finally {
+      setManagedLoading(false);
+    }
+  }
+
+  function beginManagedEdit(item: ManagedContent) {
+    setEditingManagedId(item.id);
+    setManagedTitle(item.title || '');
+    setManagedTopic(item.topic || '');
+    setManagedScript(item.generatedScript || '');
+    setManagedError('');
+    setManagedNotice('');
+  }
+
+  async function saveManagedDraft(id: number) {
+    if (managedBusyId !== null) return;
+    setManagedBusyId(id);
+    setManagedError('');
+    setManagedNotice('');
+    try {
+      const res = await fetch('/api/content/manage', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, title: managedTitle, topic: managedTopic, generatedScript: managedScript }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Taslak kaydedilemedi (HTTP ${res.status}).`);
+      setManagedNotice(data?.message || 'Taslak kaydedildi.');
+      setEditingManagedId(null);
+      await loadManagedDrafts();
+    } catch (error) {
+      setManagedError(error instanceof Error ? error.message : 'Taslak kaydedilemedi.');
+    } finally {
+      setManagedBusyId(null);
+    }
+  }
+
+  async function manageContentAction(id: number, action: 'archive' | 'restore' | 'delete') {
+    const prompts = {
+      archive: 'Bu taslağı arşive taşımak istiyor musun?',
+      restore: 'Bu kaydı taslaklara geri yüklemek istiyor musun?',
+      delete: 'Bu taslağı silinenlere taşımak istiyor musun? Kayıt geri yüklenebilir.',
+    };
+    if (!window.confirm(prompts[action]) || managedBusyId !== null) return;
+    setManagedBusyId(id);
+    setManagedError('');
+    setManagedNotice('');
+    try {
+      const res = await fetch('/api/content/manage', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `İşlem başarısız (HTTP ${res.status}).`);
+      setManagedNotice(data?.message || 'İşlem tamamlandı.');
+      if (editingManagedId === id) setEditingManagedId(null);
+      await loadManagedDrafts();
+    } catch (error) {
+      setManagedError(error instanceof Error ? error.message : 'İşlem tamamlanamadı.');
+    } finally {
+      setManagedBusyId(null);
     }
   }
 
@@ -836,13 +927,98 @@ export default function Home() {
               {voiceError}
             </span>
           )}
-          <span className="text-xs bg-blue-600/30 text-blue-400 border border-blue-500/30 px-2 py-1 rounded">
-            Görev Merkezi
-          </span>
+          <button
+            type="button"
+            onClick={() => {
+              const nextOpen = !taskCenterOpen;
+              setTaskCenterOpen(nextOpen);
+              if (nextOpen) void loadManagedDrafts();
+            }}
+            aria-expanded={taskCenterOpen}
+            className="text-xs bg-blue-600/30 text-blue-300 border border-blue-500/40 px-3 py-2 rounded-lg hover:bg-blue-600/50"
+          >
+            {taskCenterOpen ? 'Görev Merkezi ▴' : 'Görev Merkezi'}
+          </button>
         </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain my-3 sm:my-4 space-y-4 pr-1 sm:pr-2 pb-2">
+        {taskCenterOpen && (
+          <section className="rounded-xl border border-sky-400/40 bg-slate-800/95 p-3 sm:p-4 space-y-3" aria-label="Görev Merkezi taslak yönetimi">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-base font-bold text-white">Görev Merkezi · Taslak Yönetimi</h2>
+                <p className="mt-1 text-xs text-slate-400">Kayıtlı konuları ve senaryoları buradan düzenle, arşivle, silinenleri geri yükle ve durumlarını takip et.</p>
+              </div>
+              <button type="button" onClick={() => void loadManagedDrafts()} disabled={managedLoading} className="rounded-lg border border-slate-600 px-3 py-2 text-xs hover:bg-slate-700 disabled:opacity-50">
+                {managedLoading ? 'Yükleniyor…' : '↻ Yenile'}
+              </button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {([
+                ['active', 'Aktif taslaklar'],
+                ['archived', 'Arşiv'],
+                ['deleted', 'Silinenler'],
+                ['all', 'Tüm kayıtlar'],
+              ] as const).map(([value, label]) => (
+                <button key={value} type="button" onClick={() => setTaskCenterFilter(value)} className={taskCenterFilter === value ? 'rounded-lg border border-sky-400 bg-sky-600/20 px-2 py-2 text-xs font-semibold text-sky-200' : 'rounded-lg border border-slate-600 bg-slate-900/60 px-2 py-2 text-xs text-slate-300 hover:bg-slate-700'}>
+                  {label} <span className="ml-1 text-slate-400">({managedDrafts.filter((item) => value === 'all' || (value === 'active' ? !['archived', 'deleted'].includes(item.status) : item.status === value)).length})</span>
+                </button>
+              ))}
+            </div>
+            {managedError && <p className="rounded-lg border border-red-500/30 bg-red-950/20 p-2 text-sm text-red-300" role="alert">{managedError}</p>}
+            {managedNotice && <p className="rounded-lg border border-emerald-500/20 bg-emerald-950/20 p-2 text-sm text-emerald-300" role="status">{managedNotice}</p>}
+            {managedLoading && managedDrafts.length === 0 && <p className="text-sm text-slate-400">Kayıtlar yükleniyor…</p>}
+            {!managedLoading && managedDrafts.filter((item) => taskCenterFilter === 'all' || (taskCenterFilter === 'active' ? !['archived', 'deleted'].includes(item.status) : item.status === taskCenterFilter)).length === 0 && !managedError && (
+              <p className="rounded-lg border border-slate-700 bg-slate-900/60 p-4 text-sm text-slate-400">Bu bölümde kayıt yok.</p>
+            )}
+            <div className="space-y-3">
+              {managedDrafts.filter((item) => taskCenterFilter === 'all' || (taskCenterFilter === 'active' ? !['archived', 'deleted'].includes(item.status) : item.status === taskCenterFilter)).map((item) => (
+                <article key={item.id} className="rounded-lg border border-slate-700 bg-slate-900 p-3 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-semibold text-white">{item.title}</p>
+                      <p className="mt-1 break-words text-xs text-slate-400">#{item.id} · {item.platform} · {item.status} · {new Date(item.updatedAt).toLocaleString('tr-TR')}</p>
+                      {item.topic && <p className="mt-1 break-words text-xs text-slate-300">Konu: {item.topic}</p>}
+                    </div>
+                    <span className={item.status === 'failed' ? 'shrink-0 rounded-full bg-red-500/10 px-2 py-1 text-[10px] text-red-300' : item.status === 'ready' ? 'shrink-0 rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] text-emerald-300' : 'shrink-0 rounded-full bg-slate-700 px-2 py-1 text-[10px] text-slate-300'}>{item.status}</span>
+                  </div>
+                  {editingManagedId === item.id ? (
+                    <div className="space-y-2">
+                      <label className="block text-xs text-slate-300">Başlık
+                        <input value={managedTitle} onChange={(event) => setManagedTitle(event.target.value)} maxLength={300} className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm text-white focus:border-sky-400 focus:outline-none" />
+                      </label>
+                      <label className="block text-xs text-slate-300">Konu / notlar
+                        <textarea value={managedTopic} onChange={(event) => setManagedTopic(event.target.value)} rows={3} maxLength={500} className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm text-white focus:border-sky-400 focus:outline-none" />
+                      </label>
+                      <label className="block text-xs text-slate-300">Senaryo / taslak metni
+                        <textarea value={managedScript} onChange={(event) => setManagedScript(event.target.value)} rows={8} maxLength={50000} placeholder="Bu kayıtta henüz senaryo yok. Buraya metin yazabilir veya mevcut metni düzenleyebilirsin." className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm text-white focus:border-sky-400 focus:outline-none" />
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" onClick={() => void saveManagedDraft(item.id)} disabled={managedBusyId !== null || !managedTitle.trim()} className="rounded-lg bg-sky-700 px-3 py-2 text-xs font-semibold hover:bg-sky-600 disabled:opacity-50">{managedBusyId === item.id ? 'Kaydediliyor…' : 'Değişiklikleri kaydet'}</button>
+                        <button type="button" onClick={() => setEditingManagedId(null)} className="rounded-lg border border-slate-600 px-3 py-2 text-xs hover:bg-slate-700">Vazgeç</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {item.generatedScript ? <details><summary className="cursor-pointer text-xs text-sky-300">Senaryoyu görüntüle</summary><pre className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-3 text-xs text-slate-200 font-sans">{item.generatedScript}</pre></details> : <p className="text-xs text-slate-500">Bu kayıtta senaryo metni yok.</p>}
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" onClick={() => beginManagedEdit(item)} className="rounded-lg border border-sky-400/40 px-3 py-2 text-xs text-sky-200 hover:bg-sky-600/20">✎ Düzenle</button>
+                        {item.status === 'archived' || item.status === 'deleted' ? (
+                          <button type="button" onClick={() => void manageContentAction(item.id, 'restore')} disabled={managedBusyId !== null} className="rounded-lg border border-emerald-400/40 px-3 py-2 text-xs text-emerald-200 hover:bg-emerald-600/20 disabled:opacity-50">↶ Geri yükle</button>
+                        ) : (
+                          <button type="button" onClick={() => void manageContentAction(item.id, 'archive')} disabled={managedBusyId !== null} className="rounded-lg border border-amber-400/40 px-3 py-2 text-xs text-amber-200 hover:bg-amber-600/20 disabled:opacity-50">Arşivle</button>
+                        )}
+                        {item.status !== 'deleted' && <button type="button" onClick={() => void manageContentAction(item.id, 'delete')} disabled={managedBusyId !== null} className="rounded-lg border border-red-400/40 px-3 py-2 text-xs text-red-200 hover:bg-red-600/20 disabled:opacity-50">Sil</button>}
+                      </div>
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-500">Silme işlemi kaydı kalıcı olarak yok etmez; “Silinenler” bölümüne taşır ve geri yüklemeye izin verir. Liste veritabanındaki son 200 içerik kaydını gösterir.</p>
+          </section>
+        )}
         <section className="rounded-xl border border-violet-500/30 bg-slate-800/80 p-3">
           <div className="hidden">
             <button
