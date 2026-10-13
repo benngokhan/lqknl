@@ -808,11 +808,12 @@ export default function Home() {
     setLoading(true);
 
     try {
-      const wantsSelfie = /(?:selfie|selfini|selfie çek|fotoğrafını çek|kendi fotoğrafını|resmini çek)/i.test(userMessage);
-      const res = await fetch(wantsSelfie ? '/api/image/selfie' : '/api/chat', {
+      const wantsOnlinePhoto = /(?:mira.*(?:fotoğrafını at|fotoğraf at|fotoğraf bul|internetten fotoğraf)|(?:internetten|online|webden).*fotoğraf|fotoğrafını at)/i.test(userMessage);
+      const wantsSelfie = !wantsOnlinePhoto && /(?:selfie|selfini|selfie çek|fotoğrafını çek|kendi fotoğrafını|resmini çek)/i.test(userMessage);
+      const res = await fetch(wantsOnlinePhoto ? '/api/image/search' : wantsSelfie ? '/api/image/selfie' : '/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(wantsSelfie ? {} : { message: userMessage }),
+        body: JSON.stringify(wantsOnlinePhoto ? { query: 'mirror selfie outfit aesthetic' } : wantsSelfie ? {} : { message: userMessage }),
       });
 
       // Do not blindly call res.json(): deployment/proxy errors can return
