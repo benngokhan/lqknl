@@ -65,7 +65,7 @@ export async function POST(req: Request) {
     const chosen = shortlist[Math.floor(Math.random() * shortlist.length)];
 
     return NextResponse.json({
-      reply: "İnternetten bir fotoğraf buldum. Kaynak: Pixabay.",
+      reply: "Al canım, iyi mi?",
       imageUrl: chosen.webformatURL,
       sourceUrl: chosen.pageURL,
       tags: chosen.tags ?? "",
