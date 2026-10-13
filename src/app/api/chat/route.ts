@@ -414,11 +414,11 @@ export async function POST(req: Request) {
     // Mesaj içinde "video üret" ifadesinin geçmesi veya bu konuda soru sorulması yeterli değildir.
     const trimmedIntent = message.trim();
     const isDiscussionOrQuestion =
-      /[?？]\\s*$/u.test(trimmedIntent) ||
-      /(?:\\b(?:neden|niçin|niye|nasıl|ne demek|sorun|çözüm|komut|ifade|kelime|cümle|geçtiği zaman|geçtiği için|bahset|konuşalım|açıkla|incele)\\b)/iu.test(trimmedIntent);
+      /[?？]\s*$/u.test(trimmedIntent) ||
+      /(?:\b(?:neden|niçin|niye|nasıl|ne demek|sorun|çözüm|komut|ifade|kelime|cümle|geçtiği zaman|geçtiği için|bahset|konuşalım|açıkla|incele)\b)/iu.test(trimmedIntent);
     const endsWithVideoAction =
-      /\\b(?:video(?:yu|nun)?|mp4(?:\\s+video)?)\\s+(?:üret|oluştur|hazırla)\\s*[.!…]*$/iu.test(trimmedIntent) ||
-      /\\b(?:videoyu|bunu|şunu|taslağı)\\s+(?:üret|oluştur|hazırla)\\s*[.!…]*$/iu.test(trimmedIntent);
+      /\b(?:video(?:yu|nun)?|mp4(?:\s+video)?)\s+(?:üret|oluştur|hazırla)\s*[.!…]*$/iu.test(trimmedIntent) ||
+      /\b(?:videoyu|bunu|şunu|taslağı)\s+(?:üret|oluştur|hazırla)\s*[.!…]*$/iu.test(trimmedIntent);
     const wantsVideoProduction = !isDiscussionOrQuestion && endsWithVideoAction;
     if (command === '/video' || message.startsWith('/video') || wantsVideoProduction) {
       // ID'yi yalnızca bağımsız sayı olarak al ("MP4" içindeki 4 sayılmaz)
