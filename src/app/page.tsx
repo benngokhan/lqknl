@@ -145,7 +145,7 @@ export default function Home() {
   const [managedLoading, setManagedLoading] = useState(false);
   const [managedError, setManagedError] = useState('');
   const [managedNotice, setManagedNotice] = useState('');
-  const [taskCenterFilter, setTaskCenterFilter] = useState<'active' | 'archived' | 'deleted' | 'all'>('active');
+  const [taskCenterFilter, setTaskCenterFilter] = useState<'active' | 'archived' | 'all'>('active');
   const [editingManagedId, setEditingManagedId] = useState<number | null>(null);
   const [managedTitle, setManagedTitle] = useState('');
   const [managedTopic, setManagedTopic] = useState('');
@@ -462,11 +462,11 @@ export default function Home() {
     }
   }
 
-  async function manageContentAction(id: number, action: 'archive' | 'restore' | 'delete') {
+  async function manageContentAction(id: number, action: 'archive' | 'restore' | 'permanent_delete') {
     const prompts = {
       archive: 'Bu taslağı arşive taşımak istiyor musun?',
       restore: 'Bu kaydı taslaklara geri yüklemek istiyor musun?',
-      delete: 'Bu taslağı silinenlere taşımak istiyor musun? Kayıt geri yüklenebilir.',
+      permanent_delete: 'Bu taslağı, senaryoyu, ilişkili medyayı ve kayıt izlerini kalıcı olarak yok etmek istiyor musun? Bu işlem geri alınamaz.',
     };
     if (!window.confirm(prompts[action]) || managedBusyId !== null) return;
     setManagedBusyId(id);
@@ -960,18 +960,17 @@ export default function Home() {
               {([
                 ['active', 'Aktif taslaklar'],
                 ['archived', 'Arşiv'],
-                ['deleted', 'Silinenler'],
                 ['all', 'Tüm kayıtlar'],
               ] as const).map(([value, label]) => (
                 <button key={value} type="button" onClick={() => setTaskCenterFilter(value)} className={taskCenterFilter === value ? 'rounded-lg border border-sky-400 bg-sky-600/20 px-2 py-2 text-xs font-semibold text-sky-200' : 'rounded-lg border border-slate-600 bg-slate-900/60 px-2 py-2 text-xs text-slate-300 hover:bg-slate-700'}>
-                  {label} <span className="ml-1 text-slate-400">({managedDrafts.filter((item) => value === 'all' || (value === 'active' ? !['archived', 'deleted'].includes(item.status) : item.status === value)).length})</span>
+                  {label} <span className="ml-1 text-slate-400">({managedDrafts.filter((item) => value === 'all' || (value === 'active' ? item.status !== 'archived' && item.status !== 'deleted' : item.status === value)).length})</span>
                 </button>
               ))}
             </div>
             {managedError && <p className="rounded-lg border border-red-500/30 bg-red-950/20 p-2 text-sm text-red-300" role="alert">{managedError}</p>}
             {managedNotice && <p className="rounded-lg border border-emerald-500/20 bg-emerald-950/20 p-2 text-sm text-emerald-300" role="status">{managedNotice}</p>}
             {managedLoading && managedDrafts.length === 0 && <p className="text-sm text-slate-400">Kayıtlar yükleniyor…</p>}
-            {!managedLoading && managedDrafts.filter((item) => taskCenterFilter === 'all' || (taskCenterFilter === 'active' ? !['archived', 'deleted'].includes(item.status) : item.status === taskCenterFilter)).length === 0 && !managedError && (
+            {!managedLoading && managedDrafts.filter((item) => taskCenterFilter === 'all' || (taskCenterFilter === 'active' ? item.status !== 'archived' && item.status !== 'deleted' : item.status === taskCenterFilter)).length === 0 && !managedError && (
               <p className="rounded-lg border border-slate-700 bg-slate-900/60 p-4 text-sm text-slate-400">Bu bölümde kayıt yok.</p>
             )}
             <div className="space-y-3">
@@ -1006,7 +1005,7 @@ export default function Home() {
                       {item.generatedScript ? <details><summary className="cursor-pointer text-xs text-sky-300">Senaryoyu görüntüle</summary><pre className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-3 text-xs text-slate-200 font-sans">{item.generatedScript}</pre></details> : <p className="text-xs text-slate-500">Bu kayıtta senaryo metni yok.</p>}
                       <div className="flex flex-wrap gap-2">
                         <button type="button" onClick={() => beginManagedEdit(item)} className="rounded-lg border border-sky-400/40 px-3 py-2 text-xs text-sky-200 hover:bg-sky-600/20">✎ Düzenle</button>
-                        {item.status === 'archived' || item.status === 'deleted' ? (
+                        {item.status === 'archived' ? (
                           <button type="button" onClick={() => void manageContentAction(item.id, 'restore')} disabled={managedBusyId !== null} className="rounded-lg border border-emerald-400/40 px-3 py-2 text-xs text-emerald-200 hover:bg-emerald-600/20 disabled:opacity-50">↶ Geri yükle</button>
                         ) : (
                           <button type="button" onClick={() => void manageContentAction(item.id, 'archive')} disabled={managedBusyId !== null} className="rounded-lg border border-amber-400/40 px-3 py-2 text-xs text-amber-200 hover:bg-amber-600/20 disabled:opacity-50">Arşivle</button>
@@ -1018,14 +1017,14 @@ export default function Home() {
                         </>}
                         {item.status === 'failed' && <button type="button" onClick={() => void retryManualItem(item)} disabled={queueBusyId !== null || managedBusyId !== null} className="rounded-lg border border-amber-400/40 px-3 py-2 text-xs text-amber-200 hover:bg-amber-600/20 disabled:opacity-50">↻ Yeniden dene</button>}
                         {!['archived', 'deleted', 'approved', 'rejected'].includes(item.status) && <button type="button" onClick={() => void reviewDraft(item.id, 'reject')} disabled={reviewBusyId !== null || managedBusyId !== null} className="rounded-lg border border-red-400/40 px-3 py-2 text-xs text-red-200 hover:bg-red-600/20 disabled:opacity-50">Reddet</button>}
-                        {item.status !== 'deleted' && <button type="button" onClick={() => void manageContentAction(item.id, 'delete')} disabled={managedBusyId !== null} className="rounded-lg border border-red-400/40 px-3 py-2 text-xs text-red-200 hover:bg-red-600/20 disabled:opacity-50">Sil</button>}
+                        <button type="button" onClick={() => void manageContentAction(item.id, 'permanent_delete')} disabled={managedBusyId !== null} className="rounded-lg border border-red-500/50 bg-red-950/30 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-900/50 disabled:opacity-50">{managedBusyId === item.id ? 'Yok ediliyor…' : 'Sil ve yok et'}</button>
                       </div>
                     </div>
                   )}
                 </article>
               ))}
             </div>
-            <p className="text-[11px] text-slate-500">Silme işlemi kaydı kalıcı olarak yok etmez; “Silinenler” bölümüne taşır ve geri yüklemeye izin verir. Liste veritabanındaki son 200 içerik kaydını gösterir.</p>
+            <p className="text-[11px] text-slate-500">“Sil ve yok et” geri alınamaz; taslak, senaryo, ilişkili medya ve başlık izleri temizlenir. Sistem yalnızca başlığı saklamayan tek yönlü bir eşleşme özeti tutarak aynı konunun yeniden üretilmesini engeller. Liste veritabanındaki son 500 içerik kaydını gösterir.</p>
           </section>
         )}
         <section className="rounded-xl border border-violet-500/30 bg-slate-800/80 p-3">
