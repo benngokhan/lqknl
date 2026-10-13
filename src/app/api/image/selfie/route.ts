@@ -1,11 +1,11 @@
-import { Client } from "@gradio/client";
 import { NextResponse } from "next/server";
+import { generateTensorArtImageFromReference } from "@/lib/tensorart";
+import { MIRA_AVATAR } from "@/lib/mira-avatar";
 
 export const runtime = "nodejs";
 
 const ENTRY_COOKIE = "mira_entry";
 const PRIVATE_MODE_COOKIE = "mira_private_mode";
-const SPACE_ID = "black-forest-labs/FLUX.1-schnell";
 const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
 
 export async function POST(req: Request) {
@@ -21,39 +21,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Selfie özelliği yalnızca Mira özel modunda kullanılabilir. Önce KIRMIZI2206 yaz." }, { status: 403 });
     }
 
-    const rawToken = process.env.HF_TOKEN?.trim();
-    if (!rawToken) {
-      return NextResponse.json({ error: "HF_TOKEN eksik. Railway Variables bölümüne Hugging Face erişim anahtarını ekle." }, { status: 503 });
+    const referenceMatch = MIRA_AVATAR.match(/^data:(image\\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/);
+    if (!referenceMatch) {
+      return NextResponse.json({ error: "Mira'nın kayıtlı referans görseli okunamadı." }, { status: 503 });
+    }
+    const referenceBytes = Buffer.from(referenceMatch[2], "base64");
+    if (!referenceBytes.length || referenceBytes.byteLength > MAX_IMAGE_BYTES) {
+      return NextResponse.json({ error: "Mira'nın referans görseli boş veya çok büyük." }, { status: 503 });
     }
 
-    const token = rawToken as `hf_${string}`;
-    const client = await Client.connect(SPACE_ID, { token });
-    const result = await client.predict("/infer", {
-      prompt: "Photorealistic spontaneous mirror selfie of Mira, a fictional adult woman, in her own cozy bedroom at night. Preserve the same established character identity: shoulder-length dark brown hair, warm brown eyes, natural facial features and realistic skin texture. Vertical portrait composition, mirror reflection shows her from head to upper thighs, not a close-up and not just a face portrait. She stands in a relaxed, confident, slightly playful natural pose, wearing a tasteful black satin camisole or a black satin shirt casually open over it, elegant and bold fashion styling without nudity. She holds exactly one smartphone in one hand, clearly visible in the mirror, with anatomically correct fingers and a believable reflection; her other hand rests naturally at her hip. Warm bedside lamp lighting, lived-in bedroom details, candid phone-camera quality, realistic proportions, natural posture, single person, single phone, accurate mirror geometry. No extra phones, no duplicated limbs, no distorted hands, no text, no watermark, no professional studio photoshoot.",
-      seed: 0,
-      randomize_seed: true,
-      width: 768,
-      height: 1024,
-      num_inference_steps: 5,
-    });
-
-    const first = Array.isArray(result.data) ? result.data[0] : null;
-    const file = first && typeof first === "object" ? first as { url?: unknown; path?: unknown; mime_type?: unknown } : null;
-    const remoteUrl = typeof first === "string"
-      ? first
-      : typeof file?.url === "string"
-        ? file.url
-        : typeof file?.path === "string" && /^https?:\/\//i.test(file.path)
-          ? file.path
-          : "";
-
+    const prompt = "Photorealistic spontaneous mirror selfie of Mira, a fictional adult woman. Use the uploaded reference image as the identity anchor: preserve the same recognizable face, eye shape and color, facial proportions, skin tone, and dark brown hair; do not replace her with a different person. Vertical portrait from head to upper thighs, relaxed confident slightly playful pose, cozy bedroom at night with warm bedside lighting, candid phone-camera quality, realistic skin texture and natural proportions. Change only the outfit and scene styling: elegant black satin camisole with a tasteful open black satin shirt, refined bold fashion, fully clothed, no nudity. One smartphone held in one hand, believable mirror reflection, natural other hand at her hip. No extra people, no duplicated phones, no distorted hands, no text, no watermark, no studio photoshoot.";
+    const result = await generateTensorArtImageFromReference(prompt, referenceBytes, referenceMatch[1]);
+    const first = Array.isArray(result.images) ? result.images[0] : null;
+    const remoteUrl = first && typeof first.url === "string" ? first.url : "";
     if (!remoteUrl) {
-      console.error("Mira selfie API returned an unexpected image payload:", result.data);
+      console.error("Mira Tensor.Art reference selfie returned no image URL");
       return NextResponse.json({ error: "Görsel üretildi ancak API görsel bağlantısını döndürmedi." }, { status: 502 });
     }
 
     const parsedUrl = new URL(remoteUrl);
-    if (parsedUrl.protocol !== "https:" || parsedUrl.hostname !== "black-forest-labs-flux-1-schnell.hf.space") {
+    if (parsedUrl.protocol !== "https:") {
       return NextResponse.json({ error: "Güvenlik nedeniyle beklenmeyen görsel adresi reddedildi." }, { status: 502 });
     }
 
@@ -74,11 +61,11 @@ export async function POST(req: Request) {
     return NextResponse.json({
       reply: "Al bakalım bu iyi mi",
       imageUrl,
-      seed: Array.isArray(result.data) && typeof result.data[1] === "number" ? result.data[1] : null,
+      seed: null,
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    console.error("Mira FLUX selfie generation failed:", reason);
+    console.error("Mira Tensor.Art reference selfie generation failed:", reason);
     return NextResponse.json(
       { error: `Selfie üretilemedi: ${reason.slice(0, 300)}` },
       { status: 502 },
