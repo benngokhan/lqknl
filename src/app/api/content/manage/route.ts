@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { contentAssets, contentItems, learningProgress, memories, operations, tasks, trends } from "@/db/schema";
+import { contentAssets, contentItems, learningProgress, memories, messages, operations, tasks, trends } from "@/db/schema";
 import { deletedTopicHash, isPermanentlyDeletedTopic } from "@/lib/deleted-topics";
 import { normalizeTitleKey } from "@/lib/dedupe-content";
 
@@ -79,6 +79,14 @@ async function permanentlyDeleteContent(id: number) {
       terms.some((term) => term && (task.title.toLocaleLowerCase("tr-TR").includes(term.toLocaleLowerCase("tr-TR")) || notes.toLocaleLowerCase("tr-TR").includes(term.toLocaleLowerCase("tr-TR"))));
   }).map((task) => task.id);
   if (taskIds.length) await db.delete(tasks).where(inArray(tasks.id, taskIds));
+
+  // Sohbet geçmişinde aynı başlık/konu geçiyorsa bu mesajları da kaldır.
+  const allMessages = await db.select().from(messages);
+  const messageIds = allMessages.filter((row) => {
+    const text = row.content.toLocaleLowerCase("tr-TR");
+    return terms.some((term) => term && text.includes(term.toLocaleLowerCase("tr-TR")));
+  }).map((row) => row.id);
+  if (messageIds.length) await db.delete(messages).where(inArray(messages.id, messageIds));
 
   const allOperations = await db.select().from(operations);
   for (const operation of allOperations) {
