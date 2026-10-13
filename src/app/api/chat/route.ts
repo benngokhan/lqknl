@@ -410,10 +410,16 @@ export async function POST(req: Request) {
       }
     }
 
-    // /video komutu veya doğal dilde video üretim isteği ("MP4 video oluştur", "videoyu üret")
-    const wantsVideoProduction =
-      /(\bmp4\b|\brender\b).+\b(üret|oluştur|hazırla)\b/i.test(message) ||
-      /\b(videoyu|video|videonun)\s+(üret|oluştur|hazırla)\b/i.test(message);
+    // Video üretimi yalnızca açık bir eylem komutuyla tetiklenir.
+    // Mesaj içinde "video üret" ifadesinin geçmesi veya bu konuda soru sorulması yeterli değildir.
+    const trimmedIntent = message.trim();
+    const isDiscussionOrQuestion =
+      /[?？]\\s*$/u.test(trimmedIntent) ||
+      /(?:\\b(?:neden|niçin|niye|nasıl|ne demek|sorun|çözüm|komut|ifade|kelime|cümle|geçtiği zaman|geçtiği için|bahset|konuşalım|açıkla|incele)\\b)/iu.test(trimmedIntent);
+    const endsWithVideoAction =
+      /\\b(?:video(?:yu|nun)?|mp4(?:\\s+video)?)\\s+(?:üret|oluştur|hazırla)\\s*[.!…]*$/iu.test(trimmedIntent) ||
+      /\\b(?:videoyu|bunu|şunu|taslağı)\\s+(?:üret|oluştur|hazırla)\\s*[.!…]*$/iu.test(trimmedIntent);
+    const wantsVideoProduction = !isDiscussionOrQuestion && endsWithVideoAction;
     if (command === '/video' || message.startsWith('/video') || wantsVideoProduction) {
       // ID'yi yalnızca bağımsız sayı olarak al ("MP4" içindeki 4 sayılmaz)
       const idMatch = message.replace(/^\/video/i, '').match(/(?:^|[^\w])(\d+)(?=$|[^\w])/);
@@ -652,10 +658,12 @@ export async function POST(req: Request) {
 
     const result = await think(message, history, "", "flirty", memoryContext, "", privateMode);
 
-    // Explicit content-creation requests are saved as reviewable drafts.
-    // This never publishes content; the review panel remains the approval gate.
+    // Taslak kaydı yalnızca açık bir üretim isteğiyle yapılır; konu hakkında konuşmak,
+    // taslakları listelemek veya "video üret" komutunu tartışmak kayıt başlatmaz.
     const asksForContentDraft =
-      /(?:taslak|shorts|reels|video|içerik).{0,100}(?:oluştur|hazırla|üret|yaz)|(?:oluştur|hazırla|üret|yaz).{0,100}(?:taslak|shorts|reels|video|içerik)/iu.test(message);
+      !isDiscussionOrQuestion &&
+      /\\b(?:oluştur|hazırla|üret|yaz)\\s*[.!…]*$/iu.test(trimmedIntent) &&
+      /\\b(?:taslak|shorts|reels|video|içerik|senaryo)\\b/iu.test(trimmedIntent);
     const asksForTelegramNotification = /telegram|bildirim|haber ver|bilgi ver/iu.test(message);
     const hasUsableDraftReply =
       typeof result.reply === "string" &&
