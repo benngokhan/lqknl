@@ -950,7 +950,7 @@ export default function Home() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-base font-bold text-white">Görev Merkezi · Taslak Yönetimi</h2>
-                <p className="mt-1 text-xs text-slate-400">Kayıtlı konuları ve senaryoları buradan düzenle, arşivle, silinenleri geri yükle ve durumlarını takip et.</p>
+                <p className="mt-1 text-xs text-slate-400">Kayıtlı konuları ve senaryoları buradan düzenle, arşivle, kalıcı olarak yok et ve durumlarını takip et.</p>
               </div>
               <button type="button" onClick={() => void loadManagedDrafts()} disabled={managedLoading} className="rounded-lg border border-slate-600 px-3 py-2 text-xs hover:bg-slate-700 disabled:opacity-50">
                 {managedLoading ? 'Yükleniyor…' : '↻ Yenile'}
