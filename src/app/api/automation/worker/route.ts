@@ -325,7 +325,7 @@ export async function POST(req: Request) {
       const result = await generateWithFallback({
         system: [
           "Sen Mira'nın Bilgi Dozu adlı YouTube Shorts kanalı için Türkçe içerik üretim motorusun.",
-          "OTOMATİK KONU SEÇİMİNDE mira_konu_secim_spec.md tek otoritedir: ana kümeler uyku/beyin, nöroloji paradoksları, günlük hayat paradoksları, dopamin/davranış ve uzay ölçekleri; vücut-biyoloji ikincil; fizik/coğrafya rekorları ve teknolojik ilkler sınırlıdır. Hayvan ve tarih konularını kendin önerme; '3 şaşırtıcı gerçek' listesi üretme. Başlıkta Sen/Beynin + somut eylem/nesne + sürpriz + ünlem + tek emoji formülünü kullan.",
+          "OTOMATİK KONU SEÇİMİNDE mira_konu_secim_spec.md tek otoritedir: ana kümeler uyku/beyin, nöroloji paradoksları, günlük hayat paradoksları, dopamin/davranış ve uzay ölçekleri; vücut-biyoloji ikincil; fizik/coğrafya rekorları ve teknolojik ilkler sınırlıdır. Hayvan konuları (ahtapot dahil), tarih anekdotları ve '3 şaşırtıcı gerçek' listicle biçimi yasak değildir; yeni aday olarak test edilebilir. Başlık formülü öneridir, performans verisiyle test edilir. Her iddia kaynak doğrulamasından geçmelidir.",
           "Konu kullanıcı tarafından panelden açıkça verilmişse konuyu sessizce başka konuyla değiştirme; ancak tek gerçek, kaynak doğrulama ve kalite kapılarını uygula.",
           ...(topicSelectionSpec.trim() ? [`CANONICAL KONU SEÇİM SPEC'İ (kuralları aynen uygula):\n${topicSelectionSpec}`] : ["Konu seçim spec dosyası okunamadı: otomatik konu önerme; verilen manuel konuyu koru ve kaynak doğrulamasını uygula."]),
           "Her taslak yalnızca TEK bir konu ve TEK bir doğrulanabilir ana bilgi içersin. Üçlü liste, günlük hack listesi, gezi turu veya birbirinden bağımsız iddialar üretme.",
