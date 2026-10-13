@@ -1,6 +1,7 @@
 // Tek noktadan Türkçe seslendirme + senkron altyazı üretimi.
-// ElevenLabs ana sağlayıcı, Edge TTS yedek. Edge TTS'nin kelime zaman
-// damgaları (offset/duration 100ns tick) altyazı gruplarına dönüştürülür.
+// Varsayılan zincir ücretsizdir: Edge TTS, ardından Google TTS.
+// Ücretli ElevenLabs yalnızca MIRA_ALLOW_PAID_TTS=true açıkça ayarlanırsa kullanılır.
+// Edge TTS'nin kelime zaman damgaları (offset/duration 100ns tick) altyazı gruplarına dönüştürülür.
 
 export type CaptionGroup = { start: number; end: number; text: string };
 
@@ -13,8 +14,8 @@ export type NarrationResult = {
   durationSeconds: number | null;
 };
 
-const EDGE_TTS_VOICE = process.env.EDGE_TTS_VOICE || "tr-TR-AhmetNeural";
-const EDGE_TTS_RATE = process.env.EDGE_TTS_RATE || "+5%";
+const EDGE_TTS_VOICE = process.env.EDGE_TTS_VOICE || "tr-TR-EmelNeural";
+const EDGE_TTS_RATE = process.env.EDGE_TTS_RATE || "+0%";
 const MAX_GROUPS = 24;
 const MAX_GROUP_CHARS = 44;
 const MAX_GROUP_WORDS = 4;
@@ -166,7 +167,7 @@ export async function generateNarration(rawText: string): Promise<NarrationResul
   if (!text) throw new Error("Seslendirilecek metin boş");
   if (text.length > 5000) throw new Error("Metin çok uzun");
 
-  if (process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_VOICE_ID) {
+  if (process.env.MIRA_ALLOW_PAID_TTS === "true" && process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_VOICE_ID) {
     try {
       const audio = await generateWithElevenLabs(text);
       return { audio, provider: "elevenlabs", captions: [], durationSeconds: null };
