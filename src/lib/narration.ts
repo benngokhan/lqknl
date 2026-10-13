@@ -33,7 +33,7 @@ export async function generateWithElevenLabs(text: string): Promise<Uint8Array> 
   const voiceId = process.env.ELEVENLABS_VOICE_ID;
   if (!key || !voiceId) throw new Error("ElevenLabs API key veya voice ID ayarlı değil");
 
-  const modelId = process.env.ELEVENLABS_MODEL_ID || "eleven_multilingual_v2";
+  const modelId = process.env.ELEVENLABS_MODEL_ID || process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2";
   const response = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`,
     {
