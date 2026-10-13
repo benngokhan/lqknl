@@ -129,7 +129,7 @@ export async function POST(req: Request) {
 
   let topicSelectionSpec = "";
   try {
-    topicSelectionSpec = (await fs.readFile(path.join(process.cwd(), "mira-prompt", "mira_konu_secim_spec.md"), "utf8")).trim();
+    topicSelectionSpec = (await fs.readFile(path.join(process.cwd(), "mira_konu_secim_spec.md"), "utf8")).trim();
   } catch (specError) {
     console.error("[Research] mira_konu_secim_spec.md okunamadı; seçim güvenlik kuralları eksik:", 
       specError instanceof Error ? specError.message : String(specError));
