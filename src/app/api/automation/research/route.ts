@@ -127,6 +127,14 @@ export async function POST(req: Request) {
       rulesError instanceof Error ? rulesError.message : String(rulesError));
   }
 
+  let topicSelectionSpec = "";
+  try {
+    topicSelectionSpec = (await fs.readFile(path.join(process.cwd(), "mira-prompt", "mira_konu_secim_spec.md"), "utf8")).trim();
+  } catch (specError) {
+    console.error("[Research] mira_konu_secim_spec.md okunamadı; seçim güvenlik kuralları eksik:", 
+      specError instanceof Error ? specError.message : String(specError));
+  }
+
   const selected = await generateWithFallback({
     system: [
       "Sen Mira'nın Bilgi Dozu kanalı için Türkçe YouTube Shorts konu araştırmacısısın — konu araştırmacısı, haberci DEĞİL.",
@@ -136,7 +144,8 @@ export async function POST(req: Request) {
         topicRules
       ] : []),
       "MARKA KAPSAMI DIŞI (listedeki trend bunlara girse bile ASLA SEÇME): gezi/mekan önerileri (şehir, tatil yeri, plaj...), ürün/marka/şirket tanıtımları, magazin-ünlü dedikodusu, siyaset-parti-hükümet haberciliği, spor transfer skoru vb. genel haberler, algoritma şaşırtmacası bileşimi olmayan düz gündem. Bunlar Bilgi Dozu kümeleri değildir; onlar 'genel trend çöpü'.",
-      "Uygun Bilgi Dozu kümeleri (v1.1 — mira_konu_secim_spec.md ile senkron): ANA KÜMELER = 1) uyku ve beyin temizliği (glymphatic, rüya, gece onarımı — 'Sen uyurken…' kancası), 2) beyin/nöroloji paradoksları (beyin ağrıyı hissetmez, kör nokta, kapıdan geçince unutma — 'Beynin sana…'), 3) günlük hayat paradoksları (sıradan olayın ölçülebilir özgün açıklaması), 4) dopamin ve davranış ekonomisi (scroll/bildirim mekaniği, değişken ödül döngüsü), 5) uzay-astronomi ölçekleri (tek sayı/ölçek çarpıcısı ya da rekor: Venüs'te gün yıldan uzun, Mars'ta mavi gün batımı), 6) vücut-biyoloji paradoksları (ikinci beyin, kemik betondan güçlü — anatomik tek olay; pop-sağlık değil). SINIRLI KÜME = fizik/coğrafya rekorları (tek net ölçü), teknolojik ilkler (doğrulanabilir ilk belge; 'ilk X' çerçevesi). ÖLÜ KÜME (kanal verisi <100 izlenme): hayvan alemi ve tarih anekdotu — varsayılanda yenisi seçilmez; haftalık sinyal direktifi açıkça dirilirse dirilir. FORMAT YASAK: '3 şaşırtıcı gerçek' listicle öldü — tek gerçek, tek video. BAŞLIK FORMÜLÜ (kanıtlı): 2. tekil şahıs ('Sen/Beynin') + somut eylem + sürpriz fiil + '!' + tek emoji. Sinyal direktifi ağırlık_artır kümelerini ÇİFT ÖNCELİKLENDİR; azalt_durdur kümelerinden YENİ KONU ÜRETME.",
+      "KONU SEÇİM SİGORTASI: Aşağıdaki canonical spec dosyasını uygula; bu dosya konu kümeleri, ölü kümeler, başlık formülü ve akademik doğrulama kapısının tek kaynağıdır. Spec okunamadıysa hayvan/tarih konularını ve listicle biçimini seçme; doğrulanabilir ana kümeler dışına çıkma.",
+      ...(topicSelectionSpec ? ["CANONICAL KONU SEÇİM SPEC'İ:", topicSelectionSpec] : []),
       "İzlenme potansiyeli ve görsel anlatılabilirlik ikincil filtre; birinci filtre her zaman: Bilgi Dozu kümesi + doğrulanabilir kalıcı bilgi + güçlü 2 saniyelik kanca.",
       "Birbirine benzeyen konuları seçme; listeden ilham alan ama trendmiş gibi sunulmayan, açıkça Shorts bilgi fikri olan başlıklar üret.",
       "Yalnızca geçerli JSON döndür: { \"items\": [{ \"topic\": \"kısa video fikri\", \"title\": \"kısa başlık\", \"sourceTrend\": \"listedeki tam trend\", \"score\": 1-100 }] }",
