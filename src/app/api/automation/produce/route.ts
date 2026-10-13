@@ -610,9 +610,11 @@ export async function POST(req: Request) {
 
     // 6) MP4 render
     await reportProgress(content.id, 82, "Görseller tamamlandı; MP4 video oluşturuluyor");
-    // 6) Render: önce marka motoru (PIL şablon: ilerleme çubuğu, başlık bloğu,
-    // kelime-kelime renkli altyazı, müzik+ducking, -14 LUFS). Python yoksa ya da
-    // hata çıkarsa TS/ffmpeg merdiveni korucu yedek olarak devrede.
+    // 6) Render: yalnızca belirtilen marka şablonu kullanılabilir.
+    // Şablon motoru kapalıysa veya hata verirse alternatif renderer kesinlikle çalıştırılmaz.
+    if (process.env.MIRA_USE_PY_MOTOR === "0") {
+      throw new Error("Belirtilen video şablonu devre dışı (MIRA_USE_PY_MOTOR=0). Bu işlem gerçekleştirilmedi.");
+    }
     await reportProgress(content.id, 82, "Video birleştiriliyor (marka motoru)");
     const motorDesign = buildMotorDesign({
       designSection: sections["TASARIM"],
@@ -657,21 +659,27 @@ export async function POST(req: Request) {
           void logEvent({ level: "error", source: "produce/qc", message: `QC FAIL — video reddedildi #${content.id}: ${msg.slice(0, 280)}`, meta: { contentId: content.id, http: 422 } });
           return NextResponse.json({ ok: false, produced: false, qcFailed: true, error: msg.slice(0, 600), stages }, { status: 422 });
         }
-        console.error(`[Produce] Marka motoru geriledi (#${content.id}): ${msg.slice(0, 300)}`);
-        void logEvent({ level: "warn", source: "produce/render", message: `Marka motoru devre dışı, yedek render #${content.id}: ${msg.slice(0, 200)}`, meta: { contentId: content.id } });
-        await reportProgress(content.id, 86, `Marka motoru geriledi (${msg.slice(0, 80)}); yedek render`);
-        const rs = await retryStage(content.id, "MP4 birleştirme", 86, () => renderShort({
-          images,
-          audio: Buffer.from(narration.audio),
-          captions: narration.captions,
-          narrationText,
-          durationSeconds: narration.durationSeconds ?? undefined,
-        }));
-        video = rs.video;
-        durationSeconds = rs.durationSeconds;
-        captionsUsed = rs.captionsUsed;
-        profile = rs.profile;
-        stages.render = { engine: "ts-ladder", motorError: msg.slice(0, 220), durationSeconds, bytes: video.length, captions: captionsUsed, profile };
+        const reason = /şablon|tasarım bloğu/i.test(msg)
+          ? msg
+          : `Belirtilen video şablonu çalıştırılamadı (${msg.slice(0, 240)}). Bu işlemi gerçekleştirmiyorum; alternatif tasarımla video üretilmedi.`;
+        console.error(`[Produce] Şablon motoru başarısız (#${content.id}): ${reason.slice(0, 300)}`);
+        stages.render = { engine: "python-motor", templateFailed: true, error: reason.slice(0, 500) };
+        await db.update(contentItems).set({ status: "failed", updatedAt: new Date() })
+          .where(eq(contentItems.id, content.id));
+        await db.update(tasks).set({ status: "failed", updatedAt: new Date() })
+          .where(like(tasks.notes, `%"contentId":${content.id}%`));
+        await db.insert(operations).values({
+          action: "content_produce",
+          summary: `Belirtilen video şablonu bulunamadı/çalışmadı; üretim durduruldu: ${content.title}`,
+          status: "failed",
+          platform: content.platform,
+          metadata: { contentId: content.id, templateFailed: true, error: reason.slice(0, 700), stages },
+        }).catch(() => {});
+        await sendTelegramMessage(
+          `⛔ Mira video üretimini durdurdu\n\nBelirtilen şablon bulunamadı veya çalıştırılamadı. Bu işlemi gerçekleştirmiyorum.\n\nBaşlık: ${content.title}\nİçerik ID: ${content.id}\nNeden: ${reason.slice(0, 400)}\n\nAlternatif tasarımla video üretilmedi ve yayın adımı başlatılmadı.`
+        ).catch(() => {});
+        void logEvent({ level: "error", source: "produce/template", message: `Şablon bulunamadı/çalışmadı; üretim durduruldu #${content.id}: ${reason.slice(0, 240)}`, meta: { contentId: content.id, http: 422 } });
+        return NextResponse.json({ ok: false, produced: false, templateFailed: true, error: reason.slice(0, 600), stages }, { status: 422 });
       }
     } else {
       const rs = await retryStage(content.id, "MP4 birleştirme", 82, () => renderShort({
