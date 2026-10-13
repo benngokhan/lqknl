@@ -146,6 +146,7 @@ export default function Home() {
   const [managedError, setManagedError] = useState('');
   const [managedNotice, setManagedNotice] = useState('');
   const [taskCenterFilter, setTaskCenterFilter] = useState<'active' | 'archived' | 'all'>('active');
+  const [selectedManagedIds, setSelectedManagedIds] = useState<Set<number>>(new Set());
   const [editingManagedId, setEditingManagedId] = useState<number | null>(null);
   const [managedTitle, setManagedTitle] = useState('');
   const [managedTopic, setManagedTopic] = useState('');
@@ -485,6 +486,48 @@ export default function Home() {
       await loadManagedDrafts();
     } catch (error) {
       setManagedError(error instanceof Error ? error.message : 'İşlem tamamlanamadı.');
+    } finally {
+      setManagedBusyId(null);
+    }
+  }
+
+  async function deleteSelectedManagedDrafts() {
+    const visibleItems = managedDrafts.filter((item) =>
+      taskCenterFilter === 'all' ||
+      (taskCenterFilter === 'active' ? !['archived', 'deleted'].includes(item.status) : item.status === taskCenterFilter)
+    );
+    const selectedIds = visibleItems.filter((item) => selectedManagedIds.has(item.id)).map((item) => item.id);
+    if (selectedIds.length === 0 || managedBusyId !== null) return;
+    if (!window.confirm(`Seçili ${selectedIds.length} kaydı, senaryolarını ve ilişkili medyalarını kalıcı olarak silmek istiyor musun? Bu işlem geri alınamaz.`)) return;
+
+    setManagedBusyId(-1);
+    setManagedError('');
+    setManagedNotice('');
+    const failures: number[] = [];
+    try {
+      for (const id of selectedIds) {
+        try {
+          const res = await fetch('/api/content/manage', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, action: 'permanent_delete' }),
+          });
+          if (!res.ok) failures.push(id);
+        } catch {
+          failures.push(id);
+        }
+      }
+      setSelectedManagedIds((previous) => {
+        const next = new Set(previous);
+        selectedIds.filter((id) => !failures.includes(id)).forEach((id) => next.delete(id));
+        return next;
+      });
+      if (failures.length > 0) {
+        setManagedError(`${selectedIds.length - failures.length} kayıt silindi; şu kayıtlar silinemedi: ${failures.map((id) => '#' + id).join(', ')}. Yenile ve tekrar kontrol et.`);
+      } else {
+        setManagedNotice(`${selectedIds.length} kayıt kalıcı olarak silindi.`);
+      }
+      await loadManagedDrafts();
     } finally {
       setManagedBusyId(null);
     }
@@ -973,14 +1016,44 @@ export default function Home() {
             {!managedLoading && managedDrafts.filter((item) => taskCenterFilter === 'all' || (taskCenterFilter === 'active' ? item.status !== 'archived' && item.status !== 'deleted' : item.status === taskCenterFilter)).length === 0 && !managedError && (
               <p className="rounded-lg border border-slate-700 bg-slate-900/60 p-4 text-sm text-slate-400">Bu bölümde kayıt yok.</p>
             )}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-900/60 p-3">
+              <label className="flex items-center gap-2 text-xs text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={managedDrafts.filter((item) => taskCenterFilter === 'all' || (taskCenterFilter === 'active' ? !['archived', 'deleted'].includes(item.status) : item.status === taskCenterFilter)).length > 0 && managedDrafts.filter((item) => taskCenterFilter === 'all' || (taskCenterFilter === 'active' ? !['archived', 'deleted'].includes(item.status) : item.status === taskCenterFilter)).every((item) => selectedManagedIds.has(item.id))}
+                  onChange={(event) => {
+                    const visibleItems = managedDrafts.filter((item) => taskCenterFilter === 'all' || (taskCenterFilter === 'active' ? !['archived', 'deleted'].includes(item.status) : item.status === taskCenterFilter));
+                    setSelectedManagedIds((previous) => {
+                      const next = new Set(previous);
+                      if (event.target.checked) visibleItems.forEach((item) => next.add(item.id));
+                      else visibleItems.forEach((item) => next.delete(item.id));
+                      return next;
+                    });
+                  }}
+                  disabled={managedBusyId !== null || managedDrafts.filter((item) => taskCenterFilter === 'all' || (taskCenterFilter === 'active' ? !['archived', 'deleted'].includes(item.status) : item.status === taskCenterFilter)).length === 0}
+                  className="h-4 w-4 accent-sky-500"
+                />
+                Tümünü seç
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-400">{managedDrafts.filter((item) => selectedManagedIds.has(item.id) && (taskCenterFilter === 'all' || (taskCenterFilter === 'active' ? !['archived', 'deleted'].includes(item.status) : item.status === taskCenterFilter))).length} kayıt seçili</span>
+                <button type="button" onClick={() => void deleteSelectedManagedDrafts()} disabled={managedBusyId !== null || !managedDrafts.some((item) => selectedManagedIds.has(item.id) && (taskCenterFilter === 'all' || (taskCenterFilter === 'active' ? !['archived', 'deleted'].includes(item.status) : item.status === taskCenterFilter)))} className="rounded-lg border border-red-500/50 bg-red-950/30 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-900/50 disabled:opacity-40">
+                  {managedBusyId === -1 ? 'Seçilenler siliniyor…' : 'Seçilenleri sil ve yok et'}
+                </button>
+                <button type="button" onClick={() => setSelectedManagedIds(new Set())} disabled={managedBusyId !== null || selectedManagedIds.size === 0} className="rounded-lg border border-slate-600 px-3 py-2 text-xs text-slate-300 hover:bg-slate-700 disabled:opacity-40">Seçimi temizle</button>
+              </div>
+            </div>
             <div className="space-y-3">
               {managedDrafts.filter((item) => taskCenterFilter === 'all' || (taskCenterFilter === 'active' ? !['archived', 'deleted'].includes(item.status) : item.status === taskCenterFilter)).map((item) => (
-                <article key={item.id} className="rounded-lg border border-slate-700 bg-slate-900 p-3 space-y-3">
+                <article key={item.id} className={selectedManagedIds.has(item.id) ? "rounded-lg border border-sky-400/60 bg-slate-900 p-3 space-y-3" : "rounded-lg border border-slate-700 bg-slate-900 p-3 space-y-3"}>
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 items-start gap-2">
+                      <input type="checkbox" aria-label={`#${item.id} ${item.title} seç`} checked={selectedManagedIds.has(item.id)} onChange={(event) => setSelectedManagedIds((previous) => { const next = new Set(previous); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next; })} disabled={managedBusyId !== null} className="mt-1 h-4 w-4 shrink-0 accent-sky-500" />
+                      <div className="min-w-0">
                       <p className="break-words text-sm font-semibold text-white">{item.title}</p>
                       <p className="mt-1 break-words text-xs text-slate-400">#{item.id} · {item.platform} · {item.status} · {new Date(item.updatedAt).toLocaleString('tr-TR')}</p>
                       {item.topic && <p className="mt-1 break-words text-xs text-slate-300">Konu: {item.topic}</p>}
+                      </div>
                     </div>
                     <span className={item.status === 'failed' ? 'shrink-0 rounded-full bg-red-500/10 px-2 py-1 text-[10px] text-red-300' : item.status === 'ready' ? 'shrink-0 rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] text-emerald-300' : 'shrink-0 rounded-full bg-slate-700 px-2 py-1 text-[10px] text-slate-300'}>{item.status}</span>
                   </div>
