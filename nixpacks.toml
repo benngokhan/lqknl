@@ -1,4 +1,14 @@
 # Railway service builder must be set to NIXPACKS.
+
 [phases.setup]
-nixPkgs = ["nodejs", "python3", "python3Packages.pillow", "python3Packages.numpy", "python3Packages.imageio-ffmpeg", "ffmpeg"]
-# tetik
+nixPkgs = ["nodejs", "python3", "uv", "ffmpeg"]
+
+[phases.install]
+cmds = [
+  "uv pip install --python python3 --target /app/pylib -r motor/requirements.txt",
+  "npm ci"
+]
+
+[variables]
+PYTHONPATH = "/app/pylib"
+UV_PYTHON_DOWNLOADS = "never"
