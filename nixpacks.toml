@@ -1,6 +1,3 @@
 # Railway service builder must be set to NIXPACKS.
 [phases.setup]
-nixPkgs = ["python3", "python3Packages.pip", "ffmpeg"]
-
-[phases.install]
-cmds = ["python3 -m pip install --break-system-packages -r motor/requirements.txt"]
+nixPkgs = ["python3", "python3Packages.pillow", "python3Packages.numpy", "python3Packages.imageio-ffmpeg", "ffmpeg"]
