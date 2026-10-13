@@ -97,7 +97,10 @@ async function permanentlyDeleteContent(id: number) {
   }
 
   const allTrends = await db.select().from(trends);
-  const trendIds = allTrends.filter((row) => seedKeys.has(normalizeTitleKey(row.topic))).map((row) => row.id);
+  const trendIds = allTrends.filter((row) =>
+    seedKeys.has(normalizeTitleKey(row.topic)) ||
+    terms.some((term) => term && [row.topic, row.notes || ""].some((value) => value.toLocaleLowerCase("tr-TR").includes(term.toLocaleLowerCase("tr-TR"))))
+  ).map((row) => row.id);
   if (trendIds.length) await db.delete(trends).where(inArray(trends.id, trendIds));
 
   const allMemories = await db.select().from(memories);
@@ -109,7 +112,10 @@ async function permanentlyDeleteContent(id: number) {
   if (memoryIds.length) await db.delete(memories).where(inArray(memories.id, memoryIds));
 
   const allLearning = await db.select().from(learningProgress);
-  const learningIds = allLearning.filter((row) => seedKeys.has(normalizeTitleKey(row.topic))).map((row) => row.id);
+  const learningIds = allLearning.filter((row) =>
+    seedKeys.has(normalizeTitleKey(row.topic)) ||
+    terms.some((term) => term && [row.topic, row.lastStep || "", row.notes || ""].some((value) => value.toLocaleLowerCase("tr-TR").includes(term.toLocaleLowerCase("tr-TR"))))
+  ).map((row) => row.id);
   if (learningIds.length) await db.delete(learningProgress).where(inArray(learningProgress.id, learningIds));
 
   await db.insert(operations).values({
