@@ -212,11 +212,9 @@ async function callOpenRouter(request: ModelRequest): Promise<ModelResult> {
 }
 
 const DEFAULT_GROQ_MODELS = [
-  "openai/gpt-oss-120b",
-  "meta-llama/llama-4-scout-17b-16e-instruct",
-  "moonshotai/kimi-k2-instruct",
-  "qwen/qwen3.8-27b",
   "openai/gpt-oss-20b",
+  "qwen/qwen3.8-27b",
+  "openai/gpt-oss-120b",
 ];
 
 function getGroqModelOrder(): string[] {
