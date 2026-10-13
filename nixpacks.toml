@@ -1,6 +1,5 @@
 [phases.setup]
 nixPkgs = ["python3", "python3Packages.pip", "ffmpeg"]
 
-[phases.postbuild]
-cmds = ["pip3 install --break-system-packages pillow numpy || true"]
-dependsOn = ["build"]
+[phases.install]
+cmds = ["python3 -m pip install --break-system-packages -r motor/requirements.txt"]
