@@ -124,7 +124,10 @@ async function permanentlyDeleteContent(id: number) {
 
 export async function GET(req: Request) {
   if (!authorized(req)) return NextResponse.json({ error: "Giriş gerekli." }, { status: 401 });
-  // Legacy soft-deleted rows are hidden; new deletes use permanent removal.
+  // Eski sürümün geri alınabilir silme kayıtlarını bir defaya mahsus kalıcı olarak temizle.
+  const legacyDeleted = await db.select({ id: contentItems.id }).from(contentItems)
+    .where(eq(contentItems.status, "deleted")).limit(500);
+  for (const oldRow of legacyDeleted) await permanentlyDeleteContent(oldRow.id);
   const rows = await db.select().from(contentItems)
     .orderBy(desc(contentItems.updatedAt))
     .limit(500);
