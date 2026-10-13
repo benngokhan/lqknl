@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { contentItems, operations } from "@/db/schema";
 import { normalizePlatform } from "@/lib/platforms";
+import { isPermanentlyDeletedTopic } from "@/lib/deleted-topics";
 import { NextResponse } from "next/server";
 
 function authorized(req: Request) {
@@ -21,6 +22,9 @@ export async function POST(req: Request) {
   const comments = Number.isFinite(b.comments) ? Math.max(0, Math.trunc(Number(b.comments))) : 0;
   const publishedAt = b.publishedAt ? new Date(b.publishedAt) : null;
   if (publishedAt && Number.isNaN(publishedAt.getTime())) return NextResponse.json({ error: "Geçersiz publishedAt" }, { status: 400 });
+  if (await isPermanentlyDeletedTopic(db, [b.title, typeof b.topic === "string" ? b.topic : ""])) {
+    return NextResponse.json({ error: "Bu başlık/konu kalıcı olarak silindi; yayın sonucu kaydedilemez." }, { status: 410 });
+  }
 
   const [row] = await db.insert(contentItems).values({
     title: b.title.trim().slice(0, 300),
