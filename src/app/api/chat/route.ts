@@ -512,9 +512,9 @@ export async function POST(req: Request) {
     const isDiscussionOrQuestion =
       /[?？]\s*$/u.test(trimmedIntent) ||
       /(?:\b(?:neden|niçin|niye|nasıl|ne demek|sorun|çözüm|komut|ifade|kelime|cümle|geçtiği zaman|geçtiği için|bahset|konuşalım|açıkla|incele)\b)/iu.test(trimmedIntent);
-    if (command === '/video-uret' || /^\/video-uret(?:\s|$)/iu.test(trimmedIntent)) {
+    if (command === '/video-uret' || command === '/video-üret' || /^\/video-[uü]ret(?:\s|$)/iu.test(trimmedIntent)) {
       // ID yalnızca bağımsız sayı olarak alınır; MP4 içindeki 4 sayı sayılmaz.
-      const idMatch = message.replace(/^\/video-uret/i, '').match(/(?:^|[^\w])(\d+)(?=$|[^\w])/);
+      const idMatch = message.replace(/^\/video-[uü]ret/iu, '').match(/(?:^|[^\w])(\d+)(?=$|[^\w])/);
       const contentId = idMatch ? Number(idMatch[1]) : null;
       const origin = selfOrigin();
       const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
@@ -752,6 +752,66 @@ export async function POST(req: Request) {
 
     // Taslak kaydı yalnızca açık bir üretim isteğiyle yapılır; konu hakkında konuşmak,
     // taslakları listelemek veya "video üret" komutunu tartışmak kayıt başlatmaz.
+        if (command === '/paylas-icerik' || /^\/paylas-icerik(?:\s|$)/iu.test(trimmedIntent)) {
+      const topic = message.replace(/^\/paylas-icerik\s*/iu, "").trim();
+      if (!topic) {
+        return NextResponse.json({
+          reply: "Lütfen bir konu belirt: `/paylas-icerik <konu>`\nÖrnek: `/paylas-icerik Karadelikler ve Zaman Bükülmesi`",
+          emotion: "focused",
+        });
+      }
+      const title = topic.slice(0, 160);
+      try {
+        if (await isPermanentlyDeletedTopic(db, [title, topic])) {
+          return NextResponse.json({
+            reply: `Bu konu ("${title}") daha önce kalıcı olarak silinmiş. Lütfen başka bir konu seç.`,
+            emotion: "focused",
+          });
+        }
+        const [draft] = await db.insert(contentItems).values({
+          title,
+          platform: "youtube_shorts",
+          status: "queued",
+          topic,
+        }).returning();
+
+        await db.insert(tasks).values({
+          taskType: "research_topic",
+          assignedTo: "worker",
+          status: "pending",
+          priority: 5,
+          notes: JSON.stringify({ contentId: draft.id, topic, manualTopic: true }),
+        });
+
+        await db.insert(operations).values({
+          action: "autonomous_content_draft",
+          summary: `Mira standart şablon motoruna devretti (#${draft.id}): ${title}`,
+          status: "queued",
+          platform: draft.platform,
+          metadata: { contentId: draft.id, topic, title, source: "chat_paylas_icerik" },
+        });
+
+        const origin = selfOrigin();
+        const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
+        fetch(`${origin}/api/automation/worker?contentId=${draft.id}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-mira-key": secret },
+          body: JSON.stringify({ manualTopic: true }),
+        }).catch((e) => console.error("[Chat/Paylas] Worker tetikleme hatası:", e));
+
+        return NextResponse.json({
+          reply: `🚀 **"${title}"** konusu standart Bilgi Dozu şablon motoruna devredildi (Taslak #${draft.id}).\n\n📌 9 zorunlu bölüm (KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI, SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER ve TASARIM JSON) hazırlanıyor ve kaynak doğrulaması yapılıyor.\n\nDurumu kontrol etmek için: \`/taslak ${draft.id}\` veya \`/taslak-list\``,
+          emotion: "focused",
+        });
+      } catch (err) {
+        console.error("[Chat/Paylas] Hata:", err);
+        return NextResponse.json({
+          reply: `❌ Konu kuyruğa alınırken veritabanı hatası oluştu: ${err instanceof Error ? err.message : String(err)}`,
+          emotion: "focused",
+        });
+      }
+    }
+
     const isShareContentCommand = /^\/paylas-icerik(?:\s|$)/iu.test(trimmedIntent);
     const hasExplicitDraftCommand =
       isShareContentCommand ||

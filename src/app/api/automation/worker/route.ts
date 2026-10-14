@@ -192,10 +192,18 @@ async function verifyScriptSources(contentId: number, script: string, narration:
     // Anchor güveni: aday zaten trust list'ten (örn. doi.org/canonical kayıtlar) seçildi.
     // Varış hostu https+public olduğu sürece REDdetme; varış https/public değilse hata ver.
     // Gerçek kalite kontrolü bir sonraki LLM iddia-karşılaştırmasındadır; host dominosu peşinde koşulmaz.
-    const resolved = await Promise.all(candidates.map(async (candidateUrl) => {
+    const settled = await Promise.allSettled(candidates.map(async (candidateUrl) => {
       const page = await readPublicSource(candidateUrl);
       return { candidateUrl: candidateUrl, page };
     }));
+    const resolved = settled
+      .filter((r): r is PromiseFulfilledResult<{ candidateUrl: string; page: { url: string; text: string } }> => r.status === "fulfilled")
+      .map((r) => r.value);
+    if (!resolved.length) {
+      const firstRejected = settled.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
+      const firstError = firstRejected?.reason instanceof Error ? firstRejected.reason.message : String(firstRejected?.reason || "Kaynaklar okunamadı.");
+      throw new Error(firstError);
+    }
     const pages = resolved.map((r) => r.page);
     const susHost = resolved.find((r) => !isTrustedSourceUrl(r.page.url) && !isPublicHttpsUrl(r.page.url));
     if (susHost) throw new Error("Kaynak sayfası yönlendirmesi güvenli HTTPS/public bir alan adına ulaşamadı (" + susHost.page.url.slice(0, 120) + ").");
@@ -342,7 +350,7 @@ export async function POST(req: Request) {
           "Kullanıcının KAYNAKLAR bölümünde belirttiği kurumlar veya yayınlar yalnızca araştırma adaylarıdır; ilgili kanıt bulunmadan doğrulanmış gibi sunma. Erişilebilir kaynak metnini kontrol et, her ana iddiayı ayrı değerlendir, desteklenmeyen iddiayı düzelt/yumuşat veya doğrulama gerektiğini açıkça belirt.",
           "Güvenilir kaynağı gerçekten bilmiyorsan kaynak veya URL uydurma; KAYNAK bölümüne yalnızca 'DOĞRULAMA GEREKLİ' yaz. Doğrulanmamış sayısal değer, rekor, teknik özellik veya kesin iddia ekleme.",
           "Balık kabuğunun ilk telefon olduğu, uzayda çikolatanın yıldız gibi parladığı veya bir köpeğin yedi dil bildiği gibi temelsiz/kanıtsız iddiaları üretme.",
-          "Çıktı başlıkları: KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI, SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER.",
+          "Çıktı başlıkları: KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI, SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER, TASARIM.",
           `SABİT GÖRSEL ŞABLON — yerleşim, renk, logo, font ve altyazı stili değiştirilemez; aşağıdaki spesifikasyonu aynen uygula:\n${templateSpec}`,
           "Ekran metni kısa, okunaklı ve 2-3 satır olsun; anahtar son ifade neon yeşil vurgulansın. Türkçe doğal ve otoriter ses, kelime kelime senkron altyazı, düşük seviyeli gizemli müzik kullan.",
           "Taslağın en sonuna TASARIM başlıklı bölüm ekle; içinde YALNIZCA tek satır JSON olsun: {\"title\":[[\"SATIR1\"],[\"SATIR2\"],[[\"SON SATIR\",\"g\"]]],\"note1\":\"GERÇEK ÖZETİ (CAPS, ≤80 kr)\",\"note2\":\"SOYADI • KAYNAK (YIL)\",\"accents\":[\"k1\",\"k2\",\"k3\"]}. Başlık = içerik başlığının 2-3 satırlık BÜYÜK HARF hâli, son satır \"g\" işaretli (yeşil segment). accents = SESLENDİRME metninde birebir geçen 3-5 vurucu kelime. Kaynak belli değilse note2 olarak 'BİLGİ DOZU EDİTÖR DERLEMESİ (2026)' yaz.",
@@ -364,12 +372,66 @@ export async function POST(req: Request) {
         throw new Error("Model içerik yerine ret/hata mesajı döndürdü; taslak kaydedilmedi.");
       }
       const requiredHeadings = ["KANCA", "SESLENDİRME", "EKRAN METNİ", "GÖRSEL TASARIMI", "SES VE MÜZİK", "KAYNAK", "AÇIKLAMA", "ETİKETLER", "TASARIM"];
-      const findMissingHeadings = (text: string) => requiredHeadings.filter((heading) => {
-        // Başlık tam bir satır olmalı; GÖRSEL TASARIMI, TASARIM yerine geçemez.
-        const exactHeading = new RegExp("^\\s*(?:#{1,4}\\s*)?(?:\\*\\*)?" + heading + "(?:\\*\\*)?\\s*:?\\s*$", "im");
-        return !exactHeading.test(text);
-      });
-      let missingHeadings = findMissingHeadings(generated);
+      const validateTasarimJson = (rawScript: string): boolean => {
+        const sec = parseDraftScript(rawScript);
+        const raw = sec["TASARIM"]?.trim();
+        if (!raw) return false;
+        const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+        let parsed: Record<string, unknown> | null = null;
+        try {
+          parsed = JSON.parse(clean) as Record<string, unknown>;
+        } catch {
+          const f = clean.indexOf("{");
+          const l = clean.lastIndexOf("}");
+          if (f >= 0 && l > f) {
+            try { parsed = JSON.parse(clean.slice(f, l + 1)) as Record<string, unknown>; } catch { return false; }
+          }
+        }
+        if (!parsed || !Array.isArray(parsed.title) || parsed.title.length === 0 || !parsed.note1 || !parsed.note2) {
+          return false;
+        }
+        return true;
+      };
+      const findMissingHeadings = (text: string) => {
+        const missing = requiredHeadings.filter((heading) => {
+          // Başlık tam bir satır olmalı; GÖRSEL TASARIMI, TASARIM yerine geçemez.
+          const exactHeading = new RegExp("^\\s*(?:#{1,4}\\s*)?(?:\\*\\*)?" + heading + "(?:\\*\\*)?\\s*:?\\s*$", "im");
+          return !exactHeading.test(text);
+        });
+        if (!missing.includes("TASARIM") && !validateTasarimJson(text)) {
+          missing.push("TASARIM (geçerli JSON ve zorunlu alanlar: title, note1, note2)");
+        }
+        return missing;
+      };
+      
+      // Otomatik kontroller: Konu sapması, 2 görsel promptu, 70-80 kelime sınırı
+      const validateScriptQuality = (script: string, expectedTopic: string): string[] => {
+        const issues: string[] = [];
+        const sec = parseDraftScript(script);
+        
+        // 1. İki görsel promptu kontrolü
+        const visuals = sec["GÖRSEL TASARIMI"] || "";
+        const promptLines = visuals.split(/\n/).map(l => l.trim()).filter(l => l.length > 20);
+        const hasGorselTags = /görsel\s*1/i.test(visuals) && /görsel\s*2/i.test(visuals);
+        if (!hasGorselTags && promptLines.length < 2) {
+          issues.push("GÖRSEL TASARIMI (tam 2 ayrı dikey görsel promptu zorunludur: GÖRSEL 1 ve GÖRSEL 2)");
+        }
+
+        // 2. Konu bütünlüğü / Konu sapması kontrolü
+        const narration = extractNarration(script, "");
+        const cleanTopicWords = expectedTopic.toLocaleLowerCase("tr-TR")
+          .replace(/[^a-zçğıöşü0-9\s]/gi, " ")
+          .split(/\s+/)
+          .filter(w => w.length >= 4);
+        const combinedText = (script + " " + narration).toLocaleLowerCase("tr-TR");
+        const matchedKeywords = cleanTopicWords.filter(w => combinedText.includes(w));
+        if (cleanTopicWords.length > 0 && matchedKeywords.length === 0) {
+          issues.push(`Konu bütünlüğü (metin verilen '${expectedTopic.slice(0, 50)}' konusuyla eşleşmiyor, konu sapması engellendi)`);
+        }
+
+        return issues;
+      };
+let missingHeadings = [...findMissingHeadings(generated), ...validateScriptQuality(generated, topic)];
       let scriptText = generated;
       let scriptProvider = { provider: result.provider, model: result.model };
 
@@ -389,7 +451,7 @@ export async function POST(req: Request) {
           message: `Konu: ${topic}\nEksik zorunlu başlıklar: ${missingHeadings.join(", ")}\n\nDüzeltilmesi gereken taslak:\n${generated}`,
         });
         const repairedText = repaired.content.trim();
-        const repairedMissing = findMissingHeadings(repairedText);
+        const repairedMissing = [...findMissingHeadings(repairedText), ...validateScriptQuality(repairedText, topic)];
         if (!refusalPattern.test(repairedText) && repairedMissing.length === 0) {
           scriptText = repairedText;
           scriptProvider = { provider: repaired.provider, model: repaired.model };
@@ -430,8 +492,16 @@ export async function POST(req: Request) {
 
 
       const rawNarration = extractNarration(scriptText, `${claimed.title}. ${topic}`);
+      const ctaPattern = /takip\s+etmeyi\s+unutma/i;
+      if (!ctaPattern.test(rawNarration)) {
+        scriptText = scriptText.replace(
+          /(##?\s*SESLENDİRME[\s\S]*?)(\n\s*##?\s*[A-ZÇĞİÖŞÜ ]+|$)/i,
+          (m, p1, p2) => `${p1.trim()}\nDaha fazla bilgi dozu için takip etmeyi unutma!\n\n${p2}`
+        );
+      }
+      const rawNarrationFinal = extractNarration(scriptText, `${claimed.title}. ${topic}`);
       await reportScriptProgress(claimed.id, 54, "Senaryo metni çıkarıldı…", "running", `Seslendirme metni ayrıştırıldı; ${rawNarration.split(/\s+/).filter(Boolean).length} kelime bulundu. Kaynak denetimi başlıyor.`, "Kaynak bağlantılarını açıp ana iddiaları karşılaştıracağım.");
-      const factCheck = await verifyScriptSources(claimed.id, scriptText, rawNarration, claimed.title + ". " + topic);
+      const factCheck = await verifyScriptSources(claimed.id, scriptText, rawNarrationFinal, claimed.title + ". " + topic);
       // Kaynak doğrulaması tüm konular için zorunludur. Manuel konu girişi bu kapıyı atlayamaz.
       // Silme isteği üretim sürerken geldiyse senaryo kaydına yazmadan önce tekrar denetle.
       if (await isPermanentlyDeletedTopic(db, [claimed.title, topic])) {

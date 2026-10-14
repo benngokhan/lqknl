@@ -432,10 +432,10 @@ export async function POST(req: Request) {
     // TAZE KARAR = factCheck alanları VARSA. Kapı-öncesi dönemde yazılan taslakların
     // factCheck bloğu yoktur → o taslaklara "blok" muamelesi YAPILMAZ (doğrulama hiç koşmamıştır;
     // kullanıcı panelden onayladıysa üretim yürür).
-    const hasDraftVerdict = typeof draftFact.ok === "boolean" || typeof draftFact.manualGrace === "boolean";
+    const hasDraftVerdict = typeof draftFact.ok === "boolean";
     const draftOk = draftFact.ok === true;
-    const manualGrace = draftFact.manualGrace === true;
-    const gateEffective = !hasDraftVerdict || draftOk || manualGrace;
+    // Sıkı kaynak kontrolü: draftFact.ok mutlaka true olmalı, doğrulanmamış içerik üretilemez.
+    const gateEffective = draftOk;
     const gateMode = hasDraftVerdict
       ? draftOk ? "işçi: doğrulandı" : manualGrace ? "işçi: manuel koruma" : "işçi: BLOK (otomatik akış)"
       : "işçi: doğrulama öncesi taslak (panel onayı)";
@@ -614,10 +614,34 @@ export async function POST(req: Request) {
       throw new Error("Belirtilen video şablonu devre dışı (MIRA_USE_PY_MOTOR=0). Bu işlem gerçekleştirilmedi.");
     }
     await reportProgress(content.id, 82, "Video birleştiriliyor (marka motoru)");
-    const motorDesign = buildMotorDesign({
-      designSection: sections["TASARIM"],
-      title: content.title, topic, narration: narrationText, sections,
-    });
+    let motorDesign: MotorDesign;
+    try {
+      motorDesign = buildMotorDesign({
+        designSection: sections["TASARIM"],
+        title: content.title,
+        topic,
+        narration: narrationText,
+        sections,
+      });
+    } catch (designErr) {
+      const designMsg = designErr instanceof Error ? designErr.message : String(designErr);
+      await reportProgress(content.id, 0, `Hata: ${designMsg.slice(0, 200)}`, "failed");
+      await db.update(contentItems).set({ status: "failed", updatedAt: new Date() }).where(eq(contentItems.id, content.id));
+      await db.insert(operations).values({
+        action: "content_produce",
+        summary: `Video şablonu TASARIM hatası (#${content.id}): ${designMsg.slice(0, 180)}`,
+        status: "failed",
+        platform: content.platform,
+        metadata: { contentId: content.id, templateFailed: true, error: designMsg, stages },
+      }).catch(() => {});
+      return NextResponse.json({
+        ok: false,
+        produced: false,
+        templateFailed: true,
+        error: designMsg,
+        stages,
+      }, { status: 422 });
+    }
     let video: Buffer;
     let durationSeconds: number | null;
     let captionsUsed = 0;
