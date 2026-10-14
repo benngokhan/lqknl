@@ -776,10 +776,9 @@ export async function POST(req: Request) {
         }).returning();
 
         await db.insert(tasks).values({
-          taskType: "research_topic",
-          assignedTo: "worker",
+          title: `Araştırma konusu: ${title}`,
           status: "pending",
-          priority: 5,
+          source: "mira_manual_topic",
           notes: JSON.stringify({ contentId: draft.id, topic, manualTopic: true }),
         });
 
