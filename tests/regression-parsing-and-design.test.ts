@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseDraftScript, HEADINGS, normalizeHeadingName } from "../src/lib/script-parse";
 import { normalizeTitleLines, buildMotorDesign } from "../src/lib/motor-render";
+import { isTrustedSourceUrl, extractCandidateSourceUrls } from "../src/app/api/automation/worker/route";
 const opts = (designSection: string) => ({ designSection, title: "Başlık", topic: "Konu", narration: "Metin", sections: {} });
 
 test("1: Turkish heading normalization", () => {
@@ -46,4 +47,30 @@ test("12: design quality gate rejects missing fields, empty title and invalid JS
     assert.throws(() => buildMotorDesign(opts(json)), /TASARIM bloğu bulunamadı/);
   }
   assert.throws(() => buildMotorDesign(opts("")), /TASARIM bloğu bulunamadı/);
+});
+
+test("13: isTrustedSourceUrl accepts trusted domains and rejects untrusted ones", () => {
+  assert.equal(isTrustedSourceUrl("https://science.nasa.gov/universe/black-holes/"), true);
+  assert.equal(isTrustedSourceUrl("https://www.sleepfoundation.org/parasomnias/hypnic-jerks"), true);
+  assert.equal(isTrustedSourceUrl("https://tmsf.org.tr/tr/duyurular"), true);
+  assert.equal(isTrustedSourceUrl("https://stanford.edu/research/"), true);
+  assert.equal(isTrustedSourceUrl("http://science.nasa.gov/universe/black-holes/"), false);
+  assert.equal(isTrustedSourceUrl("https://untrusted-blog.xyz/fake-news"), false);
+});
+
+test("14: extractCandidateSourceUrls preserves trusted URLs even if stripped by model", () => {
+  const urls1 = extractCandidateSourceUrls("Kaynak: https://science.nasa.gov/universe/black-holes/", "");
+  assert.deepEqual(urls1, ["https://science.nasa.gov/universe/black-holes/"]);
+
+  const urls2 = extractCandidateSourceUrls(
+    "NASA Science (science.nasa.gov) - Black Holes",
+    "Karadelikler Kaynak: https://science.nasa.gov/universe/black-holes/"
+  );
+  assert.deepEqual(urls2, ["https://science.nasa.gov/universe/black-holes/"]);
+
+  const urls3 = extractCandidateSourceUrls("NASA Science (science.nasa.gov/universe/black-holes/)", "Karadelikler");
+  assert.deepEqual(urls3, ["https://science.nasa.gov/universe/black-holes/"]);
+
+  const urls4 = extractCandidateSourceUrls("Kaynak: https://untrusted-blog.xyz/article", "Haber");
+  assert.deepEqual(urls4, []);
 });

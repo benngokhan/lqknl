@@ -85,7 +85,7 @@ const TRUSTED_SOURCE_DOMAINS = [
   "bmj.com", "thelancet.com", "mdpi.com", "hindawi.com", "cambridge.org",
 ] as const;
 
-function isTrustedSourceUrl(raw: string): boolean {
+export function isTrustedSourceUrl(raw: string): boolean {
   try {
     const url = new URL(raw);
     if (url.protocol !== "https:") return false;
@@ -95,6 +95,43 @@ function isTrustedSourceUrl(raw: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function extractCandidateSourceUrls(sourceSection: string, topic?: string): string[] {
+  // 1. Önce senaryodaki KAYNAK bölümündeki doğrudan https:// linklerini ara
+  let candidates = [...sourceSection.matchAll(/https:\/\/[^\s)\]>]+/gi)]
+    .map((match) => match[0].replace(/[.,;]+$/, ""))
+    .filter((url, index, all) => all.indexOf(url) === index)
+    .filter((url) => isTrustedSourceUrl(url))
+    .slice(0, 3);
+
+  // 2. Model KAYNAK başlığına linki yazmamış veya eksiltmişse,
+  // kullanıcının sağladığı topic/girdi içindeki güvenilir HTTPS linklerini al
+  if (!candidates.length && topic) {
+    const topicCandidates = [...topic.matchAll(/https:\/\/[^\s)\]>]+/gi)]
+      .map((match) => match[0].replace(/[.,;]+$/, ""))
+      .filter((url, index, all) => all.indexOf(url) === index)
+      .filter((url) => isTrustedSourceUrl(url))
+      .slice(0, 3);
+    if (topicCandidates.length) {
+      candidates = topicCandidates;
+    }
+  }
+
+  // 3. Şemasız güvenilir alan adı verilmişse HTTPS ekleyip güvenilir listeyle dene
+  if (!candidates.length) {
+    const combined = sourceSection + (topic ? " " + topic : "");
+    const schemelessMatches = [...combined.matchAll(/(?:^|[\s([<])((?:[a-z0-9-]+\.)*(?:tmsf\.org\.tr|nasa\.gov|nih\.gov|merckmanuals\.com|sleepfoundation\.org|cdc\.gov|who\.int|harvard\.edu|nature\.com|science\.org)[^\s)\]>]*)/gi)]
+      .map((m) => "https://" + m[1].replace(/^https?:\/\//, "").replace(/[.,;]+$/, ""))
+      .filter((url, index, all) => all.indexOf(url) === index)
+      .filter((url) => isTrustedSourceUrl(url))
+      .slice(0, 3);
+    if (schemelessMatches.length) {
+      candidates = schemelessMatches;
+    }
+  }
+
+  return candidates;
 }
 
 async function loadArchiveContext(topic: string): Promise<string> {
@@ -350,6 +387,7 @@ export async function POST(req: Request) {
           "Kullanıcı girdisi KONU, KANCA, GELİŞME, KAYNAKLAR, BAŞLIK, AÇIKLAMA, ETİKETLER veya FORMAT gibi alanlar içeriyorsa bunu hazır içerik paketi kabul et. Alanları tek tek oku; kullanıcının kancasını, gelişmesini, başlığını, açıklamasını, CTA ve etiketlerini, süre/format talimatlarını koru. Metni genel bir konu başlığına indirgeme, alanları kaybetme veya verilen ayrıntıları baştan uydurarak değiştirme. Gerekirse yalnızca bilimsel doğruluk ve kısa video akışı için gerekli düzenlemeyi yap; önemli değişiklikleri sonuçta belirt.",
           "Kullanıcının KAYNAKLAR bölümünde belirttiği kurumlar veya yayınlar yalnızca araştırma adaylarıdır; ilgili kanıt bulunmadan doğrulanmış gibi sunma. Erişilebilir kaynak metnini kontrol et, her ana iddiayı ayrı değerlendir, desteklenmeyen iddiayı düzelt/yumuşat veya doğrulama gerektiğini açıkça belirt.",
           "Güvenilir kaynağı gerçekten bilmiyorsan kaynak veya URL uydurma; KAYNAK bölümüne yalnızca 'DOĞRULAMA GEREKLİ' yaz. Doğrulanmamış sayısal değer, rekor, teknik özellik veya kesin iddia ekleme.",
+          "KAYNAK bölümünde doğrulanabilir tam HTTPS linkini (ör. https://science.nasa.gov/...) mutlaka açık URL olarak yaz; linki kaybetme veya düz metne dönüştürme.",
           "Balık kabuğunun ilk telefon olduğu, uzayda çikolatanın yıldız gibi parladığı veya bir köpeğin yedi dil bildiği gibi temelsiz/kanıtsız iddiaları üretme.",
           "Çıktı başlıkları: KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI, SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER, TASARIM.",
           `SABİT GÖRSEL ŞABLON — yerleşim, renk, logo, font ve altyazı stili değiştirilemez; aşağıdaki spesifikasyonu aynen uygula:\n${templateSpec}`,
@@ -442,6 +480,7 @@ export async function POST(req: Request) {
             "Verilen senaryoyu baştan sona yeniden döndür. Konunun anlamını, doğrulanabilir iddiaları ve mevcut bilgileri koru; yeni doğrulanmamış bilgi veya kaynak uydurma.",
             "Aşağıdaki başlıkların HER BİRİ ayrı bir bölüm başlığı olarak, tam yazımıyla zorunludur: KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI, SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER, TASARIM.",
             "EKRAN METNİ bölümünde kısa Türkçe metinleri, GÖRSEL TASARIMI bölümünde tam 2 ayrı görsel promptunu yaz.",
+            "KAYNAK bölümünde doğrulanabilir tam HTTPS linkini (ör. https://science.nasa.gov/...) mutlaka açık URL olarak yaz.",
             "TASARIM bölümü en sonda yer almalı ve geçerli tek satır JSON içermelidir. Örnek: {\"title\":[[\"SATIR 1\"],[[\"SON SATIR\",\"g\"]]],\"note1\":\"ÖZET (CAPS)\",\"note2\":\"KAYNAK (YIL)\",\"accents\":[\"kelime1\",\"kelime2\"]}",
             "Kaynak güvenilir biçimde bilinmiyorsa KAYNAK bölümüne yalnızca DOĞRULAMA GEREKLİ yaz; URL veya kaynak adı uydurma.",
             "Yalnızca düzeltilmiş tam taslağı döndür; açıklama, özür veya eksik başlık listesi yazma.",
