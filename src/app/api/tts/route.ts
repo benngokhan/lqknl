@@ -27,10 +27,10 @@ export async function POST(req: Request) {
 
     const rawEmotion = body.emotion;
     const allowedEmotions: MiraTtsEmotion[] = ["happy", "surprised", "sad", "playful", "focused"];
-    const emotion: MiraTtsEmotion = allowedEmotions.includes(rawEmotion) ? rawEmotion : "happy";
+    const emotion: MiraTtsEmotion = allowedEmotions.includes(rawEmotion) ? rawEmotion : "playful";
     const rawMode = body.solMode;
     const allowedModes: MiraSolMode[] = ["sweet", "flirty", "serious", "excited", "close"];
-    const solMode: MiraSolMode = allowedModes.includes(rawMode) ? rawMode : "close";
+    const solMode: MiraSolMode = allowedModes.includes(rawMode) ? rawMode : "flirty";
     const narration = await generateNarration(text, { emotion, solMode });
 
     // format:"json" → ses + senkron altyazı + gerçek süre (içerik hattı için)
