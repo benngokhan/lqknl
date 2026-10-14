@@ -47,7 +47,7 @@ export async function generateWithElevenLabs(text: string): Promise<Uint8Array> 
         "Content-Type": "application/json",
         Accept: "audio/mpeg",
       },
-      body: JSON.stringify({ text, model_id: modelId, language_code: "tr", voice_settings: { speed: 1.05 } }),
+      body: JSON.stringify({ text, model_id: modelId, language_code: "tr", voice_settings: { speed: 1.10 } }),
       signal: AbortSignal.timeout(45000),
       cache: "no-store",
     },
@@ -226,7 +226,7 @@ function emotionAwareRate(options: NarrationOptions): string {
   };
   const emotion = options.emotion ?? "happy";
   const mode = options.solMode ?? "close";
-  const rate = Math.max(-20, Math.min(20, Math.round(base + emotionDelta[emotion] + modeDelta[mode])));
+  const rate = Math.max(-20, Math.min(20, Math.round(base + emotionDelta[emotion] + modeDelta[mode] + 5)));
   return `${rate >= 0 ? "+" : ""}${rate}%`;
 }
 
