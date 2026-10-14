@@ -9,7 +9,7 @@ import { generateWithFallback } from "@/lib/model-manager";
 import { generateNarration, type CaptionGroup } from "@/lib/narration";
 import { generateImage } from "@/lib/generate-image";
 import { renderShort, type RenderImage } from "@/lib/render-video";
-import { renderWithMotor, buildMotorDesign, MotorQCFailError } from "@/lib/motor-render";
+import { renderWithMotor, buildMotorDesign, MotorQCFailError, type MotorDesign } from "@/lib/motor-render";
 import { extractNarration, parseDraftScript, capNarrationForDuration } from "@/lib/script-parse";
 import { sendTelegramMessage } from "@/lib/telegram";
 import { spawn } from "node:child_process";
