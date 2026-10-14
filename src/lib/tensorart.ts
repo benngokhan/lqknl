@@ -38,6 +38,10 @@ async function readJson(response: Response): Promise<unknown> {
     throw new Error(`Tensor.Art API JSON döndürmedi (HTTP ${response.status})`);
   }
   if (!response.ok) {
+    // Tensor.Art sometimes returns the generic "Params Valid" message.
+    // Preserve the bounded response body in server logs so the next test
+    // can reveal any structured validation details without logging credentials.
+    console.error("Tensor.Art API hata yanıtı:", JSON.stringify(parsed).slice(0, 1200));
     const data = parsed as { message?: string; error?: string };
     const detail = (data?.message || data?.error || "istek reddedildi").slice(0, 300);
     const authHint = /invalid authorization/i.test(detail)
