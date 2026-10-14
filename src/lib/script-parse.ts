@@ -1,8 +1,8 @@
 // İşçi (worker) tarafından üretilen taslak metnini bölümlerine ayırır.
 // Beklenen başlıklar: KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI,
-// SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER
+// SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER, TASARIM
 
-const HEADINGS = [
+export const HEADINGS = [
   "KANCA",
   "SESLENDİRME",
   "EKRAN METNİ",
@@ -14,22 +14,81 @@ const HEADINGS = [
   "TASARIM",
 ] as const;
 
-export type DraftSections = Partial<Record<(typeof HEADINGS)[number], string>>;
+export type DraftHeading = (typeof HEADINGS)[number];
+export type DraftSections = Partial<Record<DraftHeading, string>>;
+
+function turkishRegexPattern(str: string): string {
+  return str
+    .replace(/[iIİı]/g, "[iIİı]")
+    .replace(/[sSŞş]/g, "[sSŞş]")
+    .replace(/[cCÇç]/g, "[cCÇç]")
+    .replace(/[gGĞğ]/g, "[gGĞğ]")
+    .replace(/[uUÜü]/g, "[uUÜü]")
+    .replace(/[oOÖö]/g, "[oOÖö]");
+}
+
+export function normalizeHeadingName(raw: string): DraftHeading | null {
+  const clean = raw.trim().toLocaleLowerCase("tr-TR");
+  for (const h of HEADINGS) if (h.toLocaleLowerCase("tr-TR") === clean) return h;
+  return null;
+}
+
+const HEADING_PATTERNS = HEADINGS.map(turkishRegexPattern).join("|");
 
 export function parseDraftScript(script: string): DraftSections {
   const sections: DraftSections = {};
-  // Başlıkları satır başında ara: "SESLENDİRME:", "## SESLENDİRME", "**SESLENDİRME**" vb.
+  // Markdown, numaralandırma, kalın yazım ve isteğe bağlı (JSON) eki desteklenir.
   const headingPattern = new RegExp(
-    `^\\s*(?:#{1,4}\\s*|\\*\\*)?\\s*(${HEADINGS.join("|")})\\s*(?:\\*\\*)?\\s*:?\\s*$`,
+    `^\\s*(?:#{1,6}\\s*)?(?:\\*{1,3})?\\s*(?:\\d+[\\.\\)]\\s*)?(?:\\*{1,3})?\\s*(${HEADING_PATTERNS})(?:\\s*\\([^)]*\\))?\\s*(?:\\*{1,3})?:?\\s*(?:\\*{1,3})?:?\\s*// İşçi (worker) tarafından üretilen taslak metnini bölümlerine ayırır.
+// Beklenen başlıklar: KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI,
+// SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER, TASARIM
+
+export const HEADINGS = [
+  "KANCA",
+  "SESLENDİRME",
+  "EKRAN METNİ",
+  "GÖRSEL TASARIMI",
+  "SES VE MÜZİK",
+  "KAYNAK",
+  "AÇIKLAMA",
+  "ETİKETLER",
+  "TASARIM",
+] as const;
+
+export type DraftHeading = (typeof HEADINGS)[number];
+export type DraftSections = Partial<Record<DraftHeading, string>>;
+
+function turkishRegexPattern(str: string): string {
+  return str
+    .replace(/[iIİı]/g, "[iIİı]")
+    .replace(/[sSŞş]/g, "[sSŞş]")
+    .replace(/[cCÇç]/g, "[cCÇç]")
+    .replace(/[gGĞğ]/g, "[gGĞğ]")
+    .replace(/[uUÜü]/g, "[uUÜü]")
+    .replace(/[oOÖö]/g, "[oOÖö]");
+}
+
+export function normalizeHeadingName(raw: string): DraftHeading | null {
+  const clean = raw.trim().toLocaleLowerCase("tr-TR");
+  for (const h of HEADINGS) if (h.toLocaleLowerCase("tr-TR") === clean) return h;
+  return null;
+}
+
+const HEADING_PATTERNS = HEADINGS.map(turkishRegexPattern).join("|");
+
+export function parseDraftScript(script: string): DraftSections {
+  const sections: DraftSections = {};
+,
     "gmi",
   );
   const matches = [...script.matchAll(headingPattern)];
   for (let i = 0; i < matches.length; i++) {
-    const name = matches[i][1].toUpperCase() as (typeof HEADINGS)[number];
+    const canonical = normalizeHeadingName(matches[i][1]);
+    if (!canonical) continue;
     const start = (matches[i].index ?? 0) + matches[i][0].length;
     const end = i + 1 < matches.length ? (matches[i + 1].index ?? script.length) : script.length;
     const value = script.slice(start, end).trim();
-    if (value && !sections[name]) sections[name] = value;
+    if (value && !sections[canonical]) sections[canonical] = value;
   }
   return sections;
 }
