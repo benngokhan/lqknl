@@ -432,7 +432,7 @@ export async function POST(req: Request) {
     // TAZE KARAR = factCheck alanları VARSA. Kapı-öncesi dönemde yazılan taslakların
     // factCheck bloğu yoktur → o taslaklara "blok" muamelesi YAPILMAZ (doğrulama hiç koşmamıştır;
     // kullanıcı panelden onayladıysa üretim yürür).
-    const hasDraftVerdict = typeof draftFact.ok === "boolean";
+    const hasDraftVerdict = typeof draftFact.ok === "boolean" || typeof draftFact.manualGrace === "boolean";
     const draftOk = draftFact.ok === true;
     const manualGrace = draftFact.manualGrace === true;
     // Sıkı kaynak kontrolü: draftFact.ok mutlaka true olmalı, doğrulanmamış içerik üretilemez.
