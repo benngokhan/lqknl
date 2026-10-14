@@ -85,35 +85,6 @@ export async function pythonAvailable(): Promise<string | null> {
 }
 
 /**
- * Motor başlık formatını normalleştirir; iç içe segmentleri korur.
- */
-export function normalizeTitleLines(rawTitle: unknown): unknown[][] {
-  if (!rawTitle) return [];
-  let lines: unknown[] = [];
-  if (Array.isArray(rawTitle)) lines = rawTitle;
-  else if (typeof rawTitle === "string" && rawTitle.trim()) lines = rawTitle.split(/\\r?\\n/).map((s) => s.trim()).filter(Boolean);
-  else return [];
-  if (!lines.length) return [];
-  return lines.map((line, idx, arr) => {
-    if (typeof line === "string") {
-      const trimmed = line.trim();
-      if (!trimmed) return [""];
-      return idx === arr.length - 1 && arr.length > 1 ? [[trimmed, "g"]] : [trimmed];
-    }
-    if (Array.isArray(line)) {
-      if (!line.length) return [""];
-      if (line.length === 2 && typeof line[0] === "string" && typeof line[1] === "string" && line[1].length <= 2) return [[line[0], line[1]]];
-      return line.map((seg) => {
-        if (typeof seg === "string") return seg;
-        if (Array.isArray(seg) && seg.length === 2 && typeof seg[0] === "string") return [seg[0], String(seg[1])];
-        return String(seg);
-      });
-    }
-    return [String(line)];
-  });
-}
-
-/**
  * Senaryo bölümlerinden marka tasarım alanları çıkarır.
  * Öncelik: worker'ın yeni TASARIM bloğu (JSON satır). Yoksa sezgisel geri doldur:
  * başlık = başlıktan büyük harf satırları (son satır yeşil), note1 = EKRAN METNİ/AÇIKLAMA,
@@ -144,13 +115,14 @@ export function buildMotorDesign(opts: {
       try { parsed = JSON.parse(raw.slice(first, last + 1)) as Partial<MotorDesign>; } catch { /* fail closed below */ }
     }
   }
-  if (!parsed || typeof parsed !== "object") throw fail();
-  const titleLines = normalizeTitleLines(parsed.title);
-  if (titleLines.length === 0 || !parsed.note1 || !parsed.note2 ||
-      !titleLines.every((line) => Array.isArray(line) && line.length > 0)) throw fail();
+  if (!parsed || !Array.isArray(parsed.title) || parsed.title.length === 0 ||
+      !parsed.note1 || !parsed.note2 ||
+      !parsed.title.every((line) => Array.isArray(line) && line.length > 0)) {
+    throw fail();
+  }
 
   return {
-    title: titleLines,
+    title: parsed.title as unknown[][],
     note1: String(parsed.note1).slice(0, 90),
     note2: String(parsed.note2).slice(0, 90),
     accents: Array.isArray(parsed.accents) ? parsed.accents.slice(0, 5).map(String) : [],

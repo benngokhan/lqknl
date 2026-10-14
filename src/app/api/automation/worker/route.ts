@@ -10,7 +10,6 @@ import { isPermanentlyDeletedTopic } from "@/lib/deleted-topics";
 import { generateWithFallback } from "@/lib/model-manager";
 import { sendTelegramMessage } from "@/lib/telegram";
 import { extractNarration, parseDraftScript } from "@/lib/script-parse";
-import { normalizeTitleLines } from "@/lib/motor-render";
 import { searchAcademicSources } from "@/lib/source-search";
 
 export const dynamic = "force-dynamic";
@@ -388,14 +387,17 @@ export async function POST(req: Request) {
             try { parsed = JSON.parse(clean.slice(f, l + 1)) as Record<string, unknown>; } catch { return false; }
           }
         }
-        if (!parsed || typeof parsed !== "object") return false;
-        const titleLines = normalizeTitleLines(parsed.title);
-        if (titleLines.length === 0 || !parsed.note1 || !parsed.note2) return false;
+        if (!parsed || !Array.isArray(parsed.title) || parsed.title.length === 0 || !parsed.note1 || !parsed.note2) {
+          return false;
+        }
         return true;
       };
       const findMissingHeadings = (text: string) => {
-        const sec = parseDraftScript(text);
-        const missing = requiredHeadings.filter((heading) => !sec[heading as keyof typeof sec]);
+        const missing = requiredHeadings.filter((heading) => {
+          // Başlık tam bir satır olmalı; GÖRSEL TASARIMI, TASARIM yerine geçemez.
+          const exactHeading = new RegExp("^\\s*(?:#{1,4}\\s*)?(?:\\*\\*)?" + heading + "(?:\\*\\*)?\\s*:?\\s*$", "im");
+          return !exactHeading.test(text);
+        });
         if (!missing.includes("TASARIM") && !validateTasarimJson(text)) {
           missing.push("TASARIM (geçerli JSON ve zorunlu alanlar: title, note1, note2)");
         }
@@ -429,7 +431,7 @@ export async function POST(req: Request) {
 
         return issues;
       };
-      let missingHeadings = [...findMissingHeadings(generated), ...validateScriptQuality(generated, topic)];
+let missingHeadings = [...findMissingHeadings(generated), ...validateScriptQuality(generated, topic)];
       let scriptText = generated;
       let scriptProvider = { provider: result.provider, model: result.model };
 
@@ -441,8 +443,7 @@ export async function POST(req: Request) {
             "Sen Mira'nın taslak biçimi düzeltme motorusun.",
             "Verilen senaryoyu baştan sona yeniden döndür. Konunun anlamını, doğrulanabilir iddiaları ve mevcut bilgileri koru; yeni doğrulanmamış bilgi veya kaynak uydurma.",
             "Aşağıdaki başlıkların HER BİRİ ayrı bir bölüm başlığı olarak, tam yazımıyla zorunludur: KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI, SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER, TASARIM.",
-            "EKRAN METNİ bölümünde kısa Türkçe metinleri, GÖRSEL TASARIMI bölümünde tam 2 ayrı görsel promptunu yaz.",
-            "TASARIM bölümü en sonda yer almalı ve geçerli tek satır JSON içermelidir. Örnek: {\"title\":[[\"SATIR 1\"],[[\"SON SATIR\",\"g\"]]],\"note1\":\"ÖZET (CAPS)\",\"note2\":\"KAYNAK (YIL)\",\"accents\":[\"kelime1\",\"kelime2\"]}",
+            "EKRAN METNİ bölümünde kısa Türkçe metinleri, GÖRSEL TASARIMI bölümünde tam 2 ayrı görsel promptunu yaz. TASARIM bölümünde geçerli JSON ve title, note1, note2, accents alanları zorunludur.",
             "Kaynak güvenilir biçimde bilinmiyorsa KAYNAK bölümüne yalnızca DOĞRULAMA GEREKLİ yaz; URL veya kaynak adı uydurma.",
             "Yalnızca düzeltilmiş tam taslağı döndür; açıklama, özür veya eksik başlık listesi yazma.",
           ].join("\n"),

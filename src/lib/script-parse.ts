@@ -29,7 +29,9 @@ function turkishRegexPattern(str: string): string {
 
 export function normalizeHeadingName(raw: string): DraftHeading | null {
   const clean = raw.trim().toLocaleLowerCase("tr-TR");
-  for (const h of HEADINGS) if (h.toLocaleLowerCase("tr-TR") === clean) return h;
+  for (const h of HEADINGS) {
+    if (h.toLocaleLowerCase("tr-TR") === clean) return h;
+  }
   return null;
 }
 
@@ -37,48 +39,9 @@ const HEADING_PATTERNS = HEADINGS.map(turkishRegexPattern).join("|");
 
 export function parseDraftScript(script: string): DraftSections {
   const sections: DraftSections = {};
-  // Markdown, numaralandırma, kalın yazım ve isteğe bağlı (JSON) eki desteklenir.
+  // Başlıkları satır başında ara: "SESLENDİRME:", "## SESLENDİRME", "**SESLENDİRME**" vb.
   const headingPattern = new RegExp(
-    `^\\s*(?:#{1,6}\\s*)?(?:\\*{1,3})?\\s*(?:\\d+[\\.\\)]\\s*)?(?:\\*{1,3})?\\s*(${HEADING_PATTERNS})(?:\\s*\\([^)]*\\))?\\s*(?:\\*{1,3})?:?\\s*(?:\\*{1,3})?:?\\s*// İşçi (worker) tarafından üretilen taslak metnini bölümlerine ayırır.
-// Beklenen başlıklar: KANCA, SESLENDİRME, EKRAN METNİ, GÖRSEL TASARIMI,
-// SES VE MÜZİK, KAYNAK, AÇIKLAMA, ETİKETLER, TASARIM
-
-export const HEADINGS = [
-  "KANCA",
-  "SESLENDİRME",
-  "EKRAN METNİ",
-  "GÖRSEL TASARIMI",
-  "SES VE MÜZİK",
-  "KAYNAK",
-  "AÇIKLAMA",
-  "ETİKETLER",
-  "TASARIM",
-] as const;
-
-export type DraftHeading = (typeof HEADINGS)[number];
-export type DraftSections = Partial<Record<DraftHeading, string>>;
-
-function turkishRegexPattern(str: string): string {
-  return str
-    .replace(/[iIİı]/g, "[iIİı]")
-    .replace(/[sSŞş]/g, "[sSŞş]")
-    .replace(/[cCÇç]/g, "[cCÇç]")
-    .replace(/[gGĞğ]/g, "[gGĞğ]")
-    .replace(/[uUÜü]/g, "[uUÜü]")
-    .replace(/[oOÖö]/g, "[oOÖö]");
-}
-
-export function normalizeHeadingName(raw: string): DraftHeading | null {
-  const clean = raw.trim().toLocaleLowerCase("tr-TR");
-  for (const h of HEADINGS) if (h.toLocaleLowerCase("tr-TR") === clean) return h;
-  return null;
-}
-
-const HEADING_PATTERNS = HEADINGS.map(turkishRegexPattern).join("|");
-
-export function parseDraftScript(script: string): DraftSections {
-  const sections: DraftSections = {};
-,
+    \`^\\s*(?:#{1,6}\\s*)?(?:\\*{1,3})?\\s*(?:\\d+[\\.\\)]\\s*)?(?:\\*{1,3})?\\s*(${HEADING_PATTERNS})(?:\\s*\\([^)]*\\))?\\s*(?:\\*{1,3})?:?\\s*(?:\\*{1,3})?:?\\s*$\`,
     "gmi",
   );
   const matches = [...script.matchAll(headingPattern)];
