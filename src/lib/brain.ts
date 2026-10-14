@@ -221,6 +221,33 @@ Sadece JSON döndür: {"reply": string, "emotion": "happy"|"surprised"|"sad"|"pl
 
     let reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
 
+    // Bazı sağlayıcılar JSON yanıtını bir kez daha reply alanının içine koyabiliyor.
+    // Kullanıcıya dış JSON'u değil, gerçek mesaj metnini göster.
+    for (let depth = 0; depth < 2; depth++) {
+      const candidate = reply.trim();
+      if (!candidate.startsWith("{") || !candidate.endsWith("}")) break;
+      try {
+        const nested = JSON.parse(candidate) as { reply?: unknown; emotion?: unknown };
+        if (typeof nested.reply !== "string" || !nested.reply.trim()) break;
+        reply = nested.reply.trim();
+        if (["happy", "surprised", "sad", "playful", "focused"].includes(String(nested.emotion))) {
+          parsed.emotion = nested.emotion;
+        }
+      } catch {
+        break;
+      }
+    }
+
+    // HTML disclosure etiketlerini ve yalnızca metni saran kod çitlerini temizle.
+    // Başlık ve senaryo, sohbet ekranında doğrudan okunabilir biçimde kalır.
+    reply = reply
+      .replace(/<summary\b[^>]*>([\s\S]*?)<\/summary>/giu, "**$1**")
+      .replace(/<details\b[^>]*>|<\/details>/giu, "")
+      .replace(/<br\s*\/?\s*>/giu, "\n")
+      .replace(/<[^>]+>/gu, "")
+      .replace(/^\s*```(?:text|markdown)?\s*\n([\s\S]*?)\n```\s*$/iu, "$1")
+      .trim();
+
     if (!reply) {
       const alt = parsed as Record<string, unknown>;
 
