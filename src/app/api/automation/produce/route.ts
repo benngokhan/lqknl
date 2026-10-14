@@ -9,7 +9,7 @@ import { generateWithFallback } from "@/lib/model-manager";
 import { generateNarration, type CaptionGroup } from "@/lib/narration";
 import { generateImage } from "@/lib/generate-image";
 import { renderShort, type RenderImage } from "@/lib/render-video";
-import { renderWithMotor, buildMotorDesign, MotorQCFailError } from "@/lib/motor-render";
+import { renderWithMotor, buildMotorDesign, MotorQCFailError, type MotorDesign } from "@/lib/motor-render";
 import { extractNarration, parseDraftScript, capNarrationForDuration } from "@/lib/script-parse";
 import { sendTelegramMessage } from "@/lib/telegram";
 import { spawn } from "node:child_process";
@@ -432,8 +432,9 @@ export async function POST(req: Request) {
     // TAZE KARAR = factCheck alanları VARSA. Kapı-öncesi dönemde yazılan taslakların
     // factCheck bloğu yoktur → o taslaklara "blok" muamelesi YAPILMAZ (doğrulama hiç koşmamıştır;
     // kullanıcı panelden onayladıysa üretim yürür).
-    const hasDraftVerdict = typeof draftFact.ok === "boolean";
+    const hasDraftVerdict = typeof draftFact.ok === "boolean" || typeof draftFact.manualGrace === "boolean";
     const draftOk = draftFact.ok === true;
+    const manualGrace = draftFact.manualGrace === true;
     // Sıkı kaynak kontrolü: draftFact.ok mutlaka true olmalı, doğrulanmamış içerik üretilemez.
     const gateEffective = draftOk;
     const gateMode = hasDraftVerdict
