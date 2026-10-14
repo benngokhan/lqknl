@@ -91,7 +91,7 @@ export function normalizeTitleLines(rawTitle: unknown): unknown[][] {
   if (!rawTitle) return [];
   let lines: unknown[] = [];
   if (Array.isArray(rawTitle)) lines = rawTitle;
-  else if (typeof rawTitle === "string" && rawTitle.trim()) lines = rawTitle.split(/\\r?\\n/).map((s) => s.trim()).filter(Boolean);
+  else if (typeof rawTitle === "string" && rawTitle.trim()) lines = rawTitle.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   else return [];
   if (!lines.length) return [];
   return lines.map((line, idx, arr) => {
