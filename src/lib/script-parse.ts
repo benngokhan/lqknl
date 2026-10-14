@@ -41,7 +41,7 @@ export function parseDraftScript(script: string): DraftSections {
   const sections: DraftSections = {};
   // Başlıkları satır başında ara: "SESLENDİRME:", "## SESLENDİRME", "**SESLENDİRME**" vb.
   const headingPattern = new RegExp(
-    \`^\\s*(?:#{1,6}\\s*)?(?:\\*{1,3})?\\s*(?:\\d+[\\.\\)]\\s*)?(?:\\*{1,3})?\\s*(${HEADING_PATTERNS})(?:\\s*\\([^)]*\\))?\\s*(?:\\*{1,3})?:?\\s*(?:\\*{1,3})?:?\\s*$\`,
+    `^\\s*(?:#{1,6}\\s*)?(?:\\*{1,3})?\\s*(?:\\d+[\\.\\)]\\s*)?(?:\\*{1,3})?\\s*(${HEADING_PATTERNS})(?:\\s*\\([^)]*\\))?\\s*(?:\\*{1,3})?:?\\s*(?:\\*{1,3})?:?\\s*$`,
     "gmi",
   );
   const matches = [...script.matchAll(headingPattern)];
