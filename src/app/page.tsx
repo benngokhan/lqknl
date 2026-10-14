@@ -64,6 +64,80 @@ const COMMANDS = [
   { command: '/oku ', description: 'GitHub reposundan dosya içeriğini okur' },
 ];
 
+function renderPanelInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
+  const tokenPattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>]+)|\*\*([^*\n]+)\*\*|__([^_\n]+)__|\*([^*\n]+)\*|_([^_\n]+)_|`([^`\n]+)`/g;
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = tokenPattern.exec(text))) {
+    if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
+    const key = `${keyPrefix}-${nodes.length}`;
+    if (match[1] && match[2]) {
+      nodes.push(<a key={key} href={match[2]} target="_blank" rel="noopener noreferrer" className="text-sky-300 underline decoration-sky-300/50 underline-offset-2 break-all hover:text-sky-200">{match[1]}</a>);
+    } else if (match[3]) {
+      const rawUrl = match[3];
+      const url = rawUrl.replace(/[.,!?;:]+$/, "");
+      const trailing = rawUrl.slice(url.length);
+      nodes.push(<a key={key} href={url} target="_blank" rel="noopener noreferrer" className="text-sky-300 underline decoration-sky-300/50 underline-offset-2 break-all hover:text-sky-200">{url}</a>);
+      if (trailing) nodes.push(trailing);
+    } else if (match[4] || match[5]) {
+      nodes.push(<strong key={key} className="font-bold text-white">{match[4] ?? match[5]}</strong>);
+    } else if (match[6] || match[7]) {
+      nodes.push(<em key={key} className="italic">{match[6] ?? match[7]}</em>);
+    } else if (match[8]) {
+      nodes.push(<code key={key} className="rounded bg-slate-950/80 px-1.5 py-0.5 text-amber-200 text-[0.95em]">{match[8]}</code>);
+    }
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < text.length) nodes.push(text.slice(cursor));
+  return nodes;
+}
+
+function renderPanelMarkdown(content: string): ReactNode {
+  const lines = content.replace(/\r\n?/g, "\n").split("\n");
+  const blocks: ReactNode[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i += 1; continue; }
+    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      const level = heading[1].length;
+      const cls = level <= 2 ? "text-base font-bold text-white" : "text-sm font-bold text-white";
+      blocks.push(<div key={`heading-${i}`} className={cls}>{renderPanelInlineMarkdown(heading[2], `heading-${i}`)}</div>);
+      i += 1;
+      continue;
+    }
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const items: ReactNode[] = [];
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
+        const item = lines[i].replace(/^\s*[-*+]\s+/, "");
+        items.push(<li key={`li-${i}`}>{renderPanelInlineMarkdown(item, `li-${i}`)}</li>);
+        i += 1;
+      }
+      blocks.push(<ul key={`ul-${i}`} className="list-disc space-y-1 pl-5">{items}</ul>);
+      continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const items: ReactNode[] = [];
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
+        const item = lines[i].replace(/^\s*\d+[.)]\s+/, "");
+        items.push(<li key={`oli-${i}`}>{renderPanelInlineMarkdown(item, `oli-${i}`)}</li>);
+        i += 1;
+      }
+      blocks.push(<ol key={`ol-${i}`} className="list-decimal space-y-1 pl-5">{items}</ol>);
+      continue;
+    }
+    const paragraph: string[] = [];
+    while (i < lines.length && lines[i].trim() && !/^\s{0,3}#{1,6}\s+/.test(lines[i]) && !/^\s*[-*+]\s+/.test(lines[i]) && !/^\s*\d+[.)]\s+/.test(lines[i])) {
+      paragraph.push(lines[i]);
+      i += 1;
+    }
+    blocks.push(<p key={`p-${i}`} className="whitespace-pre-wrap break-words">{renderPanelInlineMarkdown(paragraph.join("\n"), `p-${i}`)}</p>);
+  }
+  return <div className="space-y-2 text-slate-100">{blocks}</div>;
+}
+
 function renderAnalysisReport(report: string | null | undefined): ReactNode[] {
   if (!report) return [];
   const lines = report.split(/\r?\n/);
@@ -895,7 +969,7 @@ export default function Home() {
 
     return (
       <div className="space-y-2">
-        <div className="whitespace-pre-wrap text-slate-100">{msg.content}</div>
+        {renderPanelMarkdown(msg.content)}
         {msg.imageUrl && (
           <img
             src={msg.imageUrl}
