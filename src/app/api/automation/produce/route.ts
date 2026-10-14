@@ -434,6 +434,7 @@ export async function POST(req: Request) {
     // kullanıcı panelden onayladıysa üretim yürür).
     const hasDraftVerdict = typeof draftFact.ok === "boolean";
     const draftOk = draftFact.ok === true;
+    const manualGrace = draftFact.manualGrace === true;
     // Sıkı kaynak kontrolü: draftFact.ok mutlaka true olmalı, doğrulanmamış içerik üretilemez.
     const gateEffective = draftOk;
     const gateMode = hasDraftVerdict
