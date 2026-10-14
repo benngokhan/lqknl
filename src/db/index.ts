@@ -27,8 +27,9 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-if (process.env.NODE_ENV !== "production") {
-  globalForDb.__arenaNextJsPostgresqlPool = pool;
-}
+// Reuse one pool across route bundles in every environment. Without the
+// production global, independently bundled route handlers can create multiple
+// pools and exhaust the hosted PostgreSQL connection limit.
+globalForDb.__arenaNextJsPostgresqlPool = pool;
 
 export const db = drizzle(pool);
