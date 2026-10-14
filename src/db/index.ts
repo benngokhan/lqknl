@@ -15,9 +15,15 @@ export const pool =
     connectionString: databaseUrl,
     max: 10,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
+    connectionTimeoutMillis: 10000,
     statement_timeout: 30000,
+    keepAlive: true,
   });
+
+// Capture errors from idle clients so an unexpected disconnect is logged.
+pool.on("error", (err) => {
+  console.error("Beklenmeyen Postgres havuz hatası:", err.message);
+});
 
 // Graceful shutdown
 if (process.env.NODE_ENV === "production") {
