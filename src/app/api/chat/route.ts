@@ -137,7 +137,8 @@ export async function POST(req: Request) {
           '/taslak-sil <id> — Taslağı listeden kaldırır; denetim için kaydı korur.',
           '/n8n — n8n bağlantı durumunu kontrol eder.',
           '/yt-viral <konu> — YouTube Shorts otomasyonunu başlatır.',
-          '/video <id> — Taslağı MP4 olarak üretir (id yoksa en eski onaylı taslak).',
+          '/video-uret <id> — Belirtilen onaylı içeriğin videosunu üretir.',
+          '/paylas-icerik <konu> — İçeriği Mira’nın üslubuyla hazırlar ve taslak olarak kaydeder.',
           '/oku <dosya> — GitHub reposundaki dosyayı okur.',
         ].join('\\n'),
         emotion: 'focused',
@@ -505,21 +506,15 @@ export async function POST(req: Request) {
       }
     }
 
-    // Video üretimi yalnızca açık bir eylem komutuyla tetiklenir.
-    // Mesaj içinde "video üret" ifadesinin geçmesi veya bu konuda soru sorulması yeterli değildir.
+    // Yan etkili işlemler yalnızca açık slash komutlarıyla başlar.
+    // Normal konuşmada "video üret" ifadesinin geçmesi üretimi tetiklemez.
     const trimmedIntent = message.trim();
     const isDiscussionOrQuestion =
       /[?？]\s*$/u.test(trimmedIntent) ||
       /(?:\b(?:neden|niçin|niye|nasıl|ne demek|sorun|çözüm|komut|ifade|kelime|cümle|geçtiği zaman|geçtiği için|bahset|konuşalım|açıkla|incele)\b)/iu.test(trimmedIntent);
-    const endsWithVideoAction =
-      /\b(?:video(?:yu|nun)?|mp4(?:\s+video)?)\s+(?:üret|oluştur|hazırla)\s*[.!…]*$/iu.test(trimmedIntent) ||
-      /\b(?:videoyu|bunu|şunu|taslağı)\s+(?:üret|oluştur|hazırla)\s*[.!…]*$/iu.test(trimmedIntent);
-    const startsWithExplicitVideoAction =
-      /^(?:(?:lütfen|bana|şimdi|hemen)\s+)*(?:video(?:yu)?|mp4\s+video)\s+(?:üret|oluştur|hazırla)\s*[:：-]/iu.test(trimmedIntent);
-    const wantsVideoProduction = !isDiscussionOrQuestion && (endsWithVideoAction || startsWithExplicitVideoAction);
-    if (command === '/video' || /^\/video(?:\s|$)/iu.test(trimmedIntent) || wantsVideoProduction) {
-      // ID'yi yalnızca bağımsız sayı olarak al ("MP4" içindeki 4 sayılmaz)
-      const idMatch = message.replace(/^\/video/i, '').match(/(?:^|[^\w])(\d+)(?=$|[^\w])/);
+    if (command === '/video-uret' || /^\/video-uret(?:\s|$)/iu.test(trimmedIntent)) {
+      // ID yalnızca bağımsız sayı olarak alınır; MP4 içindeki 4 sayı sayılmaz.
+      const idMatch = message.replace(/^\/video-uret/i, '').match(/(?:^|[^\w])(\d+)(?=$|[^\w])/);
       const contentId = idMatch ? Number(idMatch[1]) : null;
       const origin = selfOrigin();
       const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
@@ -757,7 +752,9 @@ export async function POST(req: Request) {
 
     // Taslak kaydı yalnızca açık bir üretim isteğiyle yapılır; konu hakkında konuşmak,
     // taslakları listelemek veya "video üret" komutunu tartışmak kayıt başlatmaz.
+    const isShareContentCommand = /^\/paylas-icerik(?:\s|$)/iu.test(trimmedIntent);
     const hasExplicitDraftCommand =
+      isShareContentCommand ||
       /^(?:(?:lütfen|bana)\s+)*(?:bir\s+)?(?:taslak|senaryo|içerik)\s+(?:oluştur|hazırla|üret|yaz)\s*[:：-]\s*\S/iu.test(trimmedIntent);
     // Prompt şablonları ve konu isteyen talimat metinleri içerik üretim komutu değildir.
     // Bunlar "yaz/üret", "Telegram" gibi kelimeler içerse bile taslak veya bildirim yan etkisi oluşturamaz.
@@ -797,8 +794,11 @@ export async function POST(req: Request) {
       !/^Bu işlem için doğrulanmış bir sonuç henüz yok/iu.test(result.reply);
 
     if (asksForContentDraft && hasUsableDraftReply) {
-      const title = message.trim().replace(/^(?:bana|lütfen)\s*/iu, "").slice(0, 160) || "Yeni YouTube Shorts taslağı";
-      const topic = message.trim().slice(0, 2000);
+      const firstReplyHeading = result.reply.split(/\r?\n/u).map((line) => line.replace(/^\s{0,3}#{1,6}\s*/, "").replace(/^\*\*(.*?)\*\*$/, "$1").trim()).find((line) => line.length > 0);
+      const title = isShareContentCommand
+        ? (firstReplyHeading || "Yeni YouTube Shorts taslağı").slice(0, 160)
+        : message.trim().replace(/^(?:bana|lütfen)\s*/iu, "").slice(0, 160) || "Yeni YouTube Shorts taslağı";
+      const topic = message.trim().replace(/^\/paylas-icerik\s*/iu, "").slice(0, 2000) || message.trim().slice(0, 2000);
 
       try {
         if (await isPermanentlyDeletedTopic(db, [title, topic])) {
