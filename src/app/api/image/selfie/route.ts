@@ -11,6 +11,30 @@ const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
 const HF_SPACE = "Qwen/Qwen-Image-2.1";
 const HF_SPACE_URL = "https://qwen-qwen-image-2-1.hf.space";
 
+function isTrustedImageHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === "huggingface.co" ||
+    host.endsWith(".huggingface.co") ||
+    host.endsWith(".hf.space");
+}
+
+function detectImageType(buffer: Buffer): string | null {
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    return "image/png";
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (buffer.length >= 12 && buffer.toString("ascii", 0, 4) === "RIFF" &&
+      buffer.toString("ascii", 8, 12) === "WEBP") {
+    return "image/webp";
+  }
+  if (buffer.length >= 6 && ["GIF87a", "GIF89a"].includes(buffer.toString("ascii", 0, 6))) {
+    return "image/gif";
+  }
+  return null;
+}
+
 function findImageUrl(value: unknown, depth = 0): string | null {
   if (depth > 6 || value == null) return null;
 
@@ -108,7 +132,8 @@ export async function POST(req: Request) {
     }
 
     const parsedUrl = new URL(remoteUrl);
-    if (parsedUrl.protocol !== "https:") {
+    if (parsedUrl.protocol !== "https:" || !isTrustedImageHost(parsedUrl.hostname)) {
+      console.error("Rejected untrusted Qwen image URL", { hostname: parsedUrl.hostname });
       return NextResponse.json({ error: "Güvenlik nedeniyle beklenmeyen görsel adresi reddedildi." }, { status: 502 });
     }
 
@@ -117,12 +142,19 @@ export async function POST(req: Request) {
       signal: AbortSignal.timeout(30_000),
     });
     if (!imageResponse.ok) {
-      return NextResponse.json({ error: `Qwen tarafından üretilen görsel alınamadı (HTTP ${imageResponse.status}). Tekrar deneyebilirsin.` }, { status: 502 });
+      console.error("Qwen image download failed", { status: imageResponse.status });
+      return NextResponse.json({ error: "Üretilen görsel indirilemedi. Biraz sonra tekrar deneyebilirsin." }, { status: 502 });
     }
 
-    const contentType = imageResponse.headers.get("content-type") ?? "image/png";
-    if (!contentType.startsWith("image/")) {
-      return NextResponse.json({ error: "Qwen beklenen görüntü dosyasını döndürmedi." }, { status: 502 });
+    const finalUrl = new URL(imageResponse.url || parsedUrl.toString());
+    if (finalUrl.protocol !== "https:" || !isTrustedImageHost(finalUrl.hostname)) {
+      console.error("Rejected redirected Qwen image URL", { hostname: finalUrl.hostname });
+      return NextResponse.json({ error: "Güvenlik nedeniyle görsel indirme adresi reddedildi." }, { status: 502 });
+    }
+
+    const contentLength = Number(imageResponse.headers.get("content-length") ?? 0);
+    if (contentLength > MAX_IMAGE_BYTES) {
+      return NextResponse.json({ error: "Oluşturulan görsel izin verilen boyuttan büyük." }, { status: 502 });
     }
 
     const buffer = Buffer.from(await imageResponse.arrayBuffer());
@@ -130,16 +162,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Oluşturulan görsel boş veya izin verilen boyuttan büyük." }, { status: 502 });
     }
 
+    const detectedType = detectImageType(buffer);
+    if (!detectedType) {
+      console.error("Qwen response did not contain a supported image file", {
+        contentType: imageResponse.headers.get("content-type"),
+        bytes: buffer.length,
+      });
+      return NextResponse.json({ error: "Qwen geçerli bir görsel dosyası döndürmedi. Tekrar deneyebilirsin." }, { status: 502 });
+    }
+
+    const declaredType = imageResponse.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+    if (declaredType && declaredType !== detectedType) {
+      console.error("Qwen image content type mismatch", { declaredType, detectedType });
+      return NextResponse.json({ error: "Görsel dosyasının türü doğrulanamadı. Tekrar deneyebilirsin." }, { status: 502 });
+    }
+
     return NextResponse.json({
       reply: "Al bakalım bu iyi mi",
-      imageUrl: `data:${contentType};base64,${buffer.toString("base64")}`,
+      imageUrl: `data:${detectedType};base64,${buffer.toString("base64")}`,
       seed: null,
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     console.error("Mira Qwen Image 2.1 reference selfie generation failed:", reason);
     return NextResponse.json(
-      { error: `Selfie üretilemedi: ${reason.slice(0, 300)}` },
+      { error: "Selfie şu anda üretilemedi. Bağlantı yoğun olabilir; biraz sonra tekrar deneyebilirsin." },
       { status: 502 },
     );
   }
