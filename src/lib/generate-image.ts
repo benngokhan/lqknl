@@ -2,9 +2,9 @@ import { generateTensorArtImage } from "./tensorart";
 import type { RenderImage } from "./render-video";
 
 /**
- * Görsel üretim yedek zinciri: Tensor.Art → Gemini 2.5 Flash Image → Pollinations.
- * Bir sağlayıcı patlarsa (auth hatası, kota, yavaşlık...) üretim hattı durmasın;
- * doğal dil senaryo promptları tüm sağlayıcılarda tek metrolojiyle (576x1024 dikey) üretilir.
+ * Görsel zinciri: Tensor.Art → Gemini Image → Pixabay stok fotoğrafı.
+ * AI sağlayıcıları kota/parametre nedeniyle çalışmazsa, ana konuyla ilgili dikey fotoğraf
+ * ile video üretimi devam edebilir. Pixabay yalnızca API anahtarı varsa kullanılır.
  */
 export type GeneratedImage = RenderImage & { provider: string };
 
@@ -26,9 +26,7 @@ async function downloadImageBytes(url: string, timeoutMs = 75_000): Promise<Rend
 }
 
 function firstImageUrl(value: unknown): string | null {
-  if (typeof value === "string") {
-    return /^https?:\/\/\S+$/i.test(value) ? value : null;
-  }
+  if (typeof value === "string") return /^https?:\/\/\S+$/i.test(value) ? value : null;
   if (Array.isArray(value)) {
     for (const item of value) {
       const url = firstImageUrl(item);
@@ -81,17 +79,64 @@ async function fromGeminiImage(prompt: string): Promise<GeneratedImage> {
   return { bytes, extension, provider: "gemini-2.5-flash-image" };
 }
 
+const STOP_WORDS = new Set([
+  "cinematic", "cinematicly", "photorealistic", "photoreal", "vertical", "image", "scene",
+  "shot", "close", "up", "wide", "medium", "dark", "blue", "cold", "grade", "vignette",
+  "film", "grain", "natural", "lighting", "dramatic", "realistic", "high", "quality",
+  "detailed", "portrait", "background", "backgrounds", "with", "and", "the", "from",
+  "that", "this", "into", "while", "under", "over", "showing", "shows", "featuring",
+]);
+
+function pixabayQuery(prompt: string): string {
+  const subject = prompt.split(/[.;\n]/, 1)[0] || prompt;
+  const words = subject
+    .replace(/[^a-zA-Z0-9 -]/g, " ")
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length > 2 && !STOP_WORDS.has(word.toLowerCase()));
+  return [...new Set(words)].slice(0, 8).join(" ").slice(0, 100);
+}
+
+async function fromPixabay(prompt: string): Promise<GeneratedImage> {
+  const key = process.env.PIXABAY_API_KEY?.trim();
+  if (!key) throw new Error("PIXABAY_API_KEY tanımlı değil; stok görsel yedeği atlandı");
+  const query = pixabayQuery(prompt);
+  if (!query) throw new Error("Pixabay için konu anahtar kelimesi çıkarılamadı");
+  const url = new URL("https://pixabay.com/api/");
+  url.searchParams.set("key", key);
+  url.searchParams.set("q", query);
+  url.searchParams.set("image_type", "photo");
+  url.searchParams.set("orientation", "vertical");
+  url.searchParams.set("safesearch", "true");
+  url.searchParams.set("per_page", "10");
+  url.searchParams.set("order", "popular");
+  const res = await fetch(url, { signal: AbortSignal.timeout(20_000), cache: "no-store" });
+  const data = await res.json().catch(() => null) as {
+    totalHits?: number;
+    hits?: { largeImageURL?: string; webformatURL?: string; imageWidth?: number; imageHeight?: number }[];
+    error?: string;
+  } | null;
+  if (!res.ok) throw new Error(`Pixabay API HTTP ${res.status}: ${(data?.error || "istek reddedildi").slice(0, 160)}`);
+  const hit = (data?.hits || [])
+    .filter((item) => (item.imageHeight || 0) >= (item.imageWidth || 0))
+    .sort((a, b) => (b.imageHeight || 0) - (a.imageHeight || 0))[0] || data?.hits?.[0];
+  const imageUrl = hit?.largeImageURL || hit?.webformatURL;
+  if (!imageUrl) throw new Error(`Pixabay ilgili görsel bulamadı (sorgu: ${query})`);
+  return { ...(await downloadImageBytes(imageUrl)), provider: "pixabay-stock" };
+}
+
 export async function generateImage(prompt: string): Promise<GeneratedImage> {
   const errors: string[] = [];
-  for (const fn of [fromTensorArt, fromGeminiImage]) {
+  for (const fn of [fromTensorArt, fromGeminiImage, fromPixabay]) {
     try {
-      return await fn(prompt);
+      const image = await fn(prompt);
+      console.info("[Görsel] sağlayıcı başarılı:", image.provider);
+      return image;
     } catch (error) {
-      const detail = errMessage(error).slice(0, 200);
+      const detail = errMessage(error).slice(0, 220);
       errors.push(`${fn.name}: ${detail}`);
-      // Pollinations bilerek kullanılmıyor: filigran/logo riski nedeniyle devre dışı.
       console.error(`[Görsel] ${fn.name} başarısız; zincir devam ediyor: ${detail}`);
     }
   }
-  throw new Error(`Görsel sağlayıcıları başarısız oldu (Pollinations devre dışı) → ${errors.join(" | ")}`);
+  throw new Error(`Tüm görsel sağlayıcıları başarısız oldu → ${errors.join(" | ")}`);
 }

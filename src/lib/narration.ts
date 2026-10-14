@@ -149,16 +149,58 @@ export async function generateWithGoogleTts(text: string): Promise<Uint8Array> {
 
   const parts: Buffer[] = [];
   for (const chunk of chunks) {
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=tr&total=1&idx=0&textlen=${chunk.length}&q=${encodeURIComponent(chunk)}`;
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Referer": "https://translate.google.com/",
-      },
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!res.ok) throw new Error(`Google TTS HTTP ${res.status} döndürdü`);
-    parts.push(Buffer.from(await res.arrayBuffer()));
+    const endpoints = [
+      (() => {
+        const url = new URL("https://translate.googleapis.com/translate_tts");
+        url.searchParams.set("client", "gtx");
+        url.searchParams.set("ie", "UTF-8");
+        url.searchParams.set("tl", "tr");
+        url.searchParams.set("q", chunk);
+        return url;
+      })(),
+      (() => {
+        const url = new URL("https://translate.google.com/translate_tts");
+        url.searchParams.set("ie", "UTF-8");
+        url.searchParams.set("client", "tw-ob");
+        url.searchParams.set("tl", "tr");
+        url.searchParams.set("total", "1");
+        url.searchParams.set("idx", "0");
+        url.searchParams.set("textlen", String(chunk.length));
+        url.searchParams.set("q", chunk);
+        return url;
+      })(),
+    ];
+    let audioPart: Buffer | null = null;
+    const failures: string[] = [];
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://translate.google.com/",
+            "Accept": "audio/mpeg,audio/*;q=0.9,*/*;q=0.8",
+          },
+          signal: AbortSignal.timeout(20_000),
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          failures.push(`${url.hostname} HTTP ${res.status}`);
+          continue;
+        }
+        const type = res.headers.get("content-type") || "";
+        const bytes = Buffer.from(await res.arrayBuffer());
+        if (!bytes.length || (type && !type.startsWith("audio/") && !type.includes("octet-stream"))) {
+          failures.push(`${url.hostname} beklenmeyen içerik tipi: ${type || "boş"}`);
+          continue;
+        }
+        audioPart = bytes;
+        break;
+      } catch (error) {
+        failures.push(`${url.hostname}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (!audioPart) throw new Error(`Google TTS tüm ücretsiz uçlarda başarısız: ${failures.join(" | ")}`);
+    parts.push(audioPart);
   }
   const audio = Buffer.concat(parts);
   if (!audio.length) throw new Error("Google TTS boş ses verisi döndürdü");
