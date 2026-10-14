@@ -2,7 +2,7 @@ import { think } from '../../../lib/brain';
 import { logEvent } from "@/lib/logger";
 import { selfOrigin } from "@/lib/self-url";
 import { db } from '@/db';
-import { contentAssets, contentItems, messages, memories, operations } from '@/db/schema';
+import { contentAssets, contentItems, messages, memories, operations, tasks } from '@/db/schema';
 import { desc, eq, ilike, sql } from 'drizzle-orm';
 import { formatMemoriesForContext, getRelevantMemories, generateForgetApprovalMessage, generateSaveApprovalMessage, parseConfirmationResponse, parseMemoryCommand } from '@/lib/memory-chat';
 import { remember } from '@/lib/memory';
