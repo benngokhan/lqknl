@@ -32,7 +32,35 @@ function stripForTts(text: string) {
     .trim();
 }
 
-export async function generateWithElevenLabs(text: string): Promise<Uint8Array> {
+function elevenLabsVoiceSettings(options: NarrationOptions = {}) {
+  const emotion = options.emotion ?? "happy";
+  const mode = options.solMode ?? "close";
+  const byEmotion: Record<MiraTtsEmotion, { stability: number; style: number; speed: number }> = {
+    happy: { stability: 0.46, style: 0.38, speed: 1.03 },
+    surprised: { stability: 0.32, style: 0.62, speed: 1.10 },
+    sad: { stability: 0.68, style: 0.14, speed: 0.91 },
+    playful: { stability: 0.36, style: 0.60, speed: 1.06 },
+    focused: { stability: 0.64, style: 0.16, speed: 0.96 },
+  };
+  const base = byEmotion[emotion];
+  const modeAdjustments: Record<MiraSolMode, { stability: number; style: number; speed: number }> = {
+    sweet: { stability: 0.04, style: 0.06, speed: -0.03 },
+    flirty: { stability: -0.04, style: 0.14, speed: -0.02 },
+    serious: { stability: 0.12, style: -0.08, speed: -0.03 },
+    excited: { stability: -0.08, style: 0.16, speed: 0.05 },
+    close: { stability: 0.06, style: 0.04, speed: -0.04 },
+  };
+  const adjustment = modeAdjustments[mode];
+  return {
+    stability: Math.max(0.2, Math.min(0.85, base.stability + adjustment.stability)),
+    similarity_boost: 0.88,
+    style: Math.max(0, Math.min(0.85, base.style + adjustment.style)),
+    use_speaker_boost: true,
+    speed: Math.max(0.85, Math.min(1.18, base.speed + adjustment.speed)),
+  };
+}
+
+export async function generateWithElevenLabs(text: string, options: NarrationOptions = {}): Promise<Uint8Array> {
   const key = process.env.ELEVENLABS_API_KEY;
   const voiceId = process.env.ELEVENLABS_VOICE_ID;
   if (!key || !voiceId) throw new Error("ElevenLabs API key veya voice ID ayarlı değil");
@@ -47,7 +75,7 @@ export async function generateWithElevenLabs(text: string): Promise<Uint8Array> 
         "Content-Type": "application/json",
         Accept: "audio/mpeg",
       },
-      body: JSON.stringify({ text, model_id: modelId, language_code: "tr", voice_settings: { speed: 1.10 } }),
+      body: JSON.stringify({ text, model_id: modelId, language_code: "tr", voice_settings: elevenLabsVoiceSettings(options) }),
       signal: AbortSignal.timeout(45000),
       cache: "no-store",
     },
@@ -237,7 +265,7 @@ export async function generateNarration(rawText: string, options: NarrationOptio
 
   if (process.env.MIRA_ALLOW_PAID_TTS === "true" && process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_VOICE_ID) {
     try {
-      const audio = await generateWithElevenLabs(text);
+      const audio = await generateWithElevenLabs(text, options);
       return { audio, provider: "elevenlabs", captions: [], durationSeconds: null };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
