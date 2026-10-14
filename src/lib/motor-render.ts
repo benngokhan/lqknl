@@ -17,11 +17,12 @@ const PIPELINE = path.join(MOTOR_DIR, "shorts_pipeline.py");
 const QC = path.join(MOTOR_DIR, "qc_check.py");
 
 /** Preserve Railway's runtime library paths and expose vendored Python dependencies. */
-function getMotorEnv(): NodeJS.ProcessEnv {
+function getMotorEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   return {
     ...process.env,
     LD_LIBRARY_PATH: [process.env.LD_LIBRARY_PATH, "/root/.nix-profile/lib"].filter(Boolean).join(path.delimiter),
     PYTHONPATH: [process.env.PYTHONPATH, "/app/pylib"].filter(Boolean).join(path.delimiter),
+    ...extra,
   };
 }
 
@@ -169,7 +170,7 @@ export async function renderWithMotor(input: MotorRenderInput): Promise<MotorRen
     };
     await fs.writeFile(cfgPath, JSON.stringify(cfg, null, 1), "utf8");
 
-    const env = { ...getMotorEnv(), MIRA_SHORTS_CONFIG: cfgPath, MIRA_MOTOR_FFMPEG: ffmpegPath, MIRA_MOTOR_W: "720", MIRA_MOTOR_H: "1280", MIRA_MOTOR_FPS: "24" };
+    const env = getMotorEnv({ MIRA_SHORTS_CONFIG: cfgPath, MIRA_MOTOR_FFMPEG: ffmpegPath, MIRA_MOTOR_W: "720", MIRA_MOTOR_H: "1280", MIRA_MOTOR_FPS: "24" });
     const render = await run(py, [PIPELINE, "all", vd, cfgPath], { env, timeoutMs: 15 * 60_000 });
     const videoPath = path.join(vd, "video.mp4");
     const st = await fs.stat(videoPath).catch(() => null);
