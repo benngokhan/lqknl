@@ -215,6 +215,7 @@ export default function Home() {
   const [drafts, setDrafts] = useState<ContentDraft[]>([]);
   const [draftPanelOpen, setDraftPanelOpen] = useState(true);
   const [taskCenterOpen, setTaskCenterOpen] = useState(false);
+  const [showWorkspacePanels, setShowWorkspacePanels] = useState(false);
   const [managedDrafts, setManagedDrafts] = useState<ManagedContent[]>([]);
   const [managedLoading, setManagedLoading] = useState(false);
   const [managedError, setManagedError] = useState('');
@@ -1049,6 +1050,14 @@ export default function Home() {
           )}
           <button
             type="button"
+            onClick={() => setShowWorkspacePanels((open) => !open)}
+            aria-expanded={showWorkspacePanels}
+            className="text-xs bg-slate-800 text-slate-200 border border-slate-600 px-3 py-2 rounded-lg hover:bg-slate-700"
+          >
+            {showWorkspacePanels ? 'Panelleri Gizle' : 'Araçlar'}
+          </button>
+          <button
+            type="button"
             onClick={() => {
               const nextOpen = !taskCenterOpen;
               setTaskCenterOpen(nextOpen);
@@ -1175,6 +1184,8 @@ export default function Home() {
             <p className="text-[11px] text-slate-500">“Sil ve yok et” geri alınamaz; taslak, senaryo, ilişkili medya ve başlık izleri temizlenir. Sistem yalnızca başlığı saklamayan tek yönlü bir eşleşme özeti tutarak aynı konunun yeniden üretilmesini engeller. Liste veritabanındaki son 500 içerik kaydını gösterir.</p>
           </section>
         )}
+        {showWorkspacePanels && (
+          <>
         <section className="rounded-xl border border-violet-500/30 bg-slate-800/80 p-3">
           <div className="hidden">
             <button
@@ -1520,6 +1531,8 @@ export default function Home() {
             </div>
           )}
         </section>
+          </>
+        )}
         {messages.length === 0 && (
           <p className="text-slate-400 text-center mt-10">
             Mira hazır. Komut listesini görmek için <code className="bg-slate-800 px-2 py-1 rounded">/</code> tuşuna basabilirsin.
