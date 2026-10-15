@@ -1577,6 +1577,26 @@ export default function Home() {
           </div>
         )}
 
+        <div className="mb-2 flex flex-wrap gap-2" aria-label="Hızlı komutlar">
+          {[
+            { label: 'Durum', command: '/durum' },
+            { label: 'Shorts üret', command: '/yt-viral' },
+            { label: 'Video 94', command: '/video 94' },
+          ].map((item) => (
+            <button
+              key={item.command}
+              type="button"
+              onClick={() => {
+                setInput(item.command);
+                inputRef.current?.focus();
+              }}
+              className="rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-xs text-slate-300 transition hover:border-blue-500/60 hover:bg-blue-500/10 hover:text-white"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
         <form onSubmit={handleSubmit} className="flex gap-2 border-t border-slate-700 pt-3 pb-[env(safe-area-inset-bottom)]">
           <input
             ref={inputRef}
