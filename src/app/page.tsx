@@ -215,6 +215,7 @@ export default function Home() {
   const [drafts, setDrafts] = useState<ContentDraft[]>([]);
   const [draftPanelOpen, setDraftPanelOpen] = useState(true);
   const [taskCenterOpen, setTaskCenterOpen] = useState(false);
+  const [showWorkspacePanels, setShowWorkspacePanels] = useState(false);
   const [managedDrafts, setManagedDrafts] = useState<ManagedContent[]>([]);
   const [managedLoading, setManagedLoading] = useState(false);
   const [managedError, setManagedError] = useState('');
@@ -1049,6 +1050,14 @@ export default function Home() {
           )}
           <button
             type="button"
+            onClick={() => setShowWorkspacePanels((open) => !open)}
+            aria-expanded={showWorkspacePanels}
+            className="text-xs bg-slate-800 text-slate-200 border border-slate-600 px-3 py-2 rounded-lg hover:bg-slate-700"
+          >
+            {showWorkspacePanels ? 'Panelleri Gizle' : 'Araçlar'}
+          </button>
+          <button
+            type="button"
             onClick={() => {
               const nextOpen = !taskCenterOpen;
               setTaskCenterOpen(nextOpen);
@@ -1175,6 +1184,8 @@ export default function Home() {
             <p className="text-[11px] text-slate-500">“Sil ve yok et” geri alınamaz; taslak, senaryo, ilişkili medya ve başlık izleri temizlenir. Sistem yalnızca başlığı saklamayan tek yönlü bir eşleşme özeti tutarak aynı konunun yeniden üretilmesini engeller. Liste veritabanındaki son 500 içerik kaydını gösterir.</p>
           </section>
         )}
+        {showWorkspacePanels && (
+          <>
         <section className="rounded-xl border border-violet-500/30 bg-slate-800/80 p-3">
           <div className="hidden">
             <button
@@ -1520,6 +1531,8 @@ export default function Home() {
             </div>
           )}
         </section>
+          </>
+        )}
         {messages.length === 0 && (
           <p className="text-slate-400 text-center mt-10">
             Mira hazır. Komut listesini görmek için <code className="bg-slate-800 px-2 py-1 rounded">/</code> tuşuna basabilirsin.
@@ -1563,6 +1576,26 @@ export default function Home() {
             ))}
           </div>
         )}
+
+        <div className="mb-2 flex flex-wrap gap-2" aria-label="Hızlı komutlar">
+          {[
+            { label: 'Durum', command: '/durum' },
+            { label: 'Shorts üret', command: '/yt-viral' },
+            { label: 'Video 94', command: '/video 94' },
+          ].map((item) => (
+            <button
+              key={item.command}
+              type="button"
+              onClick={() => {
+                setInput(item.command);
+                inputRef.current?.focus();
+              }}
+              className="rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-xs text-slate-300 transition hover:border-blue-500/60 hover:bg-blue-500/10 hover:text-white"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
 
         <form onSubmit={handleSubmit} className="flex gap-2 border-t border-slate-700 pt-3 pb-[env(safe-area-inset-bottom)]">
           <input
