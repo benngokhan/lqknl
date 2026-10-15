@@ -7,7 +7,7 @@ import { db } from "@/db";
 import { integrations } from "@/db/schema";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
-const UPLOAD_URL = "https://upload.googleapis.com/upload/youtube/v3/videos";
+const UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos";
 const CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels";
 
 export const YOUTUBE_SCOPES = [
