@@ -374,9 +374,49 @@ export async function POST(req: Request) {
           signalError instanceof Error ? signalError.message : String(signalError));
       }
       await reportScriptProgress(claimed.id, 18, "Senaryo hazırlanıyor…", "running", "Zorunlu bölümler, iki sinematik arka plan ve 35–40 saniyelik seslendirme hazırlanıyor.", "Taslak biçimini ve zorunlu TASARIM bloğunu denetleyeceğim.");
+      // === İŞÇİ KAYNAK DİSİPLİNİ: senaryo ÖNCESİ canlı kaynak topla, oku, modele ver. ===
+      const collectVerifiedSources = async (topicText: string): Promise<Array<{ url: string; text: string }>> => {
+        const urls: string[] = [];
+        for (const m of topicText.matchAll(/https?:\/\/[^\s)"'<>]+/g)) {
+          const u = m[0].replace(/[.,;:]+$/, "");
+          if (!urls.includes(u)) urls.push(u);
+        }
+        try {
+          const academic = await searchAcademicSources(topicText.slice(0, 200), topicText.slice(0, 400), 6);
+          for (const u of academic.urls || []) if (!urls.includes(u)) urls.push(u);
+        } catch { /* akademik arama opsiyonel; konu URL'leri yeterli olabilir */ }
+        const found: Array<{ url: string; text: string }> = [];
+        for (const url of urls.slice(0, 6)) {
+          try {
+            const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (MiraSourceCheck/1.0)" }, signal: AbortSignal.timeout(12000), cache: "no-store" });
+            if (!res.ok) continue;
+            const html = await res.text();
+            const text = html
+              .replace(/<script[\s\S]*?<\/script>/gi, " ")
+              .replace(/<style[\s\S]*?<\/style>/gi, " ")
+              .replace(/<[^>]+>/g, " ")
+              .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, "\"").replace(/&#39;/g, "'")
+              .replace(/\s+/g, " ")
+              .trim();
+            if (text.length < 500) continue; // sadece başlık/navigasyon (paralı duvar vb.) -> elenir
+            found.push({ url, text: text.slice(0, 3500) });
+            if (found.length >= 2) break;
+          } catch { /* bu aday erişilemedi; sıradakine geç */ }
+        }
+        return found;
+      };
+      const verifiedSources = await collectVerifiedSources(topic);
+      if (verifiedSources.length === 0) {
+        await db.update(contentItems).set({ status: "failed", updatedAt: new Date() }).where(eq(contentItems.id, claimed.id));
+        await logEvent({ level: "error", source: "worker/source-first", message: `Uygun canlı kaynak bulunamadı; bilgi uydurulmadı ve taslak üretilmedi #${claimed.id}: ${claimed.title}`, meta: { contentId: claimed.id, topic: topic.slice(0, 200) } });
+        await sendTelegramMessage(`🚫 Kaynak bulunamadı: ${claimed.title}\n\nCanlı ve yeterli içeriğe erişilemedi; uydurma yapılmadı. Yeni denemede başka kaynak/arış arama yapılacak.`);
+        return;
+      }
       const result = await generateWithFallback({
         system: [
           "Sen Mira'nın Bilgi Dozu adlı YouTube Shorts kanalı için Türkçe içerik üretim motorusun.",
+          "KAYNAK ÖNCE KURALI: Aşağıda DOĞRULANMIŞ KAYNAK METİNLERİ verilir. Senaryodaki HER BİLGİ yalnızca bu metinlerden alınabilir; metinde olmayan istatistik, oran, mekanizma, tarih, isim veya detay YAZILAMAZ. KAYNAK bölümüne yalnızca verilen URL'ler yazılır; başka kaynak uydurulmaz.",
+          ...verifiedSources.map((s) => `KAYNAK ${s.url}\nMETİN: ${s.text}`),
           "OTOMATİK KONU SEÇİMİNDE mira_konu_secim_spec.md tek otoritedir. Hayvan konuları (ahtapot dahil), tarih anekdotları, '3 şaşırtıcı gerçek' listicle biçimi ve genel AI/gelecek spekülasyonu YASAKTIR. Tek doğrulanabilir ana gerçek seç; önceki kullanılan konuları tekrar etme. Her iddia kaynak doğrulamasından geçmelidir.",
           "Konu kullanıcı tarafından panelden açıkça verilmişse konuyu sessizce başka konuyla değiştirme; ancak tek gerçek, kaynak doğrulama ve kalite kapılarını uygula.",
           ...(topicSelectionSpec.trim() ? [`CANONICAL KONU SEÇİM SPEC'İ (kuralları aynen uygula):\n${topicSelectionSpec}`] : ["Konu seçim spec dosyası okunamadı: otomatik konu önerme; verilen manuel konuyu koru ve kaynak doğrulamasını uygula."]),
