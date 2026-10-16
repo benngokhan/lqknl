@@ -13,6 +13,7 @@ const CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels";
 export const YOUTUBE_SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
   "https://www.googleapis.com/auth/youtube.readonly",
+  "https://www.googleapis.com/auth/youtube.force-ssl",
 ].join(" ");
 
 export type YoutubeTokens = {
@@ -222,4 +223,31 @@ export async function uploadShort(input: UploadInput): Promise<UploadOutput> {
   const videoId = putData?.id as string;
   if (!videoId) throw new Error("YouTube video ID döndürmedi");
   return { videoId, url: `https://www.youtube.com/shorts/${videoId}`, privacyStatus: privacy };
+}
+
+
+/** Change an already-uploaded video to public only after an explicit Telegram callback. */
+export async function makeYoutubeVideoPublic(videoId: string): Promise<{ videoId: string; url: string; privacyStatus: string }> {
+  if (!/^[a-zA-Z0-9_-]{6,20}$/.test(videoId)) throw new Error("Geçersiz YouTube video ID");
+  const accessToken = await freshAccessToken();
+  const res = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=status`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ id: videoId, status: { privacyStatus: "public" } }),
+    signal: AbortSignal.timeout(20_000),
+    cache: "no-store",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = data?.error?.message || data?.error?.errors?.[0]?.reason || `HTTP ${res.status}`;
+    throw new Error(`YouTube gizlilik güncellemesi başarısız: ${String(detail).slice(0, 350)}. Gerekirse Google hesabını yeni youtube.force-ssl izniyle yeniden bağla.`);
+  }
+  const item = data?.items?.[0];
+  if (!item?.id || item.status?.privacyStatus !== "public") {
+    throw new Error("YouTube herkese açık durumunu doğrulamadı; video gizli kalmış olabilir.");
+  }
+  return { videoId: item.id, url: `https://www.youtube.com/shorts/${item.id}`, privacyStatus: item.status.privacyStatus };
 }

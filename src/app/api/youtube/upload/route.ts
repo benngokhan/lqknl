@@ -5,6 +5,7 @@ import { contentAssets, contentItems, operations, tasks } from "@/db/schema";
 import { like } from "drizzle-orm";
 import { parseDraftScript } from "@/lib/script-parse";
 import { uploadShort, youtubeStatus, loadYoutubeTokens } from "@/lib/youtube";
+import { sendPublishButton, sendTelegramMessage } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -164,6 +165,15 @@ export async function POST(req: Request) {
       console.error(`[YouTube upload] içerik #${content.id} yayımlandı ama medya temizliği başarısız:`, cleanupError instanceof Error ? cleanupError.message : String(cleanupError));
     }
 
+    let telegramNotice: { sent: boolean; reason?: string; error?: string } = { sent: false, reason: "not_private_upload" };
+    if (result.privacyStatus === "private") {
+      const sent = await sendPublishButton(content.id, content.title, result.url);
+      telegramNotice = sent.sent ? { sent: true } : { sent: false, reason: sent.reason, error: sent.error };
+    } else {
+      const sent = await sendTelegramMessage("📺 YouTube yüklemesi tamamlandı.\n\n" + content.title + "\nGizlilik: " + result.privacyStatus + "\n" + result.url);
+      telegramNotice = sent.sent ? { sent: true } : { sent: false, reason: sent.reason, error: sent.error };
+    }
+
     return NextResponse.json({
       ok: true,
       published: true,
@@ -172,6 +182,7 @@ export async function POST(req: Request) {
       url: result.url,
       privacyStatus: result.privacyStatus,
       mediaCleaned,
+      telegramNotice,
       content: updated,
     });
   } catch (error) {
