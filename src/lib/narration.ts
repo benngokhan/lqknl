@@ -254,7 +254,7 @@ function emotionAwareRate(options: NarrationOptions): string {
   };
   const emotion = options.emotion ?? "happy";
   const mode = options.solMode ?? "close";
-  const rate = Math.max(-20, Math.min(20, Math.round(base + emotionDelta[emotion] + modeDelta[mode] + 5)));
+  const rate = Math.max(-20, Math.min(20, Math.round(base + emotionDelta[emotion] + modeDelta[mode] - 6)));
   return `${rate >= 0 ? "+" : ""}${rate}%`;
 }
 
