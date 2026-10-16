@@ -770,6 +770,32 @@ export async function POST(req: Request) {
     await logEvent({ level: "success", source: "produce/done", message: `Video hazır #${content.id} — "${content.title}" (${durationSeconds} sn)`, meta: { contentId: content.id, previewUrl, durationSeconds } });
     stages.telegram = telegram;
     await reportProgress(content.id, 100, "Video hazır", "success");
+    // 8) Otonom yayın: MIRA_AUTO_UPLOAD=1 ise hazır videoyu doğrudan YouTube'a yükle.
+    let autoUpload: Record<string, unknown> = { enabled: false };
+    if (process.env.MIRA_AUTO_UPLOAD === "1") {
+      try {
+        const miraKey = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
+        const uploadRes = await fetch(`${baseUrl}/api/youtube/upload`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-mira-key": miraKey },
+          body: JSON.stringify({ contentId: content.id }),
+          cache: "no-store",
+          signal: AbortSignal.timeout(240_000),
+        });
+        const uploadData = await uploadRes.json().catch(() => ({}));
+        autoUpload = { enabled: true, http: uploadRes.status, ok: uploadRes.ok };
+        if (uploadRes.ok) {
+          await sendTelegramMessage(
+            `📡 Mira videoyu YouTube'a yükledi\n\nBaşlık: ${content.title}\nGizlilik: ${uploadData?.privacyStatus || "private"}\nLink: ${uploadData?.url || "-"}`
+          );
+          await logEvent({ level: "success", source: "produce/autoupload", message: `Otomatik YouTube yüklemesi tamam #${content.id}: ${uploadData?.url}`, meta: { contentId: content.id } });
+        } else {
+          await logEvent({ level: "error", source: "produce/autoupload", message: `Otomatik yükleme başarısız #${content.id}: HTTP ${uploadRes.status}`, meta: { contentId: content.id, detail: JSON.stringify(uploadData).slice(0, 300) } });
+        }
+      } catch (uploadError) {
+        await logEvent({ level: "error", source: "produce/autoupload", message: `Otomatik yükleme çağrısı patladı #${content.id}: ${String(uploadError).slice(0, 250)}`, meta: { contentId: content.id } });
+      }
+    }
 
     return NextResponse.json({
       ok: true,
