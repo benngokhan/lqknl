@@ -18,6 +18,16 @@ import ffmpegPath from "ffmpeg-static";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+// TTS zinciri/ses ayarlarının parmak izi: checkpoint'teki ses kaydı bu etiketle
+// kıyaslanır. Etiket değiştiyse (yeni ses, yeni model, hız değişimi) eski kayıt
+// bayat sayılır ve güncel sesle yeniden üretilir.
+function currentTtsConfigTag(): string {
+  if (process.env.MIRA_ALLOW_PAID_TTS === "true" && process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_VOICE_ID) {
+    const model = process.env.ELEVENLABS_MODEL_ID || process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2";
+    return `elevenlabs:${process.env.ELEVENLABS_VOICE_ID}:${model}`;
+  }
+  return `edge:${process.env.EDGE_TTS_VOICE || "tr-TR-EmelNeural"}:${process.env.EDGE_TTS_RATE || "+5%"}`;
+}
 
 function authorized(req: Request) {
   const expected = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
@@ -541,6 +551,10 @@ export async function POST(req: Request) {
         checkpointStaleReason = `kaydedilmiş ses ${savedSeconds}sn (40sn üst sınırını aşıyor)`;
       } else if (meta.ctaVersion !== 1) {
         checkpointStaleReason = "CTA'sız eski ses (marka motoru eşleşmesi için yeniden üretilecek)";
+      } else if (String(meta.provider) === "google-tts") {
+        checkpointStaleReason = "kaydedilmiş ses Google TTS robotu (gerçek TTS zinciriyle yeniden üretilecek)";
+      } else if (String(meta.ttsConfigTag || "") !== currentTtsConfigTag()) {
+        checkpointStaleReason = "ses ayarları değişti veya etiketsiz eski kayıt (güncel sesle yeniden üretilecek)";
       } else {
         const audio = Buffer.from(checkpoints.narrationAsset.data, "base64");
         narrationMeanDb = await measureMeanVolumeDb(audio);
@@ -573,7 +587,7 @@ export async function POST(req: Request) {
         mime: "audio/mpeg",
         data: Buffer.from(narration.audio).toString("base64"),
         bytes: narration.audio.length,
-        meta: { pipelineStage: "narration", provider: narration.provider, captions: narration.captions, durationSeconds: narration.durationSeconds, ctaVersion: 1 },
+        meta: { pipelineStage: "narration", provider: narration.provider, captions: narration.captions, durationSeconds: narration.durationSeconds, ctaVersion: 1, ttsConfigTag: currentTtsConfigTag() },
       });
       stages.tts = { provider: narration.provider, speechSeconds: narration.durationSeconds, checkpointSaved: true, meanVolumeDb: narrationMeanDb, regeneratedFromCheckpoint: Boolean(checkpointStaleReason) };
       await reportProgress(content.id, 50, "Seslendirme tamamlandı; görseller hazırlanıyor");
