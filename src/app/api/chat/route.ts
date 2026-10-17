@@ -901,7 +901,7 @@ export async function POST(req: Request) {
         }
 
         const fileMatch = message.match(/\b((?:video|uzun_video)_\d+\.mp4)\b/iu);
-        const asksForIntegrityTest = Boolean(fileMatch) && /(?:sağlam|saglam|geçerli|gecerli|doğrula|dogrula|indir|test|kontrol|çalışıyor|calisiyor|bozuk|açılıyor|aciliyor)/iu.test(message);
+        const asksForIntegrityTest = Boolean(fileMatch) && /(?:sağlam|saglam|geçerli|gecerli|doğrula|dogrula|indir|test|kontrol|çalışıyor|calisiyor|bozuk|açılıyor|aciliyor|analiz|incele|özellik|ozellik|süre|sure|çözünürlük|cozunurluk|fps|ses|kaç\s*(?:saniye|dakika)|teknik bilgi)/iu.test(message);
         const asksForTitleDocument = /(?:baslik\.md|başlık|başlik|başlıkları|başliklari|konu listesi|başlık listesi)/iu.test(message);
 
         if (asksForIntegrityTest && fileMatch) {
@@ -914,12 +914,22 @@ export async function POST(req: Request) {
           const result = await response.json().catch(() => ({})) as {
             ok?: boolean; name?: string; expectedBytes?: number; actualBytes?: number;
             exactSizeMatch?: boolean; mimeType?: string; mp4SignatureValid?: boolean;
+            durationSeconds?: number | null; width?: number | null; height?: number | null;
+            frameRate?: number | null; hasAudio?: boolean; shortsReady?: boolean;
             message?: string; error?: string; downloadHttpStatus?: number | null;
           };
           const size = (value?: number) => typeof value === "number" ? `${value.toLocaleString("tr-TR")} bayt` : "bilinmiyor";
           return NextResponse.json({
             reply: response.ok && result.ok
-              ? `Drive kontrolü gerçekten tamamlandı: ${result.name}. İndirilen boyut: ${size(result.actualBytes)}; Drive boyutuyla eşleşme: evet; MIME: ${result.mimeType}; MP4 imzası: geçerli. ${result.message || ""}`
+              ? [
+                  `Drive kontrolü gerçekten tamamlandı: ${result.name}. İndirilen boyut: ${size(result.actualBytes)}; Drive boyutuyla eşleşme: evet; MIME: ${result.mimeType}; MP4 imzası: geçerli.`,
+                  result.durationSeconds != null ? `Süre: ${result.durationSeconds} saniye.` : "Süre bilgisi alınamadı.",
+                  result.width != null && result.height != null ? `Çözünürlük: ${result.width}×${result.height}.` : "Çözünürlük bilgisi alınamadı.",
+                  result.frameRate != null ? `Kare hızı: ${result.frameRate} fps.` : "Kare hızı bilgisi alınamadı.",
+                  typeof result.hasAudio === "boolean" ? `Ses akışı: ${result.hasAudio ? "var" : "yok"}.` : "Ses akışı bilgisi alınamadı.",
+                  typeof result.shortsReady === "boolean" ? `Dikey Shorts ölçütü (3 dakikaya kadar): ${result.shortsReady ? "uygun" : "uygun değil"}.` : "",
+                  result.message || ""
+                ].filter(Boolean).join(" ")
               : `Drive dosya kontrolü başarısız: ${result.name || fileName}. HTTP: ${response.status}; hata: ${result.error || result.message || "Dosya doğrulanamadı"}. Dosyanın sağlam olduğunu söyleyemem.`,
             emotion: "focused",
           }, { status: response.ok && result.ok ? 200 : 502 });
