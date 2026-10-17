@@ -1525,7 +1525,7 @@ export default function Home() {
           </div>
           {readyPanelOpen && (
             <div className="mt-3 space-y-4">
-              <p className="text-xs text-slate-400">Yayınla dediğinde video YouTube'a <b className="text-slate-300">private</b> olarak yüklenir; kanalında görüp onayladıktan sonra public yaparsın.</p>
+              <p className="text-xs text-slate-400">Yayınla dediğinde video YouTube&apos;a <b className="text-slate-300">private</b> olarak yüklenir; kanalında görüp onayladıktan sonra public yaparsın.</p>
               {publishResult && <p className="text-sm text-lime-300 break-all">{publishResult}</p>}
               {readyError && <p className="text-sm text-red-300" role="alert">{readyError}</p>}
               {!readyLoading && readyVideos.length === 0 && !readyError && (

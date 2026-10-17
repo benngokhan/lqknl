@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 type LogRow = {
   id: number;
@@ -53,7 +54,8 @@ export default function LogsPage() {
   }, [filter, contentId]);
 
   useEffect(() => {
-    void pull();
+    const timer = window.setTimeout(() => { void pull(); }, 0);
+    return () => window.clearTimeout(timer);
   }, [pull]);
 
   useEffect(() => {
@@ -75,7 +77,7 @@ export default function LogsPage() {
           <h1 style={{ marginTop: 0 }}>🔒 Giriş gerekli</h1>
           <p style={{ lineHeight: 1.6 }}>
             Log ekranını görmek için önce panele giriş yapmalısın.{" "}
-            <a href="/" style={{ color: "#58a6ff" }}>Panele git →</a>
+            <Link href="/" style={{ color: "#58a6ff" }}>Panele git →</Link>
           </p>
         </div>
       </main>

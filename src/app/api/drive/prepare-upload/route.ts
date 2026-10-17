@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { contentAssets, contentItems, operations } from "@/db/schema";
 import { downloadDriveFile, listDriveFolderFiles } from "@/lib/google-drive";
+import { readDriveVideoMetadata } from "@/lib/drive-video-metadata";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,35 +13,6 @@ function authorized(req: Request) {
   const expected = process.env.MIRA_AUTOMATION_SECRET;
   if (expected && req.headers.get("x-mira-key") === expected) return true;
   return req.headers.get("cookie")?.split(";").some((part) => part.trim() === "mira_entry=1") ?? false;
-}
-
-function cleanSection(value: string) {
-  return value.replace(/^\s*```[^\n]*\n?/, "").replace(/\n?```\s*$/, "").trim();
-}
-
-function readVideoMetadata(markdown: string, videoNumber: number) {
-  const lines = markdown.split(/\r?\n/);
-  const start = lines.findIndex((line) => new RegExp(`^\\s*(?:#{1,6}\\s*)?(?:📹\\s*)?VIDEO\\s+0*${videoNumber}\\b`, "i").test(line));
-  if (start < 0) throw new Error(`baslik.md içinde VIDEO ${videoNumber} bölümü bulunamadı.`);
-  let end = lines.findIndex((line, index) => index > start && /^\s*(?:#{1,6}\s*)?(?:📹\s*)?VIDEO\s+\d+\b/i.test(line));
-  if (end < 0) end = lines.length;
-  const block = lines.slice(start, end).join("\n");
-  const read = (labels: string[]) => {
-    for (const label of labels) {
-      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const match = block.match(new RegExp(`(?:^|\\n)\\s*(?:📌|📝|🏷️|💬)?\\s*\\**${escaped}\\**\\s*:\\s*([\\s\\S]*?)(?=\\n\\s*(?:📌|📝|🏷️|💬)?\\s*\\**[A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜ ]{2,}\\**\\s*:|$)`, "i"));
-      if (match?.[1]?.trim()) return cleanSection(match[1]);
-    }
-    return "";
-  };
-  const title = read(["BAŞLIK", "BASLIK"]);
-  if (!title) throw new Error(`VIDEO ${videoNumber} için BAŞLIK alanı baslik.md içinde bulunamadı.`);
-  return {
-    title: title.replace(/^["'`]|["'`]$/g, "").slice(0, 100),
-    description: read(["AÇIKLAMA", "ACIKLAMA"]),
-    tags: read(["ETİKETLER", "ETIKETLER"]).split(/[,\n]/).map((tag) => tag.replace(/^#/, "").trim()).filter(Boolean).slice(0, 30),
-    pinnedComment: read(["SABİT YORUM", "SABIT YORUM"]),
-  };
 }
 
 export async function POST(req: Request) {
@@ -80,7 +52,7 @@ export async function POST(req: Request) {
     if (video.data.length < 12 || video.data.length > 80 * 1024 * 1024 || video.data.toString("ascii", 4, 8) !== "ftyp") {
       return NextResponse.json({ ok: false, error: "MP4 dosyası boş, geçersiz veya 80 MB sınırını aşıyor." }, { status: 415 });
     }
-    const metadata = readVideoMetadata(markdownFile.data.toString("utf8"), videoNumber);
+    const metadata = readDriveVideoMetadata(markdownFile.data.toString("utf8"), videoNumber);
     const [item] = await db.insert(contentItems).values({
       title: metadata.title,
       platform: "youtube",

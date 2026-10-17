@@ -24,7 +24,16 @@ jobs:
           node-version: 24
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
+
+      - name: Unit and regression tests
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
 
       - name: Build
         run: npm run build

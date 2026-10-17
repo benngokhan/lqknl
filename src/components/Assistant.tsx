@@ -410,7 +410,9 @@ export default function Assistant() {
     }
   }, [listening, thinking, speaking, stop, send]);
 
-  startListeningRef.current = startListening;
+  useEffect(() => {
+    startListeningRef.current = startListening;
+  }, [startListening]);
 
   const toggleMic = useCallback(() => {
     autoListenRef.current = true;
