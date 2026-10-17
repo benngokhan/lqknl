@@ -325,20 +325,34 @@ export async function POST(req: Request) {
     .set({ status: "queued", updatedAt: new Date() })
     .where(and(eq(contentItems.status, "processing"), lt(contentItems.updatedAt, staleThreshold)));
 
+  // Legacy manually-entered queue items are no longer eligible for the worker.
+  // Only items explicitly registered by the Drive-native queue may be processed.
+  const driveQueueOps = await db.select().from(operations)
+    .where(eq(operations.action, "google_drive_content_queued"))
+    .orderBy(desc(operations.id))
+    .limit(500);
+  const driveContentIds = new Set<number>();
+  for (const operation of driveQueueOps) {
+    const metadata = operation.metadata && typeof operation.metadata === "object"
+      ? operation.metadata as Record<string, unknown>
+      : {};
+    const id = Number(metadata.contentId);
+    if (Number.isInteger(id) && id > 0) driveContentIds.add(id);
+  }
+
   const requestedId = Number(new URL(req.url).searchParams.get("contentId"));
   const hasId = Number.isInteger(requestedId) && requestedId > 0;
-  const candidate = hasId
-    ? await db.select().from(contentItems)
-        .where(and(eq(contentItems.id, requestedId), eq(contentItems.status, "queued")))
-        .limit(1)
-    : await db.select().from(contentItems)
-        .where(eq(contentItems.status, "queued"))
-        .orderBy(contentItems.id)
-        .limit(1);
-
-  const item = candidate[0];
+  const queuedRows = await db.select().from(contentItems)
+    .where(eq(contentItems.status, "queued"))
+    .orderBy(contentItems.id)
+    .limit(500);
+  const item = queuedRows.find((row) => driveContentIds.has(row.id) && (!hasId || row.id === requestedId));
   if (!item) {
-    return NextResponse.json({ ok: true, processed: false, message: "Kuyrukta içerik yok." });
+    return NextResponse.json({
+      ok: true,
+      processed: false,
+      message: "Google Drive kaynağıyla kuyruğa alınmış içerik yok. Eski manuel taslaklar işlenmedi.",
+    });
   }
 
   // Claim atomically so two scheduled calls cannot process the same item.
