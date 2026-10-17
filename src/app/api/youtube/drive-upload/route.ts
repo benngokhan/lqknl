@@ -65,8 +65,20 @@ export async function POST(req: Request) {
     }
 
     const downloaded = await downloadDriveFile(file.id);
-    if (downloaded.data.length < 12 || downloaded.data.toString("ascii", 4, 8) !== "ftyp") {
-      return NextResponse.json({ ok: false, error: "Drive dosyası geçerli MP4 başlığı içermiyor; yükleme durduruldu." }, { status: 415 });
+    const expectedBytes = Number(file.size || 0);
+    const actualBytes = downloaded.data.length;
+    if (downloaded.mimeType !== "video/mp4" || actualBytes < 12 || downloaded.data.toString("ascii", 4, 8) !== "ftyp") {
+      return NextResponse.json({ ok: false, uploaded: false, error: "Drive dosyası geçerli MP4 değil; yükleme durduruldu." }, { status: 415 });
+    }
+    if (expectedBytes <= 0 || actualBytes !== expectedBytes) {
+      return NextResponse.json({
+        ok: false,
+        uploaded: false,
+        error: "Drive indirmesi eksik veya boyut doğrulaması başarısız; YouTube yüklemesi durduruldu.",
+        fileName,
+        expectedBytes,
+        actualBytes,
+      }, { status: 422 });
     }
 
     const uploaded = await uploadShort({
