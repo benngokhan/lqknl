@@ -109,7 +109,19 @@ export async function POST(req: Request) {
       .find((meta) => Number(meta.contentId) === content.id && typeof meta.script === "string");
     const script = typeof scriptMeta?.script === "string" ? scriptMeta.script : null;
 
-    const metadata = buildMetadata(content.title, content.topic, script);
+    const assetMeta = asset.meta && typeof asset.meta === "object" ? asset.meta as Record<string, unknown> : {};
+    const isDriveVideo = assetMeta.source === "google_drive";
+    const metadata = isDriveVideo
+      ? {
+          title: content.title.trim().slice(0, 100),
+          description: typeof assetMeta.description === "string" && assetMeta.description.trim()
+            ? assetMeta.description.trim().slice(0, 4900)
+            : `${content.title} #Shorts\\n\\nBilgi Dozu — kısa bilgi videoları`,
+          tags: Array.isArray(assetMeta.tags)
+            ? assetMeta.tags.filter((tag): tag is string => typeof tag === "string" && tag.trim()).map((tag) => tag.trim().replace(/^#/, "")).slice(0, 30)
+            : ["bilgidozu", "shorts"],
+        }
+      : buildMetadata(content.title, content.topic, script);
     const video = Buffer.from(asset.data, "base64");
     if (video.length < 12 || video.toString("ascii", 4, 8) !== "ftyp") {
       throw new Error("Video varlığı geçerli MP4 başlığı içermiyor; yükleme durduruldu.");
