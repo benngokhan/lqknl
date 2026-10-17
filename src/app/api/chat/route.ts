@@ -781,6 +781,57 @@ export async function POST(req: Request) {
     if (asksForDriveOnlyAudit) {
       try {
         const origin = selfOrigin();
+        // Natural-language Drive import: prepare the requested numbered Short without uploading it.
+        const prepareVideoMatch = message.match(/(?:drive(?:'daki|'ta|da|dan)?|google\s*drive|video)?[\s\S]{0,80}?(?:video\s*)?(\d{1,3})\s*(?:numaralı|numarali|no(?:'lu)?|numara(?:lı|li)?)\s*video(?:yu|yı)?|video_(\d{1,3})\.mp4/iu);
+        const asksToPrepareDriveVideo = Boolean(prepareVideoMatch) &&
+          /(?:hazırla|hazirla|içe\s*aktar|ice\s*aktar|içeri\s*al|iceri\s*al|sisteme\s*al|mira'ya\s*aktar)/iu.test(message) &&
+          !/(?:youtube|kanal).{0,30}(?:yükle|yayınla|planla)|(?:yükle|yayınla|planla).{0,30}(?:youtube|kanal)/iu.test(message);
+        if (asksToPrepareDriveVideo && prepareVideoMatch) {
+          const videoNumber = Number(prepareVideoMatch[1] || prepareVideoMatch[2]);
+          const catalogResponse = await fetchWithTimeoutMs(origin + "/api/drive/catalog", {
+            headers: { cookie: cookieHeader },
+          }, 45000);
+          const catalogData = await catalogResponse.json().catch(() => ({})) as {
+            ok?: boolean; error?: string;
+            videos?: { shorts?: Array<{ id: string; name: string; size?: string }> };
+          };
+          if (!catalogResponse.ok || !catalogData.ok) {
+            return NextResponse.json({
+              reply: "Drive videosunu hazırlayamadım. Katalog okunamadı (HTTP " + catalogResponse.status + "): " + (catalogData.error || "bilinmeyen hata") + ".",
+              emotion: "focused",
+            }, { status: catalogResponse.status >= 400 ? catalogResponse.status : 502 });
+          }
+          const targetName = "video_" + videoNumber + ".mp4";
+          const target = (catalogData.videos?.shorts || []).find((file) => file.name.toLocaleLowerCase("tr-TR") === targetName);
+          if (!target?.id) {
+            return NextResponse.json({
+              reply: "Drive kataloğunda " + targetName + " bulunamadı. Hiçbir dosya içe aktarılmadı.",
+              emotion: "focused",
+            });
+          }
+          const prepareResponse = await fetchWithTimeoutMs(origin + "/api/drive/prepare-upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", cookie: cookieHeader },
+            body: JSON.stringify({ fileId: target.id, videoNumber }),
+          }, 150000);
+          const prepareData = await prepareResponse.json().catch(() => ({})) as {
+            ok?: boolean; alreadyImported?: boolean; contentId?: number; title?: string; error?: string;
+            uploadApproved?: boolean; message?: string;
+          };
+          if (!prepareResponse.ok || !prepareData.ok) {
+            return NextResponse.json({
+              reply: targetName + " içe aktarılamadı. HTTP " + prepareResponse.status + ": " + (prepareData.error || "işlem sonucu doğrulanamadı") + ".",
+              emotion: "focused",
+            }, { status: prepareResponse.status >= 400 ? prepareResponse.status : 502 });
+          }
+          return NextResponse.json({
+            reply: prepareData.alreadyImported
+              ? targetName + " daha önce Mira'ya aktarılmış. Kayıt: " + (prepareData.contentId ?? "bilinmiyor") + "; başlık: " + (prepareData.title || "bilinmiyor") + ". YouTube'a yüklenmedi."
+              : targetName + " Mira'ya aktarıldı ve metadata eşleştirmesi yapıldı. Kayıt: " + (prepareData.contentId ?? "oluşturuldu") + "; başlık: " + (prepareData.title || "baslik.md'den okundu") + ". YouTube'a yüklenmedi; yükleme için ayrıca açık onay gerekiyor.",
+            emotion: "focused",
+          });
+        }
+
         const fileMatch = message.match(/\b((?:video|uzun_video)_\d+\.mp4)\b/iu);
         const asksForIntegrityTest = Boolean(fileMatch) && /(?:sağlam|saglam|geçerli|gecerli|doğrula|dogrula|indir|test|kontrol|çalışıyor|calisiyor|bozuk|açılıyor|aciliyor)/iu.test(message);
         const asksForTitleDocument = /(?:baslik\.md|başlık|başlik|başlıkları|başliklari|konu listesi|başlık listesi)/iu.test(message);
