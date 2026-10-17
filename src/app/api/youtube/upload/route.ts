@@ -118,7 +118,7 @@ export async function POST(req: Request) {
             ? assetMeta.description.trim().slice(0, 4900)
             : `${content.title} #Shorts\\n\\nBilgi Dozu — kısa bilgi videoları`,
           tags: Array.isArray(assetMeta.tags)
-            ? assetMeta.tags.filter((tag): tag is string => typeof tag === "string" && tag.trim()).map((tag) => tag.trim().replace(/^#/, "")).slice(0, 30)
+            ? assetMeta.tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0).map((tag) => tag.trim().replace(/^#/, "")).slice(0, 30)
             : ["bilgidozu", "shorts"],
         }
       : buildMetadata(content.title, content.topic, script);
