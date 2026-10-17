@@ -211,6 +211,8 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [chatActivity, setChatActivity] = useState<Array<{ id: number; message: string; status: 'running' | 'success' | 'error'; createdAt: string }>>([]);
+  const chatActivitySequence = useRef(0);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [drafts, setDrafts] = useState<ContentDraft[]>([]);
@@ -908,6 +910,10 @@ export default function Home() {
     }
   };
 
+  const appendChatActivity = (message: string, status: 'running' | 'success' | 'error') => {
+    setChatActivity((current) => [...current, { id: ++chatActivitySequence.current, message, status, createdAt: new Date().toISOString() }].slice(-3));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || loading || !historyLoaded) return;
@@ -916,12 +922,15 @@ export default function Home() {
     setInput('');
     setShowSuggestions(false);
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
+    setChatActivity([]);
     setLoading(true);
 
     try {
       const wantsOnlinePhoto = /(?:mira.*(?:fotoğrafını at|fotoğraf at|fotoğraf bul|internetten fotoğraf)|(?:internetten|online|webden).*fotoğraf|fotoğrafını at)/i.test(userMessage);
       const wantsSelfie = !wantsOnlinePhoto && /(?:selfie|selfini|selfie çek|fotoğrafını çek|kendi fotoğrafını|resmini çek)/i.test(userMessage);
-      const res = await fetch(wantsOnlinePhoto ? '/api/image/search' : wantsSelfie ? '/api/image/selfie' : '/api/chat', {
+      const endpoint = wantsOnlinePhoto ? '/api/image/search' : wantsSelfie ? '/api/image/selfie' : '/api/chat';
+      appendChatActivity(`İstek gönderildi: ${endpoint}. Sunucudan gerçek yanıt bekleniyor.`, 'running');
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(wantsOnlinePhoto ? { query: 'body selfie sensual girl' } : wantsSelfie ? {} : { message: userMessage }),
@@ -929,6 +938,7 @@ export default function Home() {
 
       // Do not blindly call res.json(): deployment/proxy errors can return
       // plain text or HTML and cause "Unexpected token ... is not valid JSON".
+      appendChatActivity(`Sunucu yanıt verdi: HTTP ${res.status}.`, res.ok ? 'running' : 'error');
       const raw = await res.text();
       let data: unknown = null;
 
@@ -962,8 +972,10 @@ export default function Home() {
         ? data.imageUrl
         : undefined;
       setMessages((prev) => [...prev, { role: 'assistant', content: reply, ...(imageUrl ? { imageUrl } : {}) }]);
+      appendChatActivity('Mira yanıtı alındı; istek tamamlandı.', 'success');
       speak(reply);
     } catch (err: any) {
+      appendChatActivity(`İşlem durdu: ${err?.message || 'Bağlantı hatası'}`, 'error');
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: `Hata oluştu: ${err.message || 'Bağlantı hatası'}` },
@@ -1586,10 +1598,24 @@ export default function Home() {
             {renderMessageContent(msg, index)}
           </div>
         ))}
-        {loading && (
-          <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 text-slate-400 max-w-[80%] animate-pulse" role="status" aria-live="polite">
-            Mira yanıt yazıyor...
-          </div>
+        {(loading || chatActivity.length > 0) && (
+          <section className="max-w-[92%] rounded-lg border border-slate-700 bg-slate-950/95 px-3 py-2" aria-label="Mira canlı işlem akışı" aria-live="polite">
+            <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-semibold text-slate-300">
+              <span>Mira · Canlı işlem akışı</span>
+              <span className={loading ? 'text-amber-300' : chatActivity.some((event) => event.status === 'error') ? 'text-red-300' : 'text-emerald-300'}>{loading ? 'Bekliyor' : chatActivity.some((event) => event.status === 'error') ? 'Hata' : 'Tamamlandı'}</span>
+            </div>
+            <div className="h-[4.5rem] overflow-hidden space-y-1">
+              {chatActivity.slice(-3).map((event) => (
+                <div key={event.id} className="flex min-w-0 items-start gap-2 text-xs leading-5">
+                  <span aria-hidden="true" className={event.status === 'error' ? 'text-red-400' : event.status === 'success' ? 'text-emerald-400' : 'text-amber-300'}>{event.status === 'error' ? '✕' : event.status === 'success' ? '✓' : '…'}</span>
+                  <span className="min-w-0 flex-1 truncate text-slate-200">{event.message}</span>
+                  <time className="shrink-0 text-[10px] text-slate-500">{new Date(event.createdAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
+                </div>
+              ))}
+              {loading && chatActivity.length === 0 && <div className="text-xs leading-5 text-slate-300">İstek hazırlanıyor; henüz sunucu işlemi doğrulanmadı.</div>}
+            </div>
+            {loading && <div className="mt-1 text-[10px] text-slate-500">Sunucu içindeki dosya/araç adımları ayrıca raporlanmadıkça burada gösterilmez.</div>}
+          </section>
         )}
         <div ref={messagesEndRef} aria-hidden="true" className="h-px w-full shrink-0" />
       </div>
