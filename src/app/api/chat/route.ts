@@ -772,7 +772,7 @@ export async function POST(req: Request) {
 
     // Read-only channel + Drive analysis: compare the actual YouTube uploads with real Drive files.
     const asksForChannelAudit =
-      /(?:kanal.{0,60}(?:analiz|incele|durum|video|yüklen)|(?:önce|daha önce|zaten).{0,40}(?:yüklenmiş|yayınlanmış)|(?:yüklenmemiş|tekrar yükle|çakışan video|youtube videoları))/iu.test(message);
+      /(?:kanal.{0,60}(?:analiz|incele|durum|video|yüklen)|(?:önce|daha önce|zaten).{0,40}(?:yüklenmiş|yayınlanmış)|(?:yüklenmemiş|tekrar yükle|çakışan video|youtube videoları)|video_\d+\.mp4|youtube.{0,100}(?:drive|mp4|planlı yükle|yükleme akışı)|drive.{0,100}(?:mp4|yükle|planla))/iu.test(message);
 
     if (asksForChannelAudit) {
       try {
@@ -810,8 +810,14 @@ export async function POST(req: Request) {
           "GÜVENLİK: Bu denetim salt okunurdur. Hiçbir video yükleme, planlama, yorum ekleme/sabitleme veya mevcut yayın takvimini değiştirme. Kullanıcı istemedikçe bu denetim yalnızca rapor üretir.",
         ].join("\n");
 
+        const namesBothTargetFiles =
+          /video_11\.mp4[\s\S]{0,240}video_12\.mp4|video_12\.mp4[\s\S]{0,240}video_11\.mp4/iu.test(message);
+        const hasUploadIntent =
+          /(?:yükle|yükleme|planla|programla|yayına hazırla|işleme al|ilerle|tetikle)/iu.test(message) &&
+          !/(?:yükleme|yükle|planla|programla).{0,35}(?:yapma|etme|dur|iptal|istemiyorum)|(?:sakın|kesinlikle).{0,25}(?:yükle|planla)/iu.test(message);
         const wantsTwoScheduledUploads =
-          /(?:kanal|youtube|drive).{0,100}(?:yükle|yüklesin|planla|programla).{0,80}(?:iki|2)\s*(?:tane|adet)?|(?:iki|2)\s*(?:tane|adet).{0,100}(?:yükle|yüklesin|planla|programla)/iu.test(message);
+          /(?:kanal|youtube|drive).{0,100}(?:yükle|yüklesin|planla|programla).{0,80}(?:iki|2)\s*(?:tane|adet)?|(?:iki|2)\s*(?:tane|adet).{0,100}(?:yükle|yüklesin|planla|programla)/iu.test(message) ||
+          (namesBothTargetFiles && hasUploadIntent);
         if (wantsTwoScheduledUploads) {
           const scheduleText = [...history.map((item) => item.content), message].join("\n");
           const slots = requestedScheduleSlots(scheduleText);
