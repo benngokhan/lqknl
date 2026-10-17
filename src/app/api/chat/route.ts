@@ -16,6 +16,28 @@ const ENTRY_COOKIE = 'mira_entry';
 const EXTERNAL_TIMEOUT_MS = 8000;
 const VIDEO_TIMEOUT_MS = 180000;
 
+function requestedScheduleSlots(text: string): string[] | null {
+  const months: Record<string, string> = {
+    ocak: "01", şubat: "02", subat: "02", mart: "03", nisan: "04", mayıs: "05", mayis: "05",
+    haziran: "06", temmuz: "07", ağustos: "08", agustos: "08", eylül: "09", eylul: "09",
+    ekim: "10", kasım: "11", kasim: "11", aralık: "12", aralik: "12",
+  };
+  const match = text.match(/\b(\d{1,2})\s+(ocak|şubat|subat|mart|nisan|mayıs|mayis|haziran|temmuz|ağustos|agustos|eylül|eylul|ekim|kasım|kasim|aralık|aralik)\s+(20\d{2})[\s\S]{0,100}?(\d{1,2})[.:](\d{2})[\s\S]{0,35}?(?:ve|ile|,)\s*(\d{1,2})[.:](\d{2})/iu);
+  if (!match) return null;
+  const [, dayText, monthText, yearText, h1, m1, h2, m2] = match;
+  const month = months[monthText.toLocaleLowerCase("tr-TR")];
+  if (!month) return null;
+  const day = dayText.padStart(2, "0");
+  const build = (hour: string, minute: string) => {
+    const iso = `${yearText}-${month}-${day}T${hour.padStart(2, "0")}:${minute}:00+03:00`;
+    const date = new Date(iso);
+    return Number.isFinite(date.getTime()) && date.getTime() > Date.now() + 60_000 ? date.toISOString() : null;
+  };
+  const first = build(h1, m1);
+  const second = build(h2, m2);
+  return first && second ? [first, second] : null;
+}
+
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}) {
   return fetchWithTimeoutMs(input, init, EXTERNAL_TIMEOUT_MS);
 }
@@ -746,6 +768,135 @@ export async function POST(req: Request) {
       memoryContext = formatMemoriesForContext(relevantMemories);
     } catch (memoryError) {
       console.error("Mira context load failed:", memoryError);
+    }
+
+    // Read-only channel + Drive analysis: compare the actual YouTube uploads with real Drive files.
+    const asksForChannelAudit =
+      /(?:kanal.{0,60}(?:analiz|incele|durum|video|yüklen)|(?:önce|daha önce|zaten).{0,40}(?:yüklenmiş|yayınlanmış)|(?:yüklenmemiş|tekrar yükle|çakışan video|youtube videoları))/iu.test(message);
+
+    if (asksForChannelAudit) {
+      try {
+        const origin = selfOrigin();
+        const [youtubeResponse, driveResponse] = await Promise.all([
+          fetchWithTimeoutMs(`${origin}/api/youtube/videos?limit=200`, { headers: { cookie: cookieHeader } }, 30000),
+          fetchWithTimeoutMs(`${origin}/api/drive/catalog`, { headers: { cookie: cookieHeader } }, 30000),
+        ]);
+        const youtubeData = await youtubeResponse.json().catch(() => ({})) as {
+          ok?: boolean; error?: string; channelTitle?: string; channelId?: string; count?: number;
+          videos?: Array<{ videoId: string; title: string; publishedAt: string | null; privacyStatus: string | null; url: string }>;
+        };
+        const driveData = await driveResponse.json().catch(() => ({})) as {
+          ok?: boolean; error?: string; document?: { name?: string; characters?: number };
+          documentText?: string; titleCandidates?: Array<{ line: number; kind: string; title: string }>;
+          videos?: { shorts?: Array<{ name: string; id?: string }>; longVideos?: Array<{ name: string; id?: string }> };
+        };
+        if (!youtubeResponse.ok || !youtubeData.ok) {
+          return NextResponse.json({
+            reply: `YouTube kanal analizi için gerçek video listesi alınamadı: ${youtubeData.error || `HTTP ${youtubeResponse.status}`}. Kanalın incelendiğini varsaymayacağım.`,
+            emotion: "focused",
+          }, { status: youtubeResponse.status >= 400 ? youtubeResponse.status : 502 });
+        }
+
+        const auditContext = [
+          "YOUTUBE KANAL DENETİMİ — bu istekte kanalın gerçek yüklemeler listesi YouTube API'sinden okundu.",
+          "Yalnızca aşağıdaki canlı verileri ve Drive kataloğunu kullan. Başlıklar benziyor diye kesin eşleşme iddia etme; eşleşmeleri 'kesin', 'olası' veya 'belirsiz' diye ayır.",
+          `Kanal: ${youtubeData.channelTitle || "bilinmiyor"}; kanal ID: ${youtubeData.channelId || "bilinmiyor"}; listelenen video: ${youtubeData.count ?? youtubeData.videos?.length ?? 0}`,
+          "YouTube'da zaten bulunan videolar (kimlik, başlık, tarih ve gizlilik):",
+          JSON.stringify(youtubeData.videos || []),
+          "Drive kataloğu:",
+          driveData.ok
+            ? JSON.stringify({ document: driveData.document, shorts: driveData.videos?.shorts, longVideos: driveData.videos?.longVideos, titleCandidates: driveData.titleCandidates, documentText: driveData.documentText })
+            : `Drive kataloğu okunamadı: ${driveData.error || `HTTP ${driveResponse.status}`}`,
+          "GÜVENLİK: Bu denetim salt okunurdur. Hiçbir video yükleme, planlama, yorum ekleme/sabitleme veya mevcut yayın takvimini değiştirme. Kullanıcı istemedikçe bu denetim yalnızca rapor üretir.",
+        ].join("\n");
+
+        const wantsTwoScheduledUploads =
+          /(?:kanal|youtube|drive).{0,100}(?:yükle|yüklesin|planla|programla).{0,80}(?:iki|2)\s*(?:tane|adet)?|(?:iki|2)\s*(?:tane|adet).{0,100}(?:yükle|yüklesin|planla|programla)/iu.test(message);
+        if (wantsTwoScheduledUploads) {
+          const scheduleText = [...history.map((item) => item.content), message].join("\n");
+          const slots = requestedScheduleSlots(scheduleText);
+          if (!slots) {
+            const auditResult = await think(message, history, "", "flirty", `${memoryContext}\n\n${auditContext}`, "", privateMode);
+            return NextResponse.json({
+              reply: `${auditResult.reply || "Kanal analizi tamamlandı."}\n\nYükleme başlatmadım: konuşmada gelecekteki iki yayın saati açıkça bulunamadı. Hiçbir video yüklenmedi.`,
+              emotion: auditResult.emotion || "focused",
+            });
+          }
+
+          const selectionPrompt = [
+            "Sadece JSON döndür; açıklama, markdown çiti veya başka metin yazma.",
+            "Gerçek YouTube kanalındaki mevcut videolar ile Google Drive katalogunu karşılaştır.",
+            "Kanalda bulunmayan iki Shorts dosyasını seç. Öncelik video_11.mp4, sonra video_12.mp4; bunlar zaten yüklenmişse sıradaki yüklenmemiş dosyaları seç.",
+            "Yalnızca baslik.md içeriğinden doğrulayabildiğin başlık, açıklama, etiket ve yorum bilgilerini kullan. Bir dosyanın metaverisi belirsizse onu seçme. Aynı videoyu tekrar yükleme.",
+            "Şema: {\"videos\":[{\"fileName\":\"video_11.mp4\",\"title\":\"...\",\"description\":\"...\",\"tags\":[\"...\"],\"comment\":\"...\"},{...}]}. Tam olarak iki farklı dosya olmalı; aksi durumda {\"videos\":[]} döndür.",
+            auditContext,
+          ].join("\n");
+          const selection = await think(selectionPrompt, history, "", "flirty", memoryContext, "", privateMode);
+          const jsonMatch = (selection.reply || "").match(/\{[\s\S]*\}/);
+          let parsed: { videos?: Array<{ fileName?: string; title?: string; description?: string; tags?: string[]; comment?: string }> } = {};
+          try { parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {}; } catch {}
+          const candidates = Array.isArray(parsed.videos) ? parsed.videos : [];
+          const validFiles = new Set([...(driveData.videos?.shorts || []), ...(driveData.videos?.longVideos || [])].map((file) => file.name));
+          const usable = candidates.filter((item): item is { fileName: string; title: string; description: string; tags: string[]; comment: string } =>
+            typeof item.fileName === "string" && validFiles.has(item.fileName) &&
+            typeof item.title === "string" && Boolean(item.title.trim()) &&
+            typeof item.description === "string" &&
+            Array.isArray(item.tags) && item.tags.every((tag) => typeof tag === "string") &&
+            typeof item.comment === "string"
+          ).slice(0, 2);
+          if (usable.length !== 2 || usable[0].fileName === usable[1].fileName) {
+            return NextResponse.json({
+              reply: "Kanal ve Drive analizini yaptım ancak iki videonun başlık/açıklama/yorum eşleşmesini güvenilir biçimde doğrulayamadım. Güvenlik için hiçbir video yüklemedim.\n\n" + (selection.reply || ""),
+              emotion: "focused",
+            });
+          }
+
+          const uploadResults: Array<Record<string, unknown>> = [];
+          for (let i = 0; i < 2; i++) {
+            const candidate = usable[i];
+            const response = await fetchWithTimeoutMs(`${origin}/api/youtube/drive-upload`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", cookie: cookieHeader },
+              body: JSON.stringify({
+                confirm: true,
+                fileName: candidate.fileName,
+                title: candidate.title,
+                description: candidate.description,
+                tags: candidate.tags,
+                comment: candidate.comment,
+                publishAt: slots[i],
+              }),
+            }, VIDEO_TIMEOUT_MS);
+            const data = await response.json().catch(() => ({})) as Record<string, unknown>;
+            uploadResults.push({ fileName: candidate.fileName, httpStatus: response.status, ...data });
+          }
+          const report = uploadResults.map((result, index) =>
+            `${index + 1}. ${String(result.fileName || "dosya")}: ${result.uploaded === true && result.scheduled === true ? "PLANLANDI" : "BAŞARISIZ"} — ${String(result.url || result.error || "sonuç doğrulanamadı")} — yayın: ${slots[index]}`
+          );
+          return NextResponse.json({
+            reply: [
+              "YouTube kanal analizi tamamlandı.",
+              ...report,
+              "Yorum sabitleme YouTube Data API üzerinden yapılamıyor; hiçbir yorumun sabitlendiğini iddia etmiyorum.",
+              "Herhangi bir video hemen herkese açık yayımlanmadı; yükleme planlı ve gizli olarak yapıldı.",
+            ].join("\n"),
+            emotion: "focused",
+          });
+        }
+
+        const auditResult = await think(message, history, "", "flirty", `${memoryContext}\n\n${auditContext}`, "", privateMode);
+        return NextResponse.json({
+          reply: auditResult.reply || "Kanal verilerini aldım ancak güvenilir bir analiz oluşturamadım.",
+          emotion: auditResult.emotion || "focused",
+        });
+      } catch (auditError) {
+        const reason = auditError instanceof Error ? auditError.message : String(auditError);
+        console.error("[Chat] YouTube channel audit failed:", reason);
+        return NextResponse.json({
+          reply: `Kanal analizi tamamlanamadı: ${reason.slice(0, 250)}. Analiz yapılmış gibi göstermeyeceğim.`,
+          emotion: "focused",
+        }, { status: 502 });
+      }
     }
 
     // Read-only Google Drive access for natural chat requests.

@@ -153,11 +153,87 @@ export async function getMyChannel(accessToken?: string) {
   return { channelId: item.id as string, channelTitle: item.snippet?.title as string };
 }
 
+export type ChannelVideo = {
+  videoId: string;
+  title: string;
+  description: string;
+  publishedAt: string | null;
+  privacyStatus: string | null;
+  url: string;
+};
+
+/** Read the authenticated channel's uploads playlist, including private videos owned by this account. */
+export async function listMyChannelVideos(maxVideos = 200): Promise<{ channelId: string; channelTitle: string; videos: ChannelVideo[] }> {
+  const token = await freshAccessToken();
+  const limit = Math.max(1, Math.min(500, Math.floor(maxVideos)));
+  const channelResponse = await fetch(`${CHANNELS_URL}?part=snippet,contentDetails&mine=true`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(20_000),
+    cache: "no-store",
+  });
+  const channelData = await channelResponse.json().catch(() => ({}));
+  if (!channelResponse.ok) {
+    throw new Error(`YouTube kanal listesi alınamadı HTTP ${channelResponse.status}: ${String(channelData?.error?.message || "API hatası").slice(0, 250)}`);
+  }
+  const channel = channelData?.items?.[0];
+  const uploadsPlaylistId = channel?.contentDetails?.relatedPlaylists?.uploads;
+  if (!channel?.id || !uploadsPlaylistId) throw new Error("YouTube kanalının yüklenen videolar listesi bulunamadı.");
+
+  const ids: string[] = [];
+  let pageToken = "";
+  while (ids.length < limit) {
+    const params = new URLSearchParams({
+      part: "contentDetails",
+      playlistId: uploadsPlaylistId,
+      maxResults: String(Math.min(50, limit - ids.length)),
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+    const response = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20_000),
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(`YouTube video listesi alınamadı HTTP ${response.status}: ${String(data?.error?.message || "API hatası").slice(0, 250)}`);
+    for (const item of data?.items || []) {
+      const id = item?.contentDetails?.videoId;
+      if (typeof id === "string" && id) ids.push(id);
+    }
+    pageToken = typeof data?.nextPageToken === "string" ? data.nextPageToken : "";
+    if (!pageToken || !(data?.items || []).length) break;
+  }
+
+  const videos: ChannelVideo[] = [];
+  for (let offset = 0; offset < ids.length; offset += 50) {
+    const params = new URLSearchParams({ part: "snippet,status", id: ids.slice(offset, offset + 50).join(","), maxResults: "50" });
+    const response = await fetch(`https://www.googleapis.com/youtube/v3/videos?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20_000),
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(`YouTube video ayrıntıları alınamadı HTTP ${response.status}: ${String(data?.error?.message || "API hatası").slice(0, 250)}`);
+    for (const item of data?.items || []) {
+      if (typeof item?.id !== "string") continue;
+      videos.push({
+        videoId: item.id,
+        title: String(item.snippet?.title || ""),
+        description: String(item.snippet?.description || ""),
+        publishedAt: typeof item.snippet?.publishedAt === "string" ? item.snippet.publishedAt : null,
+        privacyStatus: typeof item.status?.privacyStatus === "string" ? item.status.privacyStatus : null,
+        url: `https://www.youtube.com/watch?v=${item.id}`,
+      });
+    }
+  }
+  return { channelId: channel.id, channelTitle: String(channel.snippet?.title || ""), videos };
+}
+
 export type UploadInput = {
   title: string;
   description: string;
   tags?: string[];
   privacyStatus?: "private" | "unlisted" | "public"; // unaudited uygulamada 'public' private kilitlenir
+  publishAt?: string; // ISO timestamp; future private scheduled upload only
   video: Buffer;
 };
 
@@ -188,7 +264,8 @@ export async function uploadShort(input: UploadInput): Promise<UploadOutput> {
         categoryId: process.env.YOUTUBE_CATEGORY_ID || "27", // Education
       },
       status: {
-        privacyStatus: privacy,
+        privacyStatus: input.publishAt ? "private" : privacy,
+        ...(input.publishAt ? { publishAt: input.publishAt } : {}),
         selfDeclaredMadeForKids: false,
       },
     }),
@@ -225,6 +302,33 @@ export async function uploadShort(input: UploadInput): Promise<UploadOutput> {
   return { videoId, url: `https://www.youtube.com/shorts/${videoId}`, privacyStatus: privacy };
 }
 
+
+/** Add a top-level comment to a video. YouTube's public Data API does not expose pin/unpin operations. */
+export async function addYoutubeComment(videoId: string, text: string): Promise<{ commentId: string }> {
+  if (!/^[a-zA-Z0-9_-]{6,20}$/.test(videoId)) throw new Error("Geçersiz YouTube video ID");
+  const cleanText = text.trim().slice(0, 10000);
+  if (!cleanText) throw new Error("Yorum metni boş.");
+  const accessToken = await freshAccessToken();
+  const response = await fetch("https://www.googleapis.com/youtube/v3/commentThreads?part=snippet", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      snippet: {
+        videoId,
+        topLevelComment: { snippet: { textOriginal: cleanText } },
+      },
+    }),
+    signal: AbortSignal.timeout(20_000),
+    cache: "no-store",
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(`YouTube yorum eklenemedi HTTP ${response.status}: ${String(data?.error?.message || "API hatası").slice(0, 300)}`);
+  }
+  const commentId = data?.snippet?.topLevelComment?.id || data?.id;
+  if (typeof commentId !== "string" || !commentId) throw new Error("YouTube yorum kimliği döndürmedi.");
+  return { commentId };
+}
 
 /** Change an already-uploaded video to public only after an explicit Telegram callback. */
 export async function makeYoutubeVideoPublic(videoId: string): Promise<{ videoId: string; url: string; privacyStatus: string }> {
