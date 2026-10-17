@@ -840,6 +840,37 @@ export async function POST(req: Request) {
       console.error("Mira context load failed:", memoryError);
     }
 
+    // Follow-up questions about a just-checked video must reuse real evidence, not ask the LLM to guess.
+    const asksVideoEvidenceFollowup = /(?:dosyanın|videonun|içindeki|icindeki|video(?:nun)?|mp4).{0,100}(?:analiz|incele|özellik|ozellik|süre|boyut|çözünürlük|cozunurluk|fps|ses|içerik|icerik)|(?:analiz|incele|özellik|ozellik|süre|boyut|çözünürlük|cozunurluk|fps|ses|içerik|icerik).{0,100}(?:dosya|video|mp4)/iu.test(message);
+    const priorCheckedVideo = [...history].reverse().find((turn) =>
+      turn.role === "assistant" && /Drive kontrolü gerçekten tamamlandı/iu.test(turn.content) &&
+      /\b(?:video|uzun_video)_\d+\.mp4\b/iu.test(turn.content)
+    );
+    const priorCheckedFile = priorCheckedVideo?.content.match(/\b((?:video|uzun_video)_\d+\.mp4)\b/iu)?.[1];
+    if (asksVideoEvidenceFollowup && priorCheckedFile && !/\b(?:video|uzun_video)_\d+\.mp4\b/iu.test(message)) {
+      try {
+        const response = await fetchWithTimeoutMs(
+          `${selfOrigin()}/api/drive/test-download?file=${encodeURIComponent(priorCheckedFile)}`,
+          { headers: { cookie: cookieHeader } }, 150000,
+        );
+        const data = await response.json().catch(() => ({})) as {
+          ok?: boolean; name?: string; durationSeconds?: number | null; width?: number | null;
+          height?: number | null; frameRate?: number | null; hasAudio?: boolean; shortsReady?: boolean;
+          error?: string; message?: string;
+        };
+        if (!response.ok || !data.ok) {
+          return NextResponse.json({ reply: `${priorCheckedFile} için kontrolü yeniden doğrulayamadım. ${data.error || data.message || `HTTP ${response.status}`}. Önceki sonuç güncel kanıt sayılmamalı.`, emotion: "focused" }, { status: 502 });
+        }
+        const duration = typeof data.durationSeconds === "number" ? `${data.durationSeconds.toFixed(2)} saniye` : "okunamadı";
+        const dimensions = typeof data.width === "number" && typeof data.height === "number" ? `${data.width}×${data.height}` : "okunamadı";
+        const fps = typeof data.frameRate === "number" ? `${data.frameRate} FPS` : "okunamadı";
+        return NextResponse.json({ reply: `${data.name || priorCheckedFile}: canlı teknik kontrol tekrarlandı. Süre: ${duration}; çözünürlük: ${dimensions}; FPS: ${fps}; ses: ${data.hasAudio === true ? "var" : data.hasAudio === false ? "yok" : "belirsiz"}. Shorts teknik ölçütü: ${data.shortsReady === true ? "uygun" : data.shortsReady === false ? "uygun değil" : "belirsiz"}. Bu kontrol görüntü içeriğini görsel olarak analiz etmez.`, emotion: "focused" });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return NextResponse.json({ reply: `${priorCheckedFile} için teknik kontrol tekrarlanamadı: ${reason.slice(0, 200)}. Tahmin yürütmüyorum.`, emotion: "focused" }, { status: 502 });
+      }
+    }
+
     // Drive-only requests must call the real Drive API; never let the LLM invent a catalogue.
     const mentionsDrive = /(?:google\s*drive|\bdrive\b|baslik\.md|video_\d+\.mp4|uzun_video_\d+\.mp4)/iu.test(message);
     const mentionsYoutubeOrChannel = /(?:youtube|\bkanal\b|yayınlanmış videolar|yüklenmiş videolar)/iu.test(message);
@@ -919,20 +950,27 @@ export async function POST(req: Request) {
             message?: string; error?: string; downloadHttpStatus?: number | null;
           };
           const size = (value?: number) => typeof value === "number" ? `${value.toLocaleString("tr-TR")} bayt` : "bilinmiyor";
-          return NextResponse.json({
-            reply: response.ok && result.ok
-              ? [
-                  `Drive kontrolü gerçekten tamamlandı: ${result.name}. İndirilen boyut: ${size(result.actualBytes)}; Drive boyutuyla eşleşme: evet; MIME: ${result.mimeType}; MP4 imzası: geçerli.`,
-                  result.durationSeconds != null ? `Süre: ${result.durationSeconds} saniye.` : "Süre bilgisi alınamadı.",
-                  result.width != null && result.height != null ? `Çözünürlük: ${result.width}×${result.height}.` : "Çözünürlük bilgisi alınamadı.",
-                  result.frameRate != null ? `Kare hızı: ${result.frameRate} fps.` : "Kare hızı bilgisi alınamadı.",
-                  typeof result.hasAudio === "boolean" ? `Ses akışı: ${result.hasAudio ? "var" : "yok"}.` : "Ses akışı bilgisi alınamadı.",
-                  typeof result.shortsReady === "boolean" ? `Dikey Shorts ölçütü (3 dakikaya kadar): ${result.shortsReady ? "uygun" : "uygun değil"}.` : "",
-                  result.message || ""
-                ].filter(Boolean).join(" ")
-              : `Drive dosya kontrolü başarısız: ${result.name || fileName}. HTTP: ${response.status}; hata: ${result.error || result.message || "Dosya doğrulanamadı"}. Dosyanın sağlam olduğunu söyleyemem.`,
-            emotion: "focused",
-          }, { status: response.ok && result.ok ? 200 : 502 });
+          const reply = response.ok && result.ok
+            ? [
+                `Drive kontrolü gerçekten tamamlandı: ${result.name}. İndirilen boyut: ${size(result.actualBytes)}; Drive boyutuyla eşleşme: evet; MIME: ${result.mimeType}; MP4 imzası: geçerli.`,
+                result.durationSeconds != null ? `Süre: ${result.durationSeconds} saniye.` : "Süre bilgisi alınamadı.",
+                result.width != null && result.height != null ? `Çözünürlük: ${result.width}×${result.height}.` : "Çözünürlük bilgisi alınamadı.",
+                result.frameRate != null ? `Kare hızı: ${result.frameRate} fps.` : "Kare hızı bilgisi alınamadı.",
+                typeof result.hasAudio === "boolean" ? `Ses akışı: ${result.hasAudio ? "var" : "yok"}.` : "Ses akışı bilgisi alınamadı.",
+                typeof result.shortsReady === "boolean" ? `Dikey Shorts ölçütü (3 dakikaya kadar): ${result.shortsReady ? "uygun" : "uygun değil"}.` : "",
+                "Bu teknik dosya kontrolüdür; görüntülerin içeriği görsel olarak analiz edilmiş sayılmaz.",
+                result.message || ""
+              ].filter(Boolean).join(" ")
+            : `Drive dosya kontrolü başarısız: ${result.name || fileName}. HTTP: ${response.status}; hata: ${result.error || result.message || "Dosya doğrulanamadı"}. Dosyanın sağlam olduğunu söyleyemem.`;
+          try {
+            await db.insert(messages).values([
+              { role: "user", content: message, emotion: "focused" },
+              { role: "assistant", content: reply, emotion: "focused" },
+            ]);
+          } catch (persistError) {
+            console.error("Mira video-check conversation persistence failed:", persistError);
+          }
+          return NextResponse.json({ reply, emotion: "focused" }, { status: response.ok && result.ok ? 200 : 502 });
         }
 
         const endpoint = asksForTitleDocument ? "/api/drive/catalog" : "/api/drive/files";
