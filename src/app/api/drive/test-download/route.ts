@@ -13,16 +13,27 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "Mira giriş oturumu gerekli." }, { status: 401 });
   }
 
+  const requestedName = new URL(req.url).searchParams.get("file") || "video_1.mp4";
+  if (!/^(?:video|uzun_video)_\d+\.mp4$/i.test(requestedName)) {
+    return NextResponse.json({
+      ok: false,
+      error: "Geçersiz dosya adı. video_2.mp4 veya uzun_video_3.mp4 gibi bir ad kullan.",
+    }, { status: 400 });
+  }
+
+  const testName = `drive-download-${requestedName}`;
+
   try {
     const files = await listDriveFolderFiles();
-    const file = files.find((item) => item.name === "video_1.mp4");
+    const file = files.find((item) => item.name.toLowerCase() === requestedName.toLowerCase());
 
     if (!file) {
       return NextResponse.json({
         ok: false,
-        error: "Drive klasöründe video_1.mp4 bulunamadı.",
+        test: testName,
+        error: `${requestedName} Drive klasöründe bulunamadı.`,
         availableVideoNames: files
-          .filter((item) => /^video_\d+\.mp4$/i.test(item.name))
+          .filter((item) => /^(?:video|uzun_video)_\d+\.mp4$/i.test(item.name))
           .map((item) => item.name),
       }, { status: 404 });
     }
@@ -40,7 +51,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       ok: passed,
-      test: "drive-download-video_1",
+      test: testName,
       file: {
         name: downloaded.name,
         id: file.id,
@@ -62,7 +73,7 @@ export async function GET(req: Request) {
     const match = message.match(/HTTP\s+(\d{3})/i);
     return NextResponse.json({
       ok: false,
-      test: "drive-download-video_1",
+      test: testName,
       downloadHttpStatus: match ? Number(match[1]) : null,
       error: message.slice(0, 400),
     }, { status: 502 });
