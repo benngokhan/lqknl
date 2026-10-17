@@ -22,6 +22,7 @@ export async function GET(req: Request) {
     missingEnv: configStatus.missing,
     redirectUri: youtubeConfig().redirectUri,
     connected: Boolean(tokens) || envRefresh,
+    uploadScopeGranted: tokens?.scope?.split(/\s+/).includes("https://www.googleapis.com/auth/youtube.upload") ?? false,
     channelTitle: tokens?.channelTitle ?? null,
     refreshTokenStored: tokens ? `${tokens.refreshToken.slice(0, 6)}…(gizli)` : envRefresh ? "env üzerinden" : null,
     defaultPrivacy: process.env.YOUTUBE_DEFAULT_PRIVACY || "private",
