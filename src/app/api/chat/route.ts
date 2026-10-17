@@ -748,6 +748,74 @@ export async function POST(req: Request) {
       console.error("Mira context load failed:", memoryError);
     }
 
+    // Read-only Google Drive access for natural chat requests.
+    // OAuth being connected is not enough: explicitly fetch the catalog and pass its
+    // verified contents into the model so Mira can answer from the real files.
+    const asksAboutDriveFiles =
+      /(?:google\s*drive|\bdrive\b|baslik\.md|başlık\s+dosyası|yayın\s+planı|yayin\s+plani|video\s+dosyaları|video\s+dosyalari|kalan\s+videolar|shorts\s+dosyaları|shorts\s+dosyalari)/iu.test(message);
+
+    if (asksAboutDriveFiles) {
+      try {
+        const origin = selfOrigin();
+        const driveResponse = await fetchWithTimeoutMs(
+          `${origin}/api/drive/catalog`,
+          { headers: { cookie: cookieHeader } },
+          15000,
+        );
+        const driveData = await driveResponse.json() as {
+          ok?: boolean;
+          error?: string;
+          document?: { name?: string; characters?: number };
+          documentText?: string;
+          titleCandidates?: Array<{ line: number; kind: string; title: string }>;
+          videos?: { shorts?: Array<{ name: string; id?: string }>; longVideos?: Array<{ name: string; id?: string }> };
+        };
+
+        if (!driveResponse.ok || !driveData.ok) {
+          return NextResponse.json({
+            reply: `Google Drive dosyalarını okuyamadım. Gerçek hata: ${driveData.error || `HTTP ${driveResponse.status}`}. Dosyalara eriştiğimi varsaymayacağım.`,
+            emotion: "focused",
+          }, { status: driveResponse.status >= 400 ? driveResponse.status : 502 });
+        }
+
+        const driveContext = [
+          "GOOGLE DRIVE KATALOĞU — aşağıdaki veriler bu istekte canlı API'den okundu.",
+          "Yalnızca bu verilerde bulunan gerçekleri kullan. Tarih veya video-başlık eşleşmesi belgede açıkça yoksa tahmin etme.",
+          `Belge: ${driveData.document?.name || "baslik.md"}; karakter sayısı: ${driveData.document?.characters ?? 0}`,
+          "Başlık satırları:",
+          JSON.stringify(driveData.titleCandidates || []),
+          "Shorts dosyaları:",
+          JSON.stringify(driveData.videos?.shorts || []),
+          "Uzun video dosyaları:",
+          JSON.stringify(driveData.videos?.longVideos || []),
+          "baslik.md tam metni:",
+          driveData.documentText || "(Belge metni boş.)",
+        ].join("\n");
+
+        const driveResult = await think(
+          message,
+          history,
+          "",
+          "flirty",
+          `${memoryContext}\n\n${driveContext}`,
+          "",
+          privateMode,
+        );
+
+        return NextResponse.json({
+          reply: driveResult.reply || "Drive dosyalarını okudum ancak soruya güvenilir bir yanıt oluşturamadım.",
+          emotion: driveResult.emotion || "focused",
+        });
+      } catch (driveError) {
+        const reason = driveError instanceof Error ? driveError.message : String(driveError);
+        console.error("[Chat] Google Drive read failed:", reason);
+        return NextResponse.json({
+          reply: `Google Drive okuma işlemi başarısız oldu: ${reason.slice(0, 220)}. İşlem yapılmış gibi göstermeyeceğim.`,
+          emotion: "focused",
+        }, { status: 502 });
+      }
+    }
+
     const result = await think(message, history, "", "flirty", memoryContext, "", privateMode);
 
     // Taslak kaydı yalnızca açık bir üretim isteğiyle yapılır; konu hakkında konuşmak,
