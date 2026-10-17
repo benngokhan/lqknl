@@ -1113,7 +1113,7 @@ export async function POST(req: Request) {
           );
           return NextResponse.json({
             reply: [
-              "İki video için planı hazırladım; henüz YouTube'a hiçbir dosya yüklenmedi.",
+              `${plan.uploads.length} video için planı hazırladım; henüz YouTube'a hiçbir dosya yüklenmedi.`,
               ...planLines,
               "Başlık, açıklama ve etiketler Drive'daki baslik.md içeriğine göre seçildi. Yükleme öncesinde dosya ve mükerrer kayıt kontrolleri yeniden yapılacak.",
               "Bu planı uygulamak için yeni mesaj olarak **Planı onayla** yaz. İptal etmek için **Planı iptal et** yaz.",
