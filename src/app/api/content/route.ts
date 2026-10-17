@@ -1,3 +1,4 @@
+import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { db } from "@/db";
 import { contentItems, operations } from "@/db/schema";
 import { isPermanentlyDeletedTopic } from "@/lib/deleted-topics";
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 function authorized(req: Request) {
   const expected = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
   if (expected && req.headers.get("x-mira-key") === expected) return true;
-  return req.headers.get("cookie")?.split(";").some((part) => part.trim() === "mira_entry=1") ?? false;
+  return isMiraSessionCookie(req.headers.get("cookie"));
 }
 
 export async function GET(req: Request) {

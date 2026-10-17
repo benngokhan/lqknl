@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server";
+import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { desc } from "drizzle-orm";
 import { db } from "@/db";
 import { messages } from "@/db/schema";
 
-const ENTRY_COOKIE = "mira_entry";
 
 export async function GET(req: Request) {
-  const cookieHeader = req.headers.get("cookie") ?? "";
-  const authenticated = cookieHeader
-    .split(";")
-    .some((part) => part.trim() === `${ENTRY_COOKIE}=1`);
+  const authenticated = isMiraSessionCookie(req.headers.get("cookie"));
 
   if (!authenticated) {
     return NextResponse.json({ error: "Mira oturumu doğrulanmadı." }, { status: 401 });

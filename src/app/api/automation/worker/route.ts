@@ -1,3 +1,4 @@
+import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { NextResponse, after } from "next/server";
 import { selfOrigin } from "@/lib/self-url";
 import { readFile } from "node:fs/promises";
@@ -19,7 +20,7 @@ export const maxDuration = 60;
 function authorized(req: Request) {
   const expected = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
   if (expected && req.headers.get("x-mira-key") === expected) return true;
-  return req.headers.get("cookie")?.split(";").some((part) => part.trim() === "mira_entry=1") ?? (!expected && process.env.NODE_ENV !== "production");
+  return isMiraSessionCookie(req.headers.get("cookie")) || (!expected && process.env.NODE_ENV !== "production");
 }
 
 async function reportScriptProgress(contentId: number, percentage: number, stage: string, status = "running", detail?: string, nextAction?: string) {

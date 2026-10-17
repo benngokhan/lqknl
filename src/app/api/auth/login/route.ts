@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server';
+import { createMiraSessionValue, isMiraSessionCookie } from '@/lib/mira-auth';
 
 const ENTRY_COOKIE = 'mira_entry';
 
 // Check the existing session cookie so the app can restore login after refresh.
 export async function GET(req: Request) {
-  const hasSession = req.headers.get('cookie')?.split(';').some(
-    (part) => part.trim() === `${ENTRY_COOKIE}=1`,
-  ) ?? false;
+  const hasSession = isMiraSessionCookie(req.headers.get("cookie"));
 
   if (!hasSession) {
     return NextResponse.json({ ok: false }, { status: 401 });
@@ -33,7 +32,7 @@ export async function POST(req: Request) {
     }
 
     const response = NextResponse.json({ ok: true });
-    response.cookies.set(ENTRY_COOKIE, '1', {
+    response.cookies.set(ENTRY_COOKIE, createMiraSessionValue(), {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',

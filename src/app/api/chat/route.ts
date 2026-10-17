@@ -11,10 +11,10 @@ import { sendTelegramMessage } from '@/lib/telegram';
 import { isPermanentlyDeletedTopic } from "@/lib/deleted-topics";
 import { isYoutubeScheduleCancellation, isYoutubeScheduleConfirmation } from "@/lib/youtube-schedule-approval";
 import { readDriveVideoMetadata } from "@/lib/drive-video-metadata";
+import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { requestedScheduleSlots } from "@/lib/youtube-schedule-slots";
 
 const PRIVATE_MODE_COOKIE = 'mira_private_mode';
-const ENTRY_COOKIE = 'mira_entry';
 
 const EXTERNAL_TIMEOUT_MS = 8000;
 const VIDEO_TIMEOUT_MS = 180000;
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Mira giriş şifresi yapılandırılmamış.' }, { status: 503 });
     }
     const cookieHeader = req.headers.get('cookie') ?? '';
-    const authenticated = cookieHeader.split(';').some((part) => part.trim() === `${ENTRY_COOKIE}=1`);
+    const authenticated = isMiraSessionCookie(cookieHeader);
     if (!authenticated) {
       return NextResponse.json({ error: 'Mira oturumu doğrulanmadı.' }, { status: 401 });
     }

@@ -1,3 +1,4 @@
+import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { NextResponse } from "next/server";
 import { downloadDriveFile, listDriveFolderFiles } from "@/lib/google-drive";
 
@@ -6,7 +7,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 function authorized(req: Request) {
-  return req.headers.get("cookie")?.split(";").some((part) => part.trim() === "mira_entry=1") ?? false;
+  return isMiraSessionCookie(req.headers.get("cookie"));
 }
 
 function isVideoName(name: string) {

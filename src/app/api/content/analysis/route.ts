@@ -1,3 +1,4 @@
+import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
@@ -6,7 +7,7 @@ import { contentItems, operations } from "@/db/schema";
 export const dynamic = "force-dynamic";
 
 function authorized(req: Request) {
-  return req.headers.get("cookie")?.split(";").some((part) => part.trim() === "mira_entry=1") ?? false;
+  return isMiraSessionCookie(req.headers.get("cookie"));
 }
 
 export async function GET(req: Request) {

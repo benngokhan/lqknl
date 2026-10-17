@@ -1,3 +1,4 @@
+import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { NextResponse } from "next/server";
 import { selfOrigin } from "@/lib/self-url";
 import { promises as fs } from "node:fs";
@@ -14,7 +15,7 @@ const PLAN_FILE = "Bilgi_Dozu_20_Short_Icerikleri.xlsx";
 function authorized(req: Request) {
   const expected = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
   if (expected && req.headers.get("x-mira-key") === expected) return true;
-  const hasEntryCookie = req.headers.get("cookie")?.split(";").some((part) => part.trim() === "mira_entry=1") ?? false;
+  const hasEntryCookie = isMiraSessionCookie(req.headers.get("cookie"));
   if (hasEntryCookie) return true;
   return !expected && process.env.NODE_ENV !== "production";
 }

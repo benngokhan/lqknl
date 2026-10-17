@@ -1,3 +1,4 @@
+import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 function authorized(req: Request) {
-  const hasEntryCookie = req.headers.get("cookie")?.split(";").some((part) => part.trim() === "mira_entry=1") ?? false;
+  const hasEntryCookie = isMiraSessionCookie(req.headers.get("cookie"));
   if (hasEntryCookie) return true;
   const expected = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
   if (!expected) return process.env.NODE_ENV !== "production";

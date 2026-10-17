@@ -1,3 +1,4 @@
+import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
@@ -12,7 +13,7 @@ export const maxDuration = 120;
 function authorized(req: Request) {
   const expected = process.env.MIRA_AUTOMATION_SECRET;
   if (expected && req.headers.get("x-mira-key") === expected) return true;
-  return req.headers.get("cookie")?.split(";").some((part) => part.trim() === "mira_entry=1") ?? false;
+  return isMiraSessionCookie(req.headers.get("cookie"));
 }
 
 export async function POST(req: Request) {

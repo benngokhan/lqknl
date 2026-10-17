@@ -1,3 +1,4 @@
+import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { NextResponse } from "next/server";
 import { selfOrigin } from "@/lib/self-url";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 function authMode(req: Request): "key" | "panel" | null {
   const expected = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
   if (expected && req.headers.get("x-mira-key") === expected) return "key";
-  const hasEntryCookie = req.headers.get("cookie")?.split(";").some((part) => part.trim() === "mira_entry=1") ?? false;
+  const hasEntryCookie = isMiraSessionCookie(req.headers.get("cookie"));
   if (hasEntryCookie) return "panel";
   if (!expected && process.env.NODE_ENV !== "production") return "key";
   return null;

@@ -1,3 +1,4 @@
+import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { buildDriveAuthUrl, driveStatus } from "@/lib/google-drive";
@@ -5,7 +6,7 @@ import { buildDriveAuthUrl, driveStatus } from "@/lib/google-drive";
 export const dynamic = "force-dynamic";
 
 function authorized(req: Request) {
-  return req.headers.get("cookie")?.split(";").some((part) => part.trim() === "mira_entry=1") ?? false;
+  return isMiraSessionCookie(req.headers.get("cookie"));
 }
 
 export async function GET(req: Request) {
