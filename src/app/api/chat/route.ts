@@ -11,34 +11,13 @@ import { sendTelegramMessage } from '@/lib/telegram';
 import { isPermanentlyDeletedTopic } from "@/lib/deleted-topics";
 import { isYoutubeScheduleCancellation, isYoutubeScheduleConfirmation } from "@/lib/youtube-schedule-approval";
 import { readDriveVideoMetadata } from "@/lib/drive-video-metadata";
+import { requestedScheduleSlots } from "@/lib/youtube-schedule-slots";
 
 const PRIVATE_MODE_COOKIE = 'mira_private_mode';
 const ENTRY_COOKIE = 'mira_entry';
 
 const EXTERNAL_TIMEOUT_MS = 8000;
 const VIDEO_TIMEOUT_MS = 180000;
-
-function requestedScheduleSlots(text: string): string[] | null {
-  const months: Record<string, string> = {
-    ocak: "01", şubat: "02", subat: "02", mart: "03", nisan: "04", mayıs: "05", mayis: "05",
-    haziran: "06", temmuz: "07", ağustos: "08", agustos: "08", eylül: "09", eylul: "09",
-    ekim: "10", kasım: "11", kasim: "11", aralık: "12", aralik: "12",
-  };
-  const match = text.match(/\b(\d{1,2})\s+(ocak|şubat|subat|mart|nisan|mayıs|mayis|haziran|temmuz|ağustos|agustos|eylül|eylul|ekim|kasım|kasim|aralık|aralik)\s+(20\d{2})[\s\S]{0,100}?(\d{1,2})[.:](\d{2})[\s\S]{0,35}?(?:ve|ile|,)\s*(\d{1,2})[.:](\d{2})/iu);
-  if (!match) return null;
-  const [, dayText, monthText, yearText, h1, m1, h2, m2] = match;
-  const month = months[monthText.toLocaleLowerCase("tr-TR")];
-  if (!month) return null;
-  const day = dayText.padStart(2, "0");
-  const build = (hour: string, minute: string) => {
-    const iso = `${yearText}-${month}-${day}T${hour.padStart(2, "0")}:${minute}:00+03:00`;
-    const date = new Date(iso);
-    return Number.isFinite(date.getTime()) && date.getTime() > Date.now() + 60_000 ? date.toISOString() : null;
-  };
-  const first = build(h1, m1);
-  const second = build(h2, m2);
-  return first && second ? [first, second] : null;
-}
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}) {
   return fetchWithTimeoutMs(input, init, EXTERNAL_TIMEOUT_MS);
@@ -164,7 +143,7 @@ export async function POST(req: Request) {
             ? pendingSchedule.metadata as { uploads?: Array<{ fileName?: string; title?: string; description?: string; tags?: string[]; comment?: string; publishAt?: string }> }
             : {};
           const uploads = Array.isArray(metadata.uploads) ? metadata.uploads : [];
-          if (uploads.length !== 2 || uploads.some((item) =>
+          if (uploads.length < 2 || uploads.length > 4 || uploads.some((item) =>
             typeof item.fileName !== "string" || typeof item.title !== "string" ||
             typeof item.description !== "string" || !Array.isArray(item.tags) ||
             typeof item.publishAt !== "string" || !Number.isFinite(new Date(item.publishAt).getTime()) ||
@@ -1054,16 +1033,18 @@ export async function POST(req: Request) {
         const hasUploadIntent =
           /(?:yükle|yükleme|planla|programla|yayına hazırla|işleme al|ilerle|tetikle)/iu.test(message) &&
           !/(?:yükleme|yükle|planla|programla).{0,35}(?:yapma|etme|dur|iptal|istemiyorum)|(?:sakın|kesinlikle).{0,25}(?:yükle|planla)/iu.test(message);
-        const wantsTwoScheduledUploads =
-          /(?:kanal|youtube|drive).{0,100}(?:yükle|yüklesin|planla|programla).{0,80}(?:iki|2)\s*(?:tane|adet)?|(?:iki|2)\s*(?:tane|adet).{0,100}(?:yükle|yüklesin|planla|programla)/iu.test(message) ||
-          (namesBothTargetFiles && hasUploadIntent);
-        if (wantsTwoScheduledUploads) {
+        const requestedCountMatch = message.match(/\b([2-4])\s*(?:tane\s*)?(?:video|shorts)|\b(iki|üç|uc|dört|dort)\s*(?:tane\s*)?(?:video|shorts)/iu);
+        const wantsScheduledUploads =
+          (hasUploadIntent && Boolean(requestedCountMatch) && /(?:kanal|youtube|drive|video|shorts)/iu.test(message)) ||
+          (namesBothTargetFiles && hasUploadIntent) ||
+          /(?:kanal|youtube|drive).{0,100}(?:yükle|yüklesin|planla|programla).{0,80}(?:iki|2)\s*(?:tane|adet)?|(?:iki|2)\s*(?:tane|adet).{0,100}(?:yükle|yüklesin|planla|programla)/iu.test(message);
+        if (wantsScheduledUploads) {
           const scheduleText = [...history.map((item) => item.content), message].join("\n");
           const slots = requestedScheduleSlots(scheduleText);
           if (!slots) {
             const auditResult = await think(message, history, "", "flirty", `${memoryContext}\n\n${auditContext}`, "", privateMode);
             return NextResponse.json({
-              reply: `${auditResult.reply || "Kanal analizi tamamlandı."}\n\nYükleme başlatmadım: konuşmada gelecekteki iki yayın saati açıkça bulunamadı. Hiçbir video yüklenmedi.`,
+              reply: `${auditResult.reply || "Kanal analizi tamamlandı."}\n\nYükleme başlatmadım: konuşmada 2–4 adet geçerli, gelecekteki yayın saati açıkça bulunamadı. Hiçbir video yüklenmedi.`,
               emotion: auditResult.emotion || "focused",
             });
           }
@@ -1071,9 +1052,9 @@ export async function POST(req: Request) {
           const selectionPrompt = [
             "Sadece JSON döndür; açıklama, markdown çiti veya başka metin yazma.",
             "Gerçek YouTube kanalındaki mevcut videolar ile Google Drive katalogunu karşılaştır.",
-            "Kanalda bulunmayan iki Shorts dosyasını seç. Öncelik video_11.mp4, sonra video_12.mp4; bunlar zaten yüklenmişse sıradaki yüklenmemiş dosyaları seç.",
+            `Kanalda bulunmayan, metadata bilgileri doğrulanabilen tam olarak ${slots.length} Shorts dosyası seç. Öncelik video_11.mp4, sonra video_12.mp4; bunlar zaten yüklenmişse sıradaki yüklenmemiş dosyaları seç.`,
             "Yalnızca baslik.md içeriğinden doğrulayabildiğin başlık, açıklama, etiket ve yorum bilgilerini kullan. Bir dosyanın metaverisi belirsizse onu seçme. Aynı videoyu tekrar yükleme.",
-            "Şema: {\"videos\":[{\"fileName\":\"video_11.mp4\",\"title\":\"...\",\"description\":\"...\",\"tags\":[\"...\"],\"comment\":\"...\"},{...}]}. Tam olarak iki farklı dosya olmalı; aksi durumda {\"videos\":[]} döndür.",
+            "Şema: {\"videos\":[{\"fileName\":\"video_11.mp4\",\"title\":\"...\",\"description\":\"...\",\"tags\":[\"...\"],\"comment\":\"...\"},{...}]}. Tam olarak istenen sayıda farklı dosya olmalı; aksi durumda {\"videos\":[]} döndür.",
             auditContext,
           ].join("\n");
           const selection = await think(selectionPrompt, history, "", "flirty", memoryContext, "", privateMode);
@@ -1101,10 +1082,10 @@ export async function POST(req: Request) {
             } catch {
               return [];
             }
-          }).slice(0, 2);
-          if (usable.length !== 2 || usable[0].fileName === usable[1].fileName) {
+          }).slice(0, slots.length);
+          if (usable.length !== slots.length || new Set(usable.map((item) => item.fileName)).size !== usable.length) {
             return NextResponse.json({
-              reply: "Kanal ve Drive analizini yaptım ancak iki videonun başlık/açıklama/yorum eşleşmesini güvenilir biçimde doğrulayamadım. Güvenlik için hiçbir video yüklemedim.\n\n" + (selection.reply || ""),
+              reply: "Kanal ve Drive analizini yaptım ancak istenen sayıdaki videonun başlık/açıklama/yorum eşleşmesini güvenilir biçimde doğrulayamadım. Güvenlik için hiçbir video yüklemedim.\n\n" + (selection.reply || ""),
               emotion: "focused",
             });
           }
@@ -1123,7 +1104,7 @@ export async function POST(req: Request) {
           const [pendingPlan] = await db.insert(operations).values({
             action: "youtube_drive_schedule_pending",
             status: "pending",
-            summary: "Kullanıcı onayı bekleniyor: iki Drive videosunun YouTube'da planlanması",
+            summary: `Kullanıcı onayı bekleniyor: ${plan.uploads.length} Drive videosunun YouTube'da planlanması`,
             platform: "youtube",
             metadata: plan,
           }).returning({ id: operations.id });
