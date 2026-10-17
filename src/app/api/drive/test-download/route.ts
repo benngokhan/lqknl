@@ -1,5 +1,65 @@
 import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { NextResponse } from "next/server";
+import { spawn } from "node:child_process";
+import ffmpegPath from "ffmpeg-static";
+
+type VideoTechnicalInfo = {
+  durationSeconds: number | null;
+  width: number | null;
+  height: number | null;
+  frameRate: number | null;
+  hasAudio: boolean;
+};
+
+async function inspectVideo(data: Buffer): Promise<VideoTechnicalInfo> {
+  const binaryPath = ffmpegPath;
+  if (typeof binaryPath !== "string" || !binaryPath) throw new Error("FFmpeg binary yolu bulunamadı; ffmpeg-static kurulumu kontrol edilmeli.");
+  return await new Promise((resolve, reject) => {
+    const child = spawn(binaryPath, ["-hide_banner", "-i", "pipe:0", "-t", "0.1", "-f", "null", "-"], {
+      stdio: ["pipe", "ignore", "pipe"] as const,
+    });
+    let stderr = "";
+    let settled = false;
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      if (!settled) {
+        settled = true;
+        reject(new Error("Video teknik analizi 30 saniyede tamamlanmadı."));
+      }
+    }, 30_000);
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-40_000); });
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      if (!settled) { settled = true; reject(new Error("FFmpeg başlatılamadı: " + error.message)); }
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (settled) return;
+      settled = true;
+      const duration = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/i);
+      const videoLine = stderr.split(/\r?\n/).find((line) => /Video:/i.test(line)) || "";
+      const dimensions = videoLine.match(/(\d{2,5})x(\d{2,5})/);
+      const fpsMatch = videoLine.match(/([\d.]+)\s*fps\b/i) || videoLine.match(/([\d.]+)\s*tbr\b/i);
+      const info: VideoTechnicalInfo = {
+        durationSeconds: duration ? Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]) : null,
+        width: dimensions ? Number(dimensions[1]) : null,
+        height: dimensions ? Number(dimensions[2]) : null,
+        frameRate: fpsMatch ? Number(fpsMatch[1]) : null,
+        hasAudio: /Audio:/i.test(stderr),
+      };
+      if (code !== 0 || !videoLine || info.width === null || info.height === null) {
+        reject(new Error("FFmpeg dosyadan geçerli video akışı okuyamadı. " + stderr.slice(-1200)));
+        return;
+      }
+      resolve(info);
+    });
+    child.stdin.on("error", () => {});
+    child.stdin.end(data);
+  });
+}
+
+
 import { downloadDriveFile, listDriveFolderFiles } from "@/lib/google-drive";
 
 export const dynamic = "force-dynamic";
@@ -22,16 +82,26 @@ async function testFile(file: Awaited<ReturnType<typeof listDriveFolderFiles>>[n
     const brand = actualBytes >= 8 ? downloaded.data.subarray(4, 8).toString("ascii") : "";
     const mp4SignatureValid = actualBytes >= 12 && brand === "ftyp";
     const exactSizeMatch = expectedBytes > 0 && actualBytes === expectedBytes;
-    const passed = actualBytes > 0 && exactSizeMatch && mp4SignatureValid && downloaded.mimeType === "video/mp4";
+    const fileValid = actualBytes > 0 && exactSizeMatch && mp4SignatureValid && downloaded.mimeType === "video/mp4";
+    if (!fileValid) {
+      return {
+        ok: false, name: file.name, expectedBytes, actualBytes, exactSizeMatch,
+        mimeType: downloaded.mimeType, mp4SignatureValid,
+        error: "Boyut, MIME türü veya MP4 imzası doğrulanamadı.",
+      };
+    }
+    const technical = await inspectVideo(downloaded.data);
     return {
-      ok: passed,
+      ok: true,
       name: file.name,
       expectedBytes,
       actualBytes,
       exactSizeMatch,
       mimeType: downloaded.mimeType,
       mp4SignatureValid,
-      error: passed ? undefined : "Boyut, MIME türü veya MP4 imzası doğrulanamadı.",
+      ...technical,
+      shortsReady: technical.durationSeconds !== null && technical.durationSeconds <= 180 &&
+        technical.width !== null && technical.height !== null && technical.height > technical.width,
     };
   } catch (error) {
     return {
@@ -98,7 +168,7 @@ export async function GET(req: Request) {
       test: `drive-download-${requestedName}`,
       downloadHttpStatus: result.ok ? 200 : 422,
       message: result.ok
-        ? "Drive dosyası indirildi; boyut, MIME türü ve MP4 imzası doğrulandı."
+        ? "Drive dosyası indirildi; dosya bütünlüğü ve FFmpeg ile teknik video bilgileri doğrulandı."
         : result.error,
     }, { status: result.ok ? 200 : 422 });
   } catch (error) {
