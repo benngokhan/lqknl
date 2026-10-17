@@ -1587,10 +1587,11 @@ export default function Home() {
           </div>
         ))}
         {loading && (
-          <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 text-slate-400 max-w-[80%] animate-pulse">
+          <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 text-slate-400 max-w-[80%] animate-pulse" role="status" aria-live="polite">
             Mira yanıt yazıyor...
           </div>
         )}
+        <div ref={messagesEndRef} aria-hidden="true" className="h-px w-full shrink-0" />
       </div>
 
       <div className="relative">
