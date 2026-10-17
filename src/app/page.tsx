@@ -56,12 +56,7 @@ interface VideoProgressEvent {
 const COMMANDS = [
   { command: '/yardım', description: 'Mira komutlarını gösterir' },
   { command: '/durum', description: 'Mira ve veritabanı durumunu kontrol eder' },
-  { command: '/taslak ', description: 'Kayıtlı taslağın tam metnini gösterir' },
-  { command: '/n8n', description: 'n8n bağlantı durumunu kontrol eder' },
-  { command: '/n8n-ajan ', description: 'n8n için yeni ajan oluşturma isteği başlatır' },
-  { command: '/yt-viral ', description: 'YouTube Shorts otomasyonunu başlatır' },
-  { command: '/video ', description: 'Taslağı MP4 olarak üretir (id opsiyonel)' },
-  { command: '/oku ', description: 'GitHub reposundan dosya içeriğini okur' },
+  { command: '/drive-katalog', description: 'Google Drive’daki gerçek başlık ve video dosyalarını okur' },
 ];
 
 function renderPanelInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
@@ -1643,8 +1638,7 @@ export default function Home() {
         <div className="mb-2 flex flex-wrap gap-2" aria-label="Hızlı komutlar">
           {[
             { label: 'Durum', command: '/durum' },
-            { label: 'Shorts üret', command: '/yt-viral' },
-            { label: 'Video 94', command: '/video 94' },
+            { label: 'Drive kataloğu', command: '/drive-katalog' },
           ].map((item) => (
             <button
               key={item.command}

@@ -25,32 +25,8 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!authorized(req)) return NextResponse.json({ error: "Giriş gerekli." }, { status: 401 });
-  const b = await req.json().catch(() => ({}));
-  if (typeof b.title !== "string" || typeof b.platform !== "string") {
-    return NextResponse.json({ error: "title ve platform gerekli" }, { status: 400 });
-  }
-  if (await isPermanentlyDeletedTopic(db, [b.title, typeof b.topic === "string" ? b.topic : ""])) {
-    return NextResponse.json({ error: "Bu başlık/konu kalıcı olarak silindi; tekrar kaydedilemez." }, { status: 410 });
-  }
-  const [row] = await db.insert(contentItems).values({
-    title: b.title.slice(0, 300),
-    platform: b.platform.slice(0, 40),
-    status: typeof b.status === "string" ? b.status.slice(0, 40) : "draft",
-    topic: typeof b.topic === "string" ? b.topic.slice(0, 300) : null,
-    externalId: typeof b.externalId === "string" ? b.externalId : null,
-    url: typeof b.url === "string" ? b.url : null,
-    views: Number.isFinite(b.views) ? Math.max(0, Math.trunc(b.views)) : 0,
-    likes: Number.isFinite(b.likes) ? Math.max(0, Math.trunc(b.likes)) : 0,
-    comments: Number.isFinite(b.comments) ? Math.max(0, Math.trunc(b.comments)) : 0,
-    publishedAt: b.publishedAt ? new Date(b.publishedAt) : null,
-  }).returning();
-  await db.insert(operations).values({
-    action: "content_create",
-    summary: `İçerik kaydı oluşturuldu: ${row.title}`,
-    status: "success",
-    platform: row.platform,
-    externalId: row.externalId,
-    metadata: { contentId: row.id, contentStatus: row.status },
-  });
-  return NextResponse.json(row, { status: 201 });
+  return NextResponse.json({
+    error: "Elle içerik kaydetme kapatıldı. Yeni içerik kaynağı Google Drive'dır.",
+    source: "google_drive",
+  }, { status: 410 });
 }
