@@ -1,4 +1,4 @@
-// Google Drive OAuth and read-only file access for Mira.
+// Google Drive OAuth, read and upload access for Mira.
 // Intentionally separate from src/lib/youtube.ts and the "youtube" integration token.
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
@@ -6,6 +6,7 @@ import { integrations } from "@/db/schema";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const DRIVE_API = "https://www.googleapis.com/drive/v3";
+const DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
 
 export type DriveTokens = {
   refreshToken: string;
@@ -37,7 +38,8 @@ export function buildDriveAuthUrl(state: string) {
     client_id: clientId || "",
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: "https://www.googleapis.com/auth/drive.readonly",
+    // Full Drive scope is needed to upload into the existing user-owned folder.
+    scope: "https://www.googleapis.com/auth/drive",
     access_type: "offline",
     prompt: "consent",
     state,
@@ -123,7 +125,6 @@ export async function listDriveFolderFiles(folderId = process.env.DRIVE_FOLDER_I
   const token = await getDriveAccessToken();
   const files: DriveFile[] = [];
   let pageToken: string | undefined;
-  // Bound pagination so an unexpectedly large folder cannot cause an unbounded request.
   for (let page = 0; page < 10; page++) {
     const params = new URLSearchParams({
       q: `'${folderId.replace(/'/g, "\\'")}' in parents and trashed = false`,
@@ -168,4 +169,51 @@ export async function downloadDriveFile(fileId: string): Promise<{ name: string;
   if (!fileResponse.ok) throw new Error(`Drive dosyası indirilemedi HTTP ${fileResponse.status}`);
   const bytes = Buffer.from(await fileResponse.arrayBuffer());
   return { name: String(metadata.name || fileId), mimeType: String(metadata.mimeType || "application/octet-stream"), data: bytes };
+}
+
+export async function uploadDriveFile(input: {
+  name: string;
+  mimeType: string;
+  data: Buffer;
+  folderId?: string;
+}): Promise<DriveFile> {
+  const folderId = input.folderId || process.env.DRIVE_FOLDER_ID?.trim();
+  if (!folderId) throw new Error("DRIVE_FOLDER_ID değişkenine Mira/video klasör kimliği eklenmemiş.");
+  if (!input.data.length) throw new Error("Yüklenecek dosya boş.");
+  const safeName = input.name.replace(/[\\/\u0000-\u001f]/g, "_").trim().slice(0, 180);
+  if (!safeName) throw new Error("Dosya adı geçersiz.");
+  const token = await getDriveAccessToken();
+  const start = await fetch(`${DRIVE_UPLOAD_API}/files?uploadType=resumable&fields=id,name,mimeType,size,modifiedTime,webViewLink`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json; charset=UTF-8",
+      "X-Upload-Content-Type": input.mimeType,
+      "X-Upload-Content-Length": String(input.data.length),
+    },
+    body: JSON.stringify({ name: safeName, mimeType: input.mimeType, parents: [folderId] }),
+    signal: AbortSignal.timeout(30_000),
+    cache: "no-store",
+  });
+  if (!start.ok) {
+    const details = await start.json().catch(() => ({}));
+    throw new Error(`Drive yükleme başlatılamadı HTTP ${start.status}: ${String(details?.error?.message || "Google Drive API hatası").slice(0, 250)}`);
+  }
+  const uploadUrl = start.headers.get("location");
+  if (!uploadUrl) throw new Error("Google Drive yükleme adresi döndürmedi.");
+  const uploaded = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": input.mimeType,
+      "Content-Length": String(input.data.length),
+    },
+    body: new Uint8Array(input.data),
+    signal: AbortSignal.timeout(180_000),
+    cache: "no-store",
+  });
+  const result = await uploaded.json().catch(() => ({}));
+  if (!uploaded.ok) {
+    throw new Error(`Drive dosya yükleme başarısız HTTP ${uploaded.status}: ${String(result?.error?.message || "Google Drive API hatası").slice(0, 250)}`);
+  }
+  return result as DriveFile;
 }

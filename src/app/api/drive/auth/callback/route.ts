@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
   try {
     const tokens = await exchangeDriveCode(code);
     await saveDriveTokens(tokens);
-    const response = page("Google Drive Mira'ya bağlandı", "Salt okunur Drive izni kaydedildi. YouTube bağlantısı ayrı tutuluyor. Dosya listesini test etmek için /api/drive/files adresini açabilirsin.", true);
+    const response = page("Google Drive Mira'ya bağlandı", "Drive okuma ve dosya yükleme izni kaydedildi. YouTube bağlantısı ayrı tutuluyor. Dosya listesini /api/drive/files ile, yüklemeyi /api/drive/upload ile kullanabilirsin.", true);
     response.cookies.set("mira_drive_state", "", { httpOnly: true, secure: true, sameSite: "none", path: "/", maxAge: 0 });
     return response;
   } catch (error) {
