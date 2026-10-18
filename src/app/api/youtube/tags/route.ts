@@ -83,36 +83,53 @@ export async function POST(req: Request) {
 
       const parsedItems: Array<{ videoId?: unknown; recommendedTags?: unknown; reason?: unknown }> = [];
       let modelInfo: { provider: string; model: string } | undefined;
-      // Büyük tek parça JSON yanıtları kesilebildiğinden videoları küçük gruplar halinde analiz et.
-      for (let offset = 0; offset < source.length; offset += 5) {
-        const batch = source.slice(offset, offset + 5);
-        const prompt = (items: typeof source, retry = false) =>
+      // Bazı sağlayıcılar JSON çıktısını kesebiliyor. Video başına kısa, satır tabanlı çıktı kullan.
+      for (let offset = 0; offset < source.length; offset += 1) {
+        const video = source[offset];
+        const prompt = (retry = false) =>
           (retry
-            ? "Önceki JSON yanıtı bozuk veya kesilmişti. Yalnızca geçerli, tek satırlık JSON dizisi üret. Açıklama alanını kısa tut; video kimliklerini aynen koru."
-            : "Aşağıdaki videoları incele. Yalnızca JSON dizisi döndür; her nesnede videoId, recommendedTags (dizi) ve reason (en fazla 120 karakter) alanları olsun. Video kimliklerini aynen koru. Öneriler mevcut etiketlerden daha iyi değilse uygun mevcut etiketleri koru.") +
-          "\n" + JSON.stringify(items);
-        let parsedBatch: unknown;
-        for (let attempt = 0; attempt < 2; attempt++) {
+            ? "Önceki yanıt ayrıştırılamadı. Yalnızca şu iki satırı üret; JSON, Markdown veya başka açıklama yazma. TAGS satırında en fazla 15 etiket, aralarında | kullan."
+            : "Bu videonun mevcut etiketlerini başlık ve açıklamayla karşılaştır; uygun, doğru ve alakalı etiketler öner. Yalnızca şu iki satırı üret; JSON veya Markdown yazma. TAGS satırında en fazla 15 etiket, aralarında | kullan.") +
+          "\nTAGS: etiket 1 | etiket 2 | etiket 3\nREASON: kısa gerekçe (en fazla 120 karakter)\n\nVIDEO:\n" +
+          JSON.stringify(video);
+        let parsedItem: { videoId: string; recommendedTags: string[]; reason: string } | undefined;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
           const result = await generateWithFallback({
-            system: "Sen Bilgi Dozu YouTube kanalı için metadata denetçisisin. Yalnızca verilen başlık, açıklama ve mevcut etiketleri kullan. Konuyla doğrudan ilgili, doğru ve doğal Türkçe/ilgili dilde etiketler öner. Uydurma iddia ekleme. En fazla 15 etiket öner; tekrarları ve alakasız/genel etiketleri çıkar. Yalnızca geçerli JSON döndür; satır sonlarını ve tırnakları JSON kurallarına uygun kaçır.",
+            system: "Sen Bilgi Dozu YouTube kanalı için metadata denetçisisin. Yalnızca verilen başlık, açıklama ve mevcut etiketleri kullan. Konuyla doğrudan ilgili, doğru ve doğal Türkçe/ilgili dilde en fazla 15 etiket öner. Uydurma iddia ekleme. Çıktı biçimi kesinlikle iki düz metin satırıdır: TAGS: etiket1 | etiket2 ve REASON: kısa gerekçe. JSON döndürme.",
             history: [],
-            message: prompt(batch, attempt > 0),
+            message: prompt(attempt > 0),
           });
           modelInfo = { provider: result.provider, model: result.model };
           const raw = result.content.trim()
-            .replace(/^\u0060\u0060\u0060(?:json)?\s*/i, "")
-            .replace(/\s*\u0060\u0060\u0060$/, "");
+            .replace(/^```(?:text|json)?\s*/i, "")
+            .replace(/\s*```$/, "");
           try {
-            parsedBatch = JSON.parse(raw);
-            if (!Array.isArray(parsedBatch)) throw new Error("Model yanıtı JSON dizisi değil.");
+            // Eski sağlayıcı JSON döndürürse uyumluluk için kabul et.
+            let tags: string[] = [];
+            let reason = "";
+            try {
+              const json = JSON.parse(raw);
+              const item = Array.isArray(json) ? json[0] : json;
+              if (item && Array.isArray(item.recommendedTags)) {
+                tags = item.recommendedTags.filter((tag: unknown): tag is string => typeof tag === "string");
+                reason = typeof item.reason === "string" ? item.reason : "";
+              }
+            } catch {
+              const tagsLine = raw.match(/^\s*TAGS\s*:\s*(.+)$/im)?.[1]?.trim();
+              reason = raw.match(/^\s*REASON\s*:\s*(.+)$/im)?.[1]?.trim() || "";
+              if (tagsLine) tags = tagsLine.split("|").map((tag) => tag.trim()).filter(Boolean);
+            }
+            if (!tags.length) throw new Error("Etiket satırı boş veya biçimi geçersiz.");
+            parsedItem = { videoId: video.videoId, recommendedTags: [...new Set(tags)].slice(0, 15), reason: reason.slice(0, 120) };
             break;
-          } catch (error) {
+          } catch {
+            // Bir kez daha kısa ve katı çıktı biçimiyle dene.
           }
         }
-        if (!Array.isArray(parsedBatch)) {
-          throw new Error(`Model geçerli JSON üretemedi (videolar ${offset + 1}-${Math.min(offset + batch.length, source.length)}). Etiketler değiştirilmedi.`);
+        if (!parsedItem) {
+          throw new Error(`Model geçerli etiket çıktısı üretemedi (video ${offset + 1}: ${video.title.slice(0, 100)}). Etiketler değiştirilmedi.`);
         }
-        parsedItems.push(...parsedBatch as Array<{ videoId?: unknown; recommendedTags?: unknown; reason?: unknown }>);
+        parsedItems.push(parsedItem);
       }
       const parsed = parsedItems;
       const byId = new Map(channel.videos.map((video) => [video.videoId, video]));
