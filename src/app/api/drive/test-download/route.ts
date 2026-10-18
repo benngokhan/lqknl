@@ -1,6 +1,9 @@
 import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { NextResponse } from "next/server";
 import { spawn } from "node:child_process";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import ffmpegPath from "ffmpeg-static";
 
 type VideoTechnicalInfo = {
@@ -13,50 +16,61 @@ type VideoTechnicalInfo = {
 
 async function inspectVideo(data: Buffer): Promise<VideoTechnicalInfo> {
   const binaryPath = ffmpegPath;
-  if (typeof binaryPath !== "string" || !binaryPath) throw new Error("FFmpeg binary yolu bulunamadı; ffmpeg-static kurulumu kontrol edilmeli.");
-  return await new Promise((resolve, reject) => {
-    const child = spawn(binaryPath, ["-hide_banner", "-i", "pipe:0", "-t", "0.1", "-f", "null", "-"], {
-      stdio: ["pipe", "ignore", "pipe"] as const,
-    });
-    let stderr = "";
-    let settled = false;
-    const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
-      if (!settled) {
+  if (typeof binaryPath !== "string" || !binaryPath) {
+    throw new Error("FFmpeg binary yolu bulunamadı; ffmpeg-static kurulumu kontrol edilmeli.");
+  }
+
+  // MP4 dosyaları pipe üzerinden okunurken, özellikle moov atomu dosyanın
+  // sonundaysa FFmpeg dosyayı eksik görebilir. Geçici dosyaya yazıp dosya
+  // yolundan incelemek, gerçek MP4 seek davranışını kullanır.
+  const tempDir = await mkdtemp(join(tmpdir(), "mira-drive-video-"));
+  const tempFile = join(tempDir, "input.mp4");
+  try {
+    await writeFile(tempFile, data);
+    return await new Promise((resolve, reject) => {
+      const child = spawn(binaryPath, ["-hide_banner", "-i", tempFile, "-t", "0.1", "-f", "null", "-"], {
+        stdio: ["ignore", "ignore", "pipe"] as const,
+      });
+      let stderr = "";
+      let settled = false;
+      const timeout = setTimeout(() => {
+        child.kill("SIGKILL");
+        if (!settled) {
+          settled = true;
+          reject(new Error("Video teknik analizi 30 saniyede tamamlanmadı."));
+        }
+      }, 30_000);
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-40_000); });
+      child.on("error", (error) => {
+        clearTimeout(timeout);
+        if (!settled) { settled = true; reject(new Error("FFmpeg başlatılamadı: " + error.message)); }
+      });
+      child.on("close", (code) => {
+        clearTimeout(timeout);
+        if (settled) return;
         settled = true;
-        reject(new Error("Video teknik analizi 30 saniyede tamamlanmadı."));
-      }
-    }, 30_000);
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-40_000); });
-    child.on("error", (error) => {
-      clearTimeout(timeout);
-      if (!settled) { settled = true; reject(new Error("FFmpeg başlatılamadı: " + error.message)); }
+        const duration = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/i);
+        const videoLine = stderr.split(/\r?\n/).find((line) => /Video:/i.test(line)) || "";
+        const dimensions = videoLine.match(/(\d{2,5})x(\d{2,5})/);
+        const fpsMatch = videoLine.match(/([\d.]+)\s*fps\b/i) || videoLine.match(/([\d.]+)\s*tbr\b/i);
+        const info: VideoTechnicalInfo = {
+          durationSeconds: duration ? Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]) : null,
+          width: dimensions ? Number(dimensions[1]) : null,
+          height: dimensions ? Number(dimensions[2]) : null,
+          frameRate: fpsMatch ? Number(fpsMatch[1]) : null,
+          hasAudio: /Audio:/i.test(stderr),
+        };
+        if (code !== 0 || !videoLine || info.width === null || info.height === null) {
+          reject(new Error("FFmpeg dosyadan geçerli video akışı okuyamadı. " + stderr.slice(-1200)));
+          return;
+        }
+        resolve(info);
+      });
     });
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (settled) return;
-      settled = true;
-      const duration = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/i);
-      const videoLine = stderr.split(/\r?\n/).find((line) => /Video:/i.test(line)) || "";
-      const dimensions = videoLine.match(/(\d{2,5})x(\d{2,5})/);
-      const fpsMatch = videoLine.match(/([\d.]+)\s*fps\b/i) || videoLine.match(/([\d.]+)\s*tbr\b/i);
-      const info: VideoTechnicalInfo = {
-        durationSeconds: duration ? Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]) : null,
-        width: dimensions ? Number(dimensions[1]) : null,
-        height: dimensions ? Number(dimensions[2]) : null,
-        frameRate: fpsMatch ? Number(fpsMatch[1]) : null,
-        hasAudio: /Audio:/i.test(stderr),
-      };
-      if (code !== 0 || !videoLine || info.width === null || info.height === null) {
-        reject(new Error("FFmpeg dosyadan geçerli video akışı okuyamadı. " + stderr.slice(-1200)));
-        return;
-      }
-      resolve(info);
-    });
-    child.stdin.on("error", () => {});
-    child.stdin.end(data);
-  });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 
