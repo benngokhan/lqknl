@@ -841,9 +841,9 @@ export async function POST(req: Request) {
     }
 
     // Follow-up questions about a just-checked video must reuse real evidence, not ask the LLM to guess.
-    const asksVideoEvidenceFollowup = /(?:dosyanın|videonun|içindeki|icindeki|video(?:nun)?|mp4).{0,100}(?:analiz|incele|özellik|ozellik|süre|boyut|çözünürlük|cozunurluk|fps|ses|içerik|icerik)|(?:analiz|incele|özellik|ozellik|süre|boyut|çözünürlük|cozunurluk|fps|ses|içerik|icerik).{0,100}(?:dosya|video|mp4)/iu.test(message);
+    const asksVideoEvidenceFollowup = /(?:dosyanın|videonun|içindeki|icindeki|video(?:nun)?|mp4).{0,100}(?:analiz|incele|özellik|ozellik|süre|boyut|çözünürlük|cozunurluk|fps|ses|içerik|icerik)|(?:analiz|incele|özellik|ozellik|süre|boyut|çözünürlük|cozunurluk|fps|ses|içerik|icerik).{0,100}(?:dosya|video|mp4)|(?:ne|neleri|hangi şeyleri|hangi seyleri).{0,50}(?:analiz|incele|kontrol|izle|gör|gor)|(?:gerçekten|gercekten).{0,40}(?:analiz|incele|izle|gör|gor)|(?:görüntüleri|goruntuleri|sahneleri|içeriğini|icerigini).{0,50}(?:analiz|incele|gör|gor|izle)|(?:analiz|incele|izle).{0,50}(?:ettin mi|ettin|yaptın mı|yaptin mi)/iu.test(message);
     const priorCheckedVideo = [...history].reverse().find((turn) =>
-      turn.role === "assistant" && /Drive kontrolü gerçekten tamamlandı/iu.test(turn.content) &&
+      turn.role === "assistant" && /Drive kontrolü gerçekten tamamlandı|canlı teknik kontrol tekrarlandı|canlı teknik kontrolü yeniden yaptım/iu.test(turn.content) &&
       /\b(?:video|uzun_video)_\d+\.mp4\b/iu.test(turn.content)
     );
     const priorCheckedFile = priorCheckedVideo?.content.match(/\b((?:video|uzun_video)_\d+\.mp4)\b/iu)?.[1];
@@ -864,10 +864,28 @@ export async function POST(req: Request) {
         const duration = typeof data.durationSeconds === "number" ? `${data.durationSeconds.toFixed(2)} saniye` : "okunamadı";
         const dimensions = typeof data.width === "number" && typeof data.height === "number" ? `${data.width}×${data.height}` : "okunamadı";
         const fps = typeof data.frameRate === "number" ? `${data.frameRate} FPS` : "okunamadı";
-        return NextResponse.json({ reply: `${data.name || priorCheckedFile}: canlı teknik kontrol tekrarlandı. Süre: ${duration}; çözünürlük: ${dimensions}; FPS: ${fps}; ses: ${data.hasAudio === true ? "var" : data.hasAudio === false ? "yok" : "belirsiz"}. Shorts teknik ölçütü: ${data.shortsReady === true ? "uygun" : data.shortsReady === false ? "uygun değil" : "belirsiz"}. Bu kontrol görüntü içeriğini görsel olarak analiz etmez.`, emotion: "focused" });
+        const reply = `${data.name || priorCheckedFile}: canlı teknik kontrol tekrarlandı. Süre: ${duration}; çözünürlük: ${dimensions}; FPS: ${fps}; ses: ${data.hasAudio === true ? "var" : data.hasAudio === false ? "yok" : "belirsiz"}. Shorts teknik ölçütü: ${data.shortsReady === true ? "uygun" : data.shortsReady === false ? "uygun değil" : "belirsiz"}. Yalnızca teknik özellikleri kontrol ettim; görüntü karelerini veya sahnelerin anlamsal içeriğini analiz etmedim.`;
+        try {
+          await db.insert(messages).values([
+            { role: "user", content: message, emotion: "focused" },
+            { role: "assistant", content: reply, emotion: "focused" },
+          ]);
+        } catch (persistError) {
+          console.error("Mira video follow-up persistence failed:", persistError);
+        }
+        return NextResponse.json({ reply, emotion: "focused" });
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        return NextResponse.json({ reply: `${priorCheckedFile} için teknik kontrol tekrarlanamadı: ${reason.slice(0, 200)}. Tahmin yürütmüyorum.`, emotion: "focused" }, { status: 502 });
+        const reply = `${priorCheckedFile} için teknik kontrol tekrarlanamadı: ${reason.slice(0, 200)}. Tahmin yürütmüyorum; önceki sonuç güncel kanıt sayılmamalı.`;
+        try {
+          await db.insert(messages).values([
+            { role: "user", content: message, emotion: "focused" },
+            { role: "assistant", content: reply, emotion: "focused" },
+          ]);
+        } catch (persistError) {
+          console.error("Mira video follow-up persistence failed:", persistError);
+        }
+        return NextResponse.json({ reply, emotion: "focused" }, { status: 502 });
       }
     }
 
