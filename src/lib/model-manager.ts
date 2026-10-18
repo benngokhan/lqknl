@@ -87,7 +87,7 @@ async function callModelScope(request: ModelRequest): Promise<ModelResult> {
   const key = process.env.MODELSCOPE_API_KEY;
   if (!key) throw new Error("MODELSCOPE_API_KEY missing");
 
-  const baseUrl = (process.env.MODELSCOPE_BASE_URL || "https://api-inference.modelscope.cn/v1").replace(/\\/$/, "");
+  const baseUrl = (process.env.MODELSCOPE_BASE_URL || "https://api-inference.modelscope.cn/v1").replace(/\/$/, "");
   const model = process.env.MODELSCOPE_MODEL || "Qwen/Qwen3-235B-A22B-Instruct-2507";
   const res = await fetchWithRetry(`${baseUrl}/chat/completions`, {
     method: "POST",
