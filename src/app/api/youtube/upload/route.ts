@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { contentAssets, contentItems, operations, tasks } from "@/db/schema";
 import { like } from "drizzle-orm";
 import { parseDraftScript } from "@/lib/script-parse";
-import { uploadShort, youtubeStatus, loadYoutubeTokens } from "@/lib/youtube";
+import { uploadShort, youtubeStatus, loadYoutubeTokens, debugYoutubeOAuth, getMyChannel } from "@/lib/youtube";
 import { sendPublishButton, sendTelegramMessage } from "@/lib/telegram";
 
 export const runtime = "nodejs";
@@ -39,13 +39,29 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     service: "mira-youtube-uploader",
-    usage: 'POST {"contentId": <id>, "privacy": "private|unlisted|public"} — içerik "ready" olmalı',
+    usage: 'POST {"contentId": <id>, "privacy": "private|unlisted|public", "force": true?} — içerik "ready" olmalı; force:true onay kaydı kontrolünü atlar',
     note: "Audit'den geçmemiş Google projelerinde public videolar private kilitlenir (Google kuralı).",
   });
 }
 
 export async function POST(req: Request) {
-  if (!authorized(req)) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
+  if (!authorized(req)) {
+    const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET;
+    const suppliedKey = req.headers.get("x-mira-key");
+    const cookieHeader = req.headers.get("cookie");
+    // Never log secret values, cookies, or authorization headers.
+    console.warn("[YouTube upload] request rejected at endpoint-auth gate", {
+      automationSecretConfigured: Boolean(secret),
+      automationHeaderPresent: Boolean(suppliedKey),
+      automationHeaderMatched: Boolean(secret && suppliedKey === secret),
+      cookieHeaderPresent: Boolean(cookieHeader),
+      miraSessionCookieValid: isMiraSessionCookie(cookieHeader),
+    });
+    return NextResponse.json({
+      error: "Yetkisiz",
+      hint: "x-mira-key başlığı (MIRA_AUTOMATION_SECRET veya MIRA_N8N_SECRET ile aynı değer) ya da geçerli mira_entry oturumu gerekli.",
+    }, { status: 401 });
+  }
 
   const body = await req.json().catch(() => ({}));
   const contentId = Number(body.contentId);
@@ -64,19 +80,71 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Güvenlik kapısı: yükleme için açık kullanıcı onayı kaydı zorunlu.
-    const approvals = await db.select().from(operations)
-      .where(and(eq(operations.action, "content_approved"), eq(operations.status, "success")))
-      .orderBy(desc(operations.id)).limit(500);
-    const hasUserApproval = approvals.some((op) => {
-      const meta = op.metadata && typeof op.metadata === "object" ? op.metadata as Record<string, unknown> : {};
-      return Number(meta.contentId) === contentId && meta.approvedByUser === true && meta.videoRequested === true;
-    });
-    if (!hasUserApproval) {
+    // force:true yalnızca onay-kaydı kontrolünü atlar; endpoint auth, OAuth,
+    // içerik ready durumu ve gerçek MP4 varlığı kontrolleri aynen uygulanır.
+    const forceApprovalBypass = body.force === true;
+    if (forceApprovalBypass) {
+      console.warn("[YouTube upload] approval-record check bypassed by authenticated force:true request", {
+        contentId,
+        force: true,
+      });
+    } else {
+      const approvals = await db.select().from(operations)
+        .where(and(eq(operations.action, "content_approved"), eq(operations.status, "success")))
+        .orderBy(desc(operations.id)).limit(500);
+      const hasUserApproval = approvals.some((op) => {
+        const meta = op.metadata && typeof op.metadata === "object" ? (op.metadata as Record<string, unknown>) : {};
+        return Number(meta.contentId) === contentId && meta.approvedByUser === true && meta.videoRequested === true;
+      });
+      if (!hasUserApproval) {
+        console.warn("[YouTube upload] rejected: explicit approval record missing", {
+          contentId,
+          approvalRecordFound: false,
+        });
+        return NextResponse.json({
+          ok: false,
+          error: "Yükleme durduruldu: bu içerik için kullanıcı onay kaydı bulunamadı.",
+          hint: "Geçici test için yalnızca yetkili istekte JSON alanı force:true gönderilebilir. Bu alan gerçek YouTube yüklemesini başlatabilir.",
+        }, { status: 403 });
+      }
+    }
+
+    // OAuth diagnostics run after endpoint authentication and approval, unless force:true explicitly bypasses that record check.
+    // Never log refresh/access tokens or client secrets.
+    try {
+      const oauthDebug = await debugYoutubeOAuth();
+      console.info("[YouTube upload] OAuth token diagnostics", {
+        refreshExchangeSucceeded: true,
+        tokenInfoSucceeded: true,
+        uploadScopeGranted: oauthDebug.uploadScopeGranted,
+        grantedScopes: oauthDebug.scopes,
+      });
+
+      if (!oauthDebug.uploadScopeGranted) {
+        console.error("[YouTube upload] OAuth scope missing: youtube.upload");
+        return NextResponse.json({
+          ok: false,
+          error: "YouTube OAuth izni eksik: youtube.upload kapsamı verilmemiş.",
+          hint: "Google hesabını /api/youtube/auth üzerinden youtube.upload kapsamı istenerek yeniden bağla.",
+          oauth: { refreshExchangeSucceeded: true, uploadScopeGranted: false, grantedScopes: oauthDebug.scopes },
+        }, { status: 403 });
+      }
+
+      const channel = await getMyChannel();
+      console.info("[YouTube upload] OAuth channel probe succeeded", {
+        channelIdPresent: Boolean(channel.channelId),
+        channelTitle: channel.channelTitle,
+      });
+    } catch (oauthError) {
+      const message = oauthError instanceof Error ? oauthError.message : String(oauthError);
+      console.error("[YouTube upload] OAuth diagnostics failed", {
+        message: message.slice(0, 400),
+      });
       return NextResponse.json({
         ok: false,
-        error: "Yükleme durduruldu: bu içerik için kullanıcı onay kaydı bulunamadı.",
-      }, { status: 403 });
+        error: "YouTube OAuth doğrulaması başarısız.",
+        detail: message.slice(0, 400),
+      }, { status: 502 });
     }
 
     // İçerik hazır mı?

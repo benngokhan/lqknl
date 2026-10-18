@@ -150,6 +150,41 @@ async function freshAccessToken(): Promise<string> {
   return data.access_token;
 }
 
+/**
+ * Refreshes an access token and asks Google's tokeninfo endpoint for the
+ * actual granted scopes. Never returns or logs the access/refresh token.
+ */
+export async function debugYoutubeOAuth(): Promise<{
+  uploadScopeGranted: boolean;
+  scopes: string[];
+}> {
+  const accessToken = await freshAccessToken();
+
+  const response = await fetch(
+    "https://oauth2.googleapis.com/tokeninfo?access_token=" + encodeURIComponent(accessToken),
+    {
+      method: "GET",
+      signal: AbortSignal.timeout(15_000),
+      cache: "no-store",
+    },
+  );
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = String(data?.error_description || data?.error || "Google tokeninfo error").slice(0, 250);
+    throw new Error("Google tokeninfo doğrulaması başarısız HTTP " + response.status + ": " + detail);
+  }
+
+  const scopes = typeof data?.scope === "string"
+    ? data.scope.split(/\s+/).filter(Boolean)
+    : [];
+
+  return {
+    uploadScopeGranted: scopes.includes("https://www.googleapis.com/auth/youtube.upload"),
+    scopes,
+  };
+}
+
 export async function getMyChannel(accessToken?: string) {
   const token = accessToken || (await freshAccessToken());
   const res = await fetch(`${CHANNELS_URL}?part=snippet&mine=true`, {
