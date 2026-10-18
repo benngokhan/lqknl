@@ -1672,6 +1672,14 @@ export default function Home() {
           </button>
         </form>
       </div>
+
+      <footer className="border-t border-slate-700 px-4 py-4 text-center text-xs text-slate-400">
+        <div className="mb-2 flex items-center justify-center gap-2" aria-label="YouTube entegrasyonu">
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-red-500"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8ZM9.6 15.6V8.4l6.3 3.6-6.3 3.6Z"/></svg>
+          <span>YouTube entegrasyonu</span>
+        </div>
+        <a href="/privacy" className="underline underline-offset-4 hover:text-white">Gizlilik Politikası</a>
+      </footer>
     </main>
   );
 }
