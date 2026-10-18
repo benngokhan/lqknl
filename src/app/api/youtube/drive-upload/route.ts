@@ -5,7 +5,7 @@ import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 import { db } from "@/db";
 import { youtubeUploadJobs } from "@/db/schema";
 import { downloadDriveFile, listDriveFolderFiles } from "@/lib/google-drive";
-import { driveVideoNumberFromFilename, readDriveVideoMetadata } from "@/lib/drive-video-metadata";
+import { readDriveSpreadsheetMetadata } from "@/lib/drive-video-xlsx";
 import { addYoutubeComment, listMyChannelVideos, loadYoutubeTokens, uploadShort, verifyYoutubeVideo, youtubeStatus } from "@/lib/youtube";
 
 export const runtime = "nodejs";
@@ -39,12 +39,6 @@ export async function POST(req: Request) {
   if (!/^(?:video_\d+|uzun_video_\d+)\.mp4$/i.test(fileName)) {
     return NextResponse.json({ ok: false, error: "Yalnızca Drive kataloğundaki video_N.mp4 veya uzun_video_N.mp4 dosyaları yüklenebilir." }, { status: 400 });
   }
-  let videoNumber: number;
-  try {
-    videoNumber = driveVideoNumberFromFilename(fileName);
-  } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Video dosya adı geçersiz." }, { status: 400 });
-  }
   if (requestedTitle.length > 100) return NextResponse.json({ ok: false, error: "YouTube başlığı 100 karakteri aşamaz." }, { status: 400 });
   if (requestedDescription.length > 4900) return NextResponse.json({ ok: false, error: "Açıklama 4.900 karakteri aşamaz." }, { status: 400 });
   if (!publishAt) return NextResponse.json({ ok: false, error: "Planlı yayın için publishAt ISO tarih-saat bilgisi gerekli." }, { status: 400 });
@@ -70,30 +64,33 @@ export async function POST(req: Request) {
     const file = matchingFiles[0];
     if (file.mimeType !== "video/mp4") return NextResponse.json({ ok: false, error: `${fileName} MP4 video dosyası değil.` }, { status: 415 });
 
-    const metadataFiles = files.filter((item) => item.name.toLocaleLowerCase("tr-TR") === "baslik.md");
-    if (metadataFiles.length > 1) {
-      return NextResponse.json({ ok: false, error: "Drive klasöründe birden fazla baslik.md dosyası var; video metaverisi belirsiz." }, { status: 409 });
+    const metadataFiles = files.filter((item) => item.name.toLocaleLowerCase("tr-TR") === "baslik.xlsx");
+    if (metadataFiles.length !== 1) {
+      return NextResponse.json({
+        ok: false,
+        error: metadataFiles.length
+          ? "Drive klasöründe birden fazla baslik.xlsx dosyası var; metaveri belirsiz."
+          : "Drive klasöründe baslik.xlsx bulunamadı.",
+      }, { status: metadataFiles.length ? 409 : 404 });
     }
 
-    let driveMetadata: ReturnType<typeof readDriveVideoMetadata> | null = null;
-    if (metadataFiles.length === 1) {
+    let driveMetadata: ReturnType<typeof readDriveSpreadsheetMetadata>;
+    try {
       const metadataFile = await downloadDriveFile(metadataFiles[0].id);
-      try {
-        driveMetadata = readDriveVideoMetadata(metadataFile.data.toString("utf8"), videoNumber);
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : "baslik.md okunamadı";
-        return NextResponse.json({ ok: false, error: `baslik.md metaverisi geçersiz: ${detail}` }, { status: 422 });
-      }
+      driveMetadata = readDriveSpreadsheetMetadata(metadataFile.data, fileName);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "baslik.xlsx okunamadı";
+      return NextResponse.json({ ok: false, error: `baslik.xlsx metaverisi geçersiz: ${detail}` }, { status: 422 });
     }
 
-    // Explicit request fields override baslik.md; absent fields are filled from the matching VIDEO N block.
-    let title = requestedTitle || driveMetadata?.title || "";
-    let description = requestedDescription || driveMetadata?.description || "";
-    let tags = requestedTags ?? driveMetadata?.tags ?? [];
-    let comment = requestedComment ?? driveMetadata?.pinnedComment ?? "";
+    // Explicit request fields override the matching Dosya Adı row in Drive/baslik.xlsx.
+    let title = requestedTitle || driveMetadata.title;
+    let description = requestedDescription || driveMetadata.description;
+    let tags = requestedTags ?? driveMetadata.tags;
+    let comment = requestedComment ?? driveMetadata.pinnedComment;
 
     if (!title || title.length > 100) {
-      return NextResponse.json({ ok: false, error: "Başlık istekte veya eşleşen baslik.md bölümünde bulunmalı ve 1–100 karakter olmalı." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Başlık istekte veya baslik.xlsx içindeki eşleşen satırda bulunmalı ve 1–100 karakter olmalı." }, { status: 400 });
     }
     if (description.length > 4900) return NextResponse.json({ ok: false, error: "Açıklama 4.900 karakteri aşamaz." }, { status: 400 });
     if (tags.some((tag) => tag.length > 100) || tags.join(",").length > 500) {
