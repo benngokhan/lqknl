@@ -82,6 +82,7 @@ export async function POST(req: Request) {
       if (!source.length) return NextResponse.json({ ok: true, channelTitle: channel.channelTitle, count: 0, report: [] });
 
       const parsedItems: Array<{ videoId?: unknown; recommendedTags?: unknown; reason?: unknown }> = [];
+      let modelInfo: { provider: string; model: string } | undefined;
       // Büyük tek parça JSON yanıtları kesilebildiğinden videoları küçük gruplar halinde analiz et.
       for (let offset = 0; offset < source.length; offset += 5) {
         const batch = source.slice(offset, offset + 5);
@@ -97,6 +98,7 @@ export async function POST(req: Request) {
             history: [],
             message: prompt(batch, attempt > 0),
           });
+          modelInfo = { provider: result.provider, model: result.model };
           const raw = result.content.trim()
             .replace(/^\u0060\u0060\u0060(?:json)?\s*/i, "")
             .replace(/\s*\u0060\u0060\u0060$/, "");
@@ -136,7 +138,7 @@ export async function POST(req: Request) {
         channelTitle: channel.channelTitle,
         analyzedCount: report.length,
         report,
-        model: { provider: result.provider, model: result.model },
+        model: modelInfo ?? null,
         note: "Bu rapor öneridir; YouTube etiketleri değiştirilmedi. Değişiklik için her video için ayrıca action=apply ve confirm=true gerekir.",
       });
     } catch (error) {
