@@ -411,6 +411,10 @@ export async function updateYoutubeVideoTags(videoId: string, tags: string[]): P
     }
   };
 
+  // YouTube's videos.update can become visible to videos.list/get after a short propagation delay.
+  // Avoid immediately treating a stale read as a failed write.
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
   // YouTube may normalize tag casing/order; compare normalized sets, not raw JSON array order.
   const normalize = (tag: string) => tag.normalize("NFKC").toLocaleLowerCase("tr-TR").trim();
   const expected = new Set(cleanTags.map(normalize));
@@ -425,11 +429,15 @@ export async function updateYoutubeVideoTags(videoId: string, tags: string[]): P
   };
 
   await writeTags();
+  await wait(1200);
   let verification = await readBack();
 
-  // If YouTube acknowledged the write but the first read-back is stale, retry once and re-read.
+  // If YouTube acknowledged the write but the first read-back is stale, retry once,
+  // allow propagation again, and only then decide whether verification failed.
   if (!verification.matches) {
+    await wait(1000);
     await writeTags();
+    await wait(1800);
     verification = await readBack();
   }
 
