@@ -540,20 +540,24 @@ export async function POST(req: Request) {
     }
 
     // YouTube gerçek kanal/veri isteklerini sohbetten çalışan entegrasyona yönlendir.
-    // Salt bilgi/analiz istekleri yalnızca okuma yapar; etiket değişikliği otomatik uygulanmaz.
+    // Analiz salt okunur; açık etiket düzenleme isteği eksikleri uygular ve API'den doğrular.
     const youtubeTerms = /(?:youtube|you\s*tube|kanalım|kanalimin|kanalımdaki|videolarım|videolarımdaki|etiketlerim|etiketlerini)/iu.test(message);
     const youtubeAction = /(?:listele|göster|oku|incele|analiz|kontrol|bağlantı|eriş|erişebiliyor|bak|öğren|durum|kaç\s+video|hangi\s+videolar|etiket)/iu.test(message);
+    const asksYoutubeTagEdit = youtubeTerms &&
+      /(?:etiket|tag|metadata)/iu.test(message) &&
+      /(?:düzenle|düzelt|güncelle|uygula|ekle|iyileştir|tamamla|eksiklerini\s+gider)/iu.test(message);
     const asksYoutubeTagAnalysis = youtubeTerms &&
       /(?:etiket|tag|metadata)/iu.test(message) &&
-      /(?:analiz|incele|iyileştir|öner|kontrol|denetle|bak)/iu.test(message);
+      /(?:analiz|incele|iyileştir|öner|kontrol|denetle|bak)/iu.test(message) &&
+      !asksYoutubeTagEdit;
     const asksYoutubeData = youtubeTerms && youtubeAction &&
       /(?:kanal|video|etiket|bağlantı|eriş|durum|listele|göster|oku|analiz|incele)/iu.test(message);
 
-    if (asksYoutubeTagAnalysis || asksYoutubeData) {
+    if (asksYoutubeTagEdit || asksYoutubeTagAnalysis || asksYoutubeData) {
       try {
         const base = selfOrigin();
         const endpoint = `${base}/api/youtube/tags`;
-        const response = asksYoutubeTagAnalysis
+        const response = (asksYoutubeTagEdit || asksYoutubeTagAnalysis)
           ? await fetchWithTimeoutMs(endpoint, {
               method: "POST",
               headers: {
@@ -574,7 +578,7 @@ export async function POST(req: Request) {
           count?: number;
           analyzedCount?: number;
           videos?: Array<{ title?: string; currentTags?: string[]; url?: string; privacyStatus?: string }>;
-          report?: Array<{ title?: string; recommendedTags?: string[]; added?: string[]; removed?: string[]; reason?: string; url?: string }>;
+          report?: Array<{ videoId?: string; title?: string; currentTags?: string[]; recommendedTags?: string[]; added?: string[]; removed?: string[]; reason?: string; url?: string }>;
           note?: string;
         };
 
@@ -582,6 +586,98 @@ export async function POST(req: Request) {
           const reason = data.error || `HTTP ${response.status}`;
           return NextResponse.json({
             reply: `YouTube verisine erişemedim. Gerçek hata: ${reason}. Herhangi bir değişiklik yapılmadı.`,
+            emotion: "focused",
+          });
+        }
+
+        if (asksYoutubeTagEdit) {
+          const report = Array.isArray(data.report) ? data.report : [];
+          const changed: Array<{ title: string; url: string; tags: string[] }> = [];
+          const skipped: string[] = [];
+          const failed: string[] = [];
+
+          for (const item of report) {
+            const videoId = typeof item.videoId === "string" ? item.videoId : "";
+            const title = item.title || "Başlıksız video";
+            if (!videoId) {
+              failed.push(title + ": video kimliği eksik");
+              continue;
+            }
+            const currentTags = Array.isArray(item.currentTags)
+              ? item.currentTags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim()))
+              : [];
+            const recommendedTags = Array.isArray(item.recommendedTags)
+              ? item.recommendedTags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim()))
+              : [];
+            const seen = new Set(currentTags.map((tag) => tag.normalize("NFKC").toLocaleLowerCase("tr-TR").trim()));
+            const merged = [...currentTags];
+            for (const tag of recommendedTags) {
+              const clean = tag.trim();
+              const key = clean.normalize("NFKC").toLocaleLowerCase("tr-TR");
+              if (!seen.has(key)) {
+                seen.add(key);
+                merged.push(clean);
+              }
+            }
+            // Preserve existing tags; add only missing recommendations and respect YouTube limits.
+            const nextTags: string[] = [];
+            let totalChars = 0;
+            for (const tag of merged) {
+              if (nextTags.length >= 30) break;
+              if (totalChars + tag.length > 500) continue;
+              nextTags.push(tag);
+              totalChars += tag.length;
+            }
+            const currentKeys = new Set(currentTags.map((tag) => tag.normalize("NFKC").toLocaleLowerCase("tr-TR").trim()));
+            if (nextTags.every((tag) => currentKeys.has(tag.normalize("NFKC").toLocaleLowerCase("tr-TR").trim()))) {
+              skipped.push(title);
+              continue;
+            }
+
+            try {
+              const applyResponse = await fetchWithTimeoutMs(endpoint, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+                },
+                body: JSON.stringify({ action: "apply", confirm: true, videoId, tags: nextTags }),
+                cache: "no-store",
+              }, VIDEO_TIMEOUT_MS);
+              const applied = await applyResponse.json().catch(() => ({})) as {
+                ok?: boolean; updated?: boolean; verified?: boolean; error?: string; tags?: string[];
+              };
+              if (!applyResponse.ok || !applied.ok || !applied.updated || !applied.verified) {
+                failed.push(title + ": " + (applied.error || ("HTTP " + applyResponse.status)) + " (doğrulanmadı)");
+                continue;
+              }
+              changed.push({
+                title,
+                url: item.url || ("https://www.youtube.com/watch?v=" + videoId),
+                tags: applied.tags || nextTags,
+              });
+            } catch (error) {
+              failed.push(title + ": " + (error instanceof Error ? error.message : String(error)));
+            }
+          }
+
+          const changedSummary = changed.slice(0, 15).map((item, index) =>
+            (index + 1) + ". " + item.title + "\n" + item.url + "\nDoğrulanan etiketler: " + item.tags.join(", ")
+          ).join("\n\n");
+          const failedSummary = failed.slice(0, 10).map((item) => "- " + item).join("\n");
+          return NextResponse.json({
+            reply: [
+              "YouTube kanalındaki etiket düzenleme işlemi tamamlandı.",
+              "Kanal: " + (data.channelTitle || "bilinmiyor"),
+              "Analiz edilen: " + (data.analyzedCount ?? report.length),
+              "Güncellenip YouTube API'sinden doğrulanan: " + changed.length,
+              "Değişiklik gerekmeyen: " + skipped.length,
+              "Başarısız/doğrulanamayan: " + failed.length,
+              changedSummary ? "\nDoğrulanan güncellemeler:\n" + changedSummary : "",
+              failedSummary ? "\nHatalar:\n" + failedSummary : "",
+              failed.length ? "\nBaşarısız videolar güncellenmiş sayılmadı." : "",
+              "\nGüvenlik: mevcut etiketler korunarak yalnızca eksik öneriler eklendi; video içeriği, yayın takvimi ve gizlilik ayarları değiştirilmedi.",
+            ].filter(Boolean).join("\n"),
             emotion: "focused",
           });
         }
