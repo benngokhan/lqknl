@@ -371,13 +371,13 @@ export async function updateYoutubeVideoTags(videoId: string, tags: string[]): P
 
   const accessToken = await freshAccessToken();
   const getVideo = async () => {
-    const response = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=${encodeURIComponent(videoId)}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+    const response = await fetch("https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=" + encodeURIComponent(videoId), {
+      headers: { Authorization: "Bearer " + accessToken },
       signal: AbortSignal.timeout(20_000),
       cache: "no-store",
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`YouTube video bilgisi alınamadı HTTP ${response.status}: ${String(data?.error?.message || "API hatası").slice(0, 250)}`);
+    if (!response.ok) throw new Error("YouTube video bilgisi alınamadı HTTP " + response.status + ": " + String(data?.error?.message || "API hatası").slice(0, 250));
     const item = data?.items?.[0];
     if (!item?.id || !item?.snippet) throw new Error("YouTube videos.get mevcut videoyu döndürmedi.");
     return item;
@@ -385,32 +385,65 @@ export async function updateYoutubeVideoTags(videoId: string, tags: string[]): P
 
   const current = await getVideo();
   const snippet = current.snippet;
-  const response = await fetch("https://www.googleapis.com/youtube/v3/videos?part=snippet", {
-    method: "PUT",
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      id: videoId,
-      snippet: {
-        title: String(snippet.title || ""),
-        description: String(snippet.description || ""),
-        categoryId: String(snippet.categoryId || "27"),
-        ...(typeof snippet.defaultLanguage === "string" ? { defaultLanguage: snippet.defaultLanguage } : {}),
-        ...(typeof snippet.defaultAudioLanguage === "string" ? { defaultAudioLanguage: snippet.defaultAudioLanguage } : {}),
-        tags: cleanTags,
-      },
-    }),
-    signal: AbortSignal.timeout(20_000),
-    cache: "no-store",
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`YouTube etiket güncellemesi başarısız HTTP ${response.status}: ${String(result?.error?.message || "API hatası").slice(0, 300)}`);
+  const payload = {
+    id: videoId,
+    snippet: {
+      title: String(snippet.title || ""),
+      description: String(snippet.description || ""),
+      categoryId: String(snippet.categoryId || "27"),
+      ...(typeof snippet.defaultLanguage === "string" ? { defaultLanguage: snippet.defaultLanguage } : {}),
+      ...(typeof snippet.defaultAudioLanguage === "string" ? { defaultAudioLanguage: snippet.defaultAudioLanguage } : {}),
+      tags: cleanTags,
+    },
+  };
 
-  const verifiedItem = await getVideo();
-  const verifiedTags = Array.isArray(verifiedItem.snippet?.tags)
-    ? verifiedItem.snippet.tags.filter((tag: unknown): tag is string => typeof tag === "string")
-    : [];
-  if (JSON.stringify(verifiedTags) !== JSON.stringify(cleanTags)) {
-    throw new Error("YouTube güncelleme yanıtı geldi ancak yeniden okunan etiketler eşleşmedi; işlem doğrulanamadı.");
+  const writeTags = async () => {
+    const response = await fetch("https://www.googleapis.com/youtube/v3/videos?part=snippet", {
+      method: "PUT",
+      headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(20_000),
+      cache: "no-store",
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error("YouTube etiket güncellemesi başarısız HTTP " + response.status + ": " + String(result?.error?.message || "API hatası").slice(0, 300));
+    }
+  };
+
+  // YouTube may normalize tag casing/order; compare normalized sets, not raw JSON array order.
+  const normalize = (tag: string) => tag.normalize("NFKC").toLocaleLowerCase("tr-TR").trim();
+  const expected = new Set(cleanTags.map(normalize));
+  const readBack = async () => {
+    const item = await getVideo();
+    const actual = Array.isArray(item.snippet?.tags)
+      ? item.snippet.tags.filter((tag: unknown): tag is string => typeof tag === "string")
+      : [];
+    const actualSet = new Set(actual.map(normalize));
+    const matches = expected.size === actualSet.size && [...expected].every((tag) => actualSet.has(tag));
+    return { actual, matches };
+  };
+
+  await writeTags();
+  let verification = await readBack();
+
+  // If YouTube acknowledged the write but the first read-back is stale, retry once and re-read.
+  if (!verification.matches) {
+    await writeTags();
+    verification = await readBack();
   }
-  return { videoId, tags: verifiedTags, verified: true };
+
+  if (!verification.matches) {
+    const actual = verification.actual;
+    const missing = cleanTags.filter((tag) => !new Set(actual.map(normalize)).has(normalize(tag)));
+    const unexpected = actual.filter((tag) => !expected.has(normalize(tag)));
+    throw new Error(
+      "YouTube güncelleme isteğini kabul etti ancak yeniden okuma doğrulaması başarısız. " +
+      "Beklenen etiket: " + cleanTags.length + ", okunan: " + actual.length +
+      (missing.length ? "; eksik: " + missing.slice(0, 8).join(", ") : "") +
+      (unexpected.length ? "; beklenmeyen: " + unexpected.slice(0, 8).join(", ") : "")
+    );
+  }
+
+  return { videoId, tags: verification.actual, verified: true };
 }
