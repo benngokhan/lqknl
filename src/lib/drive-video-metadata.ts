@@ -2,6 +2,17 @@ function cleanSection(value: string) {
   return value.replace(/^\s*```[^\n]*\n?/, "").replace(/\n?```\s*$/, "").trim();
 }
 
+/** Return the numeric VIDEO block represented by a supported Drive MP4 filename. */
+export function driveVideoNumberFromFilename(fileName: string): number {
+  const match = fileName.trim().match(/^(?:video_|uzun_video_)(\d+)\.mp4$/i);
+  if (!match) throw new Error("Dosya adı video_N.mp4 veya uzun_video_N.mp4 biçiminde olmalı.");
+  const number = Number(match[1]);
+  if (!Number.isInteger(number) || number < 1 || number > 999) {
+    throw new Error("Video numarası 1 ile 999 arasında olmalı.");
+  }
+  return number;
+}
+
 export type DriveVideoMetadata = {
   title: string;
   description: string;

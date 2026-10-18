@@ -120,3 +120,27 @@ export const integrations = pgTable("integrations", {
   value: jsonb("value").notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+/**
+ * Durable state for Drive -> YouTube uploads. The unique Drive file ID prevents
+ * concurrent requests from creating independent jobs for the same source file.
+ * Upload session URLs are sensitive and must never be returned to clients/logs.
+ */
+export const youtubeUploadJobs = pgTable("youtube_upload_jobs", {
+  id: serial("id").primaryKey(),
+  driveFileId: text("drive_file_id").notNull().unique(),
+  driveFileName: text("drive_file_name").notNull(),
+  title: text("title").notNull(),
+  status: text("status").notNull().default("pending"),
+  uploadSessionUrl: text("upload_session_url"),
+  youtubeVideoId: text("youtube_video_id"),
+  youtubeUrl: text("youtube_url"),
+  publishAt: timestamp("publish_at", { withTimezone: true }),
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});

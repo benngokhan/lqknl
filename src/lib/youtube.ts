@@ -5,6 +5,9 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { integrations } from "@/db/schema";
+import { compareYoutubeTags, normalizeYoutubeTag } from "@/lib/youtube-tag-verification";
+import { uploadResumableBytes } from "@/lib/youtube-resumable";
+import { compareYoutubeUploadMetadata, type ExpectedYoutubeUpload, type YoutubeVideoSnapshot } from "@/lib/youtube-upload-verification";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos";
@@ -239,6 +242,10 @@ export type UploadInput = {
   privacyStatus?: "private" | "unlisted" | "public"; // unaudited uygulamada 'public' private kilitlenir
   publishAt?: string; // ISO timestamp; future private scheduled upload only
   video: Buffer;
+  /** Existing session URL for recovery; never expose it to clients. */
+  uploadSessionUrl?: string;
+  /** Persist a newly-created session before sending any video bytes. */
+  onUploadSession?: (uploadUrl: string) => Promise<void>;
 };
 
 export type UploadOutput = {
@@ -250,60 +257,121 @@ export type UploadOutput = {
 export async function uploadShort(input: UploadInput): Promise<UploadOutput> {
   const accessToken = await freshAccessToken();
   const privacy = input.privacyStatus || (process.env.YOUTUBE_DEFAULT_PRIVACY as UploadInput["privacyStatus"]) || "private";
-
-  // 1) Resumable oturumu başlat
-  const initRes = await fetch(`${UPLOAD_URL}?uploadType=resumable&part=snippet,status`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json; charset=UTF-8",
-      "X-Upload-Content-Type": "video/mp4",
-      "X-Upload-Content-Length": String(input.video.length),
-    },
-    body: JSON.stringify({
-      snippet: {
-        title: input.title.slice(0, 100),
-        description: input.description.slice(0, 4900),
-        tags: (input.tags || []).slice(0, 30),
-        categoryId: process.env.YOUTUBE_CATEGORY_ID || "27", // Education
-      },
-      status: {
-        privacyStatus: input.publishAt ? "private" : privacy,
-        ...(input.publishAt ? { publishAt: input.publishAt } : {}),
-        selfDeclaredMadeForKids: false,
-      },
-    }),
-    signal: AbortSignal.timeout(30_000),
-    cache: "no-store",
-  });
-  if (!initRes.ok) {
-    const detail = (await initRes.text()).slice(0, 500);
-    throw new Error(`YouTube yükleme oturumu açılamadı HTTP ${initRes.status}: ${detail}`);
+  const uploadTags: string[] = [];
+  const seenTags = new Set<string>();
+  for (const rawTag of input.tags || []) {
+    const tag = rawTag.trim();
+    const key = normalizeYoutubeTag(tag);
+    if (tag && key && !seenTags.has(key)) {
+      seenTags.add(key);
+      uploadTags.push(tag);
+      if (uploadTags.length === 30) break;
+    }
   }
-  const uploadUrl = initRes.headers.get("location");
-  if (!uploadUrl) throw new Error("YouTube yükleme URL'si (Location) dönmedi");
-
-  // 2) Dosyayı yükle
-  const body = new ArrayBuffer(input.video.byteLength);
-  new Uint8Array(body).set(input.video);
-  const putRes = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "video/mp4",
-      "Content-Length": String(input.video.length),
-    },
-    body,
-    signal: AbortSignal.timeout(240_000),
-    cache: "no-store",
-  });
-  const putData = await putRes.json().catch(() => ({}));
-  if (!putRes.ok) {
-    const err = putData?.error?.errors?.[0]?.reason || putData?.error?.message || putRes.status;
-    throw new Error(`YouTube videos.insert hatası: ${String(err).slice(0, 400)}`);
+  if (uploadTags.some((tag) => tag.length > 100) || uploadTags.join(",").length > 500) {
+    throw new Error("YouTube etiket sınırları aşılıyor: en fazla 30 etiket, her biri 100 karakter ve ayraçlarla toplam 500 karakter.");
   }
-  const videoId = putData?.id as string;
-  if (!videoId) throw new Error("YouTube video ID döndürmedi");
-  return { videoId, url: `https://www.youtube.com/shorts/${videoId}`, privacyStatus: privacy };
+
+  // Reuse a persisted session during recovery; otherwise create and persist a new one.
+  let uploadUrl = input.uploadSessionUrl;
+  if (!uploadUrl) {
+    const initRes = await fetch(`${UPLOAD_URL}?uploadType=resumable&part=snippet,status`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Upload-Content-Type": "video/mp4",
+        "X-Upload-Content-Length": String(input.video.length),
+      },
+      body: JSON.stringify({
+        snippet: {
+          title: input.title.slice(0, 100),
+          description: input.description.slice(0, 4900),
+          tags: uploadTags,
+          categoryId: process.env.YOUTUBE_CATEGORY_ID || "27", // Education
+        },
+        status: {
+          privacyStatus: input.publishAt ? "private" : privacy,
+          ...(input.publishAt ? { publishAt: input.publishAt } : {}),
+          selfDeclaredMadeForKids: false,
+        },
+      }),
+      signal: AbortSignal.timeout(30_000),
+      cache: "no-store",
+    });
+    if (!initRes.ok) {
+      const detail = (await initRes.text()).slice(0, 500);
+      throw new Error(`YouTube yükleme oturumu açılamadı HTTP ${initRes.status}: ${detail}`);
+    }
+    const newUploadUrl = initRes.headers.get("location");
+    if (!newUploadUrl) throw new Error("YouTube yükleme URL'si (Location) dönmedi");
+    uploadUrl = newUploadUrl;
+    // Persist the session before sending bytes, so a restarted request can reconcile it.
+    await input.onUploadSession?.(uploadUrl);
+  }
+
+  // 2) Upload the video in resumable chunks and reconcile ambiguous responses before retrying bytes.
+  const uploaded = await uploadResumableBytes({
+    uploadUrl,
+    data: input.video,
+    contentType: "video/mp4",
+    resume: Boolean(input.uploadSessionUrl),
+  });
+  const videoId = uploaded.videoId;
+  const effectivePrivacy = input.publishAt ? "private" : privacy;
+  return { videoId, url: `https://www.youtube.com/shorts/${videoId}`, privacyStatus: effectivePrivacy };
+}
+
+
+/** Verify the final YouTube resource by reading it back; never infer success from upload HTTP status alone. */
+export async function verifyYoutubeVideo(
+  videoId: string,
+  expected: ExpectedYoutubeUpload,
+): Promise<{ videoId: string; verified: true }> {
+  if (!/^[a-zA-Z0-9_-]{6,20}$/.test(videoId)) throw new Error("Geçersiz YouTube video ID");
+  const accessToken = await freshAccessToken();
+  const delays = [500, 1000, 2000, 3000, 5000];
+  let lastMismatch = "video is not visible through videos.list yet";
+
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    const response = await fetch(
+      "https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=" + encodeURIComponent(videoId),
+      {
+        headers: { Authorization: "Bearer " + accessToken },
+        signal: AbortSignal.timeout(20_000),
+        cache: "no-store",
+      },
+    );
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if ((response.status === 429 || response.status >= 500) && attempt < delays.length) {
+        await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+        continue;
+      }
+      throw new Error("YouTube yükleme sonrası doğrulama isteği başarısız HTTP " + response.status + ": " +
+        String(data?.error?.message || "API hatası").slice(0, 300));
+    }
+
+    const item = data?.items?.[0];
+    if (item?.id === videoId && item?.snippet && item?.status) {
+      const actual: YoutubeVideoSnapshot = {
+        title: String(item.snippet.title || ""),
+        description: String(item.snippet.description || ""),
+        tags: Array.isArray(item.snippet.tags)
+          ? item.snippet.tags.filter((tag: unknown): tag is string => typeof tag === "string")
+          : [],
+        privacyStatus: String(item.status.privacyStatus || ""),
+        ...(typeof item.status.publishAt === "string" ? { publishAt: item.status.publishAt } : {}),
+      };
+      const comparison = compareYoutubeUploadMetadata(expected, actual);
+      if (comparison.matches) return { videoId, verified: true };
+      lastMismatch = comparison.mismatches.join(", ");
+    }
+
+    if (attempt < delays.length) await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+  }
+
+  throw new Error("YouTube video yüklendi ancak son metaveri doğrulaması başarısız: " + lastMismatch);
 }
 
 
@@ -364,8 +432,18 @@ export async function makeYoutubeVideoPublic(videoId: string): Promise<{ videoId
 /** Replace tags only, preserving the video's current title, description, category and publication status. */
 export async function updateYoutubeVideoTags(videoId: string, tags: string[]): Promise<{ videoId: string; tags: string[]; verified: true }> {
   if (!/^[a-zA-Z0-9_-]{6,20}$/.test(videoId)) throw new Error("Geçersiz YouTube video ID");
-  const cleanTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 30);
-  if (cleanTags.some((tag) => tag.length > 100) || cleanTags.join("").length > 500) {
+  const cleanTags: string[] = [];
+  const seenTags = new Set<string>();
+  for (const rawTag of tags) {
+    const tag = rawTag.trim();
+    const key = normalizeYoutubeTag(tag);
+    if (tag && key && !seenTags.has(key)) {
+      seenTags.add(key);
+      cleanTags.push(tag);
+      if (cleanTags.length === 30) break;
+    }
+  }
+  if (cleanTags.some((tag) => tag.length > 100) || cleanTags.join(",").length > 500) {
     throw new Error("Etiketler YouTube sınırlarını aşıyor (en fazla 30 etiket ve toplam 500 karakter).");
   }
 
@@ -415,37 +493,40 @@ export async function updateYoutubeVideoTags(videoId: string, tags: string[]): P
   // Avoid immediately treating a stale read as a failed write.
   const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  // YouTube may normalize tag casing/order; compare normalized sets, not raw JSON array order.
-  const normalize = (tag: string) => tag.normalize("NFKC").toLocaleLowerCase("tr-TR").trim();
-  const expected = new Set(cleanTags.map(normalize));
+  // Compare normalized tag sets so YouTube casing/order differences do not cause false failures.
   const readBack = async () => {
     const item = await getVideo();
     const actual = Array.isArray(item.snippet?.tags)
       ? item.snippet.tags.filter((tag: unknown): tag is string => typeof tag === "string")
       : [];
-    const actualSet = new Set(actual.map(normalize));
-    const matches = expected.size === actualSet.size && [...expected].every((tag) => actualSet.has(tag));
-    return { actual, matches };
+    return { actual, ...compareYoutubeTags(cleanTags, actual) };
+  };
+
+  // Poll for propagation first. A successful PUT should not be repeated until the
+  // first write has had enough time to become visible through videos.list/get.
+  const pollForMatch = async (delays: number[]) => {
+    let result = await readBack();
+    for (const delay of delays) {
+      if (result.matches) break;
+      await wait(delay);
+      result = await readBack();
+    }
+    return result;
   };
 
   await writeTags();
-  await wait(1200);
-  let verification = await readBack();
+  let verification = await pollForMatch([500, 1000, 2000, 3000]);
 
-  // If YouTube acknowledged the write but the first read-back is stale, retry once,
-  // allow propagation again, and only then decide whether verification failed.
+  // If the read-back remains stale, retry the idempotent update once and poll again.
   if (!verification.matches) {
-    await wait(1000);
     await writeTags();
-    await wait(1800);
-    verification = await readBack();
+    verification = await pollForMatch([1000, 2000, 3000, 5000]);
   }
 
   if (!verification.matches) {
     const actual = verification.actual;
-    const actualSet = new Set<string>(actual.map((tag: string) => normalize(tag)));
-    const missing = cleanTags.filter((tag: string) => !actualSet.has(normalize(tag)));
-    const unexpected = actual.filter((tag: string) => !expected.has(normalize(tag)));
+    const missing = verification.missing;
+    const unexpected = verification.unexpected;
     throw new Error(
       "YouTube güncelleme isteğini kabul etti ancak yeniden okuma doğrulaması başarısız. " +
       "Beklenen etiket: " + cleanTags.length + ", okunan: " + actual.length +
