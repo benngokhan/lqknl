@@ -42,8 +42,15 @@ function daysFromStart(date: string) {
   return Math.floor((current - start) / 86_400_000);
 }
 
-function slotTime(slot: Slot) {
-  return slot === "shorts-noon" ? "12:30" : slot === "shorts-afternoon" ? "16:30" : slot === "shorts-evening" ? "20:30" : "18:00";
+function isLongVideoDay(date: string) {
+  return daysFromStart(date) % 2 === 0;
+}
+
+function slotTime(slot: Slot, date: string) {
+  if (slot === "shorts-noon") return "12:30";
+  if (slot === "shorts-afternoon") return "16:30";
+  if (slot === "shorts-evening") return isLongVideoDay(date) ? "21:00" : "20:30";
+  return "18:00";
 }
 
 function filenameIndex(name: string, kind: "short" | "long") {
@@ -73,11 +80,14 @@ export async function POST(req: Request) {
     if (today < "2026-10-23") {
       return NextResponse.json({ ok: true, skipped: true, reason: "Otomasyon başlangıcı 23 Ekim 2026; planlı yayın yapılmadı.", slot, startsOn: "2026-10-23" });
     }
-    if (slot === "long" && daysFromStart(today) % 2 !== 0) {
+    if (slot === "long" && !isLongVideoDay(today)) {
       return NextResponse.json({ ok: true, skipped: true, reason: "Uzun video yalnızca iki günde bir planlanır.", slot, date: today });
     }
+    if (slot === "shorts-afternoon" && isLongVideoDay(today)) {
+      return NextResponse.json({ ok: true, skipped: true, reason: "Uzun video günlerinde 16:30 Shorts atlanır; o gün toplam yayın sayısı 3 ile sınırlıdır.", slot, date: today });
+    }
     date = today;
-    publishAt = localDateTime(date, slotTime(slot));
+    publishAt = localDateTime(date, slotTime(slot, date));
     if (publishAt.getTime() <= now.getTime() + 60_000) {
       return NextResponse.json({ ok: true, skipped: true, reason: "Bu yayın saati geçti veya çok yakın; yinelenen/geçmiş zamanlı yükleme yapılmadı.", slot, date, publishAt: publishAt.toISOString() });
     }

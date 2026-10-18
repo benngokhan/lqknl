@@ -2,7 +2,7 @@ name: Mira Drive-to-YouTube Schedule
 
 on:
   schedule:
-    # Europe/Istanbul (UTC+03): run 10 minutes before Shorts 12:30, 16:30, 20:30 and long-video 18:00 slots.
+    # Europe/Istanbul (UTC+03): 12:30 daily, 16:30 only on non-long days, evening 20:30 normally / 21:00 on long-video days, long video 18:00 every other day.
     - cron: "20 9 * * *"
     - cron: "20 13 * * *"
     - cron: "20 17 * * *"
