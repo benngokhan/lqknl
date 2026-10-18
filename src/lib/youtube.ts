@@ -157,6 +157,8 @@ export type ChannelVideo = {
   videoId: string;
   title: string;
   description: string;
+  tags: string[];
+  categoryId: string | null;
   publishedAt: string | null;
   privacyStatus: string | null;
   url: string;
@@ -219,6 +221,8 @@ export async function listMyChannelVideos(maxVideos = 200): Promise<{ channelId:
         videoId: item.id,
         title: String(item.snippet?.title || ""),
         description: String(item.snippet?.description || ""),
+        tags: Array.isArray(item.snippet?.tags) ? item.snippet.tags.filter((tag: unknown): tag is string => typeof tag === "string") : [],
+        categoryId: typeof item.snippet?.categoryId === "string" ? item.snippet.categoryId : null,
         publishedAt: typeof item.snippet?.publishedAt === "string" ? item.snippet.publishedAt : null,
         privacyStatus: typeof item.status?.privacyStatus === "string" ? item.status.privacyStatus : null,
         url: `https://www.youtube.com/watch?v=${item.id}`,
@@ -354,4 +358,59 @@ export async function makeYoutubeVideoPublic(videoId: string): Promise<{ videoId
     throw new Error("YouTube herkese açık durumunu doğrulamadı; video gizli kalmış olabilir.");
   }
   return { videoId: item.id, url: `https://www.youtube.com/shorts/${item.id}`, privacyStatus: item.status.privacyStatus };
+}
+
+
+/** Replace tags only, preserving the video's current title, description, category and publication status. */
+export async function updateYoutubeVideoTags(videoId: string, tags: string[]): Promise<{ videoId: string; tags: string[]; verified: true }> {
+  if (!/^[a-zA-Z0-9_-]{6,20}$/.test(videoId)) throw new Error("Geçersiz YouTube video ID");
+  const cleanTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 30);
+  if (cleanTags.some((tag) => tag.length > 100) || cleanTags.join("").length > 500) {
+    throw new Error("Etiketler YouTube sınırlarını aşıyor (en fazla 30 etiket ve toplam 500 karakter).");
+  }
+
+  const accessToken = await freshAccessToken();
+  const getVideo = async () => {
+    const response = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=${encodeURIComponent(videoId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(20_000),
+      cache: "no-store",
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(`YouTube video bilgisi alınamadı HTTP ${response.status}: ${String(data?.error?.message || "API hatası").slice(0, 250)}`);
+    const item = data?.items?.[0];
+    if (!item?.id || !item?.snippet) throw new Error("YouTube videos.get mevcut videoyu döndürmedi.");
+    return item;
+  };
+
+  const current = await getVideo();
+  const snippet = current.snippet;
+  const response = await fetch("https://www.googleapis.com/youtube/v3/videos?part=snippet", {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      id: videoId,
+      snippet: {
+        title: String(snippet.title || ""),
+        description: String(snippet.description || ""),
+        categoryId: String(snippet.categoryId || "27"),
+        ...(typeof snippet.defaultLanguage === "string" ? { defaultLanguage: snippet.defaultLanguage } : {}),
+        ...(typeof snippet.defaultAudioLanguage === "string" ? { defaultAudioLanguage: snippet.defaultAudioLanguage } : {}),
+        tags: cleanTags,
+      },
+    }),
+    signal: AbortSignal.timeout(20_000),
+    cache: "no-store",
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`YouTube etiket güncellemesi başarısız HTTP ${response.status}: ${String(result?.error?.message || "API hatası").slice(0, 300)}`);
+
+  const verifiedItem = await getVideo();
+  const verifiedTags = Array.isArray(verifiedItem.snippet?.tags)
+    ? verifiedItem.snippet.tags.filter((tag: unknown): tag is string => typeof tag === "string")
+    : [];
+  if (JSON.stringify(verifiedTags) !== JSON.stringify(cleanTags)) {
+    throw new Error("YouTube güncelleme yanıtı geldi ancak yeniden okunan etiketler eşleşmedi; işlem doğrulanamadı.");
+  }
+  return { videoId, tags: verifiedTags, verified: true };
 }
