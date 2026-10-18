@@ -18,7 +18,40 @@ export type VideoResearchResult = {
   items: VideoResearchItem[];
 };
 
+// YouTube search.list is quota-expensive (typically 100 units per call).
+// Cache identical research queries briefly and share concurrent requests.
+const VIDEO_RESEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
+const videoResearchCache = new Map<string, { expiresAt: number; value: VideoResearchResult }>();
+const videoResearchInFlight = new Map<string, Promise<VideoResearchResult>>();
+
 export async function researchShortVideos(
+  query = "",
+  windowHours = 24,
+  regionCode = "TR",
+  maxResults = 10,
+): Promise<VideoResearchResult> {
+  const safeWindow = Math.min(Math.max(windowHours, 1), 168);
+  const safeMaxResults = Math.min(Math.max(maxResults, 1), 25);
+  const normalizedQuery = query.trim().slice(0, 100);
+  const key = JSON.stringify([normalizedQuery, safeWindow, regionCode, safeMaxResults]);
+  const cached = videoResearchCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  const pending = videoResearchInFlight.get(key);
+  if (pending) return pending;
+
+  const request = fetchResearchShortVideosUncached(normalizedQuery, safeWindow, regionCode, safeMaxResults)
+    .then((value) => {
+      videoResearchCache.set(key, { expiresAt: Date.now() + VIDEO_RESEARCH_CACHE_TTL_MS, value });
+      return value;
+    })
+    .finally(() => videoResearchInFlight.delete(key));
+  videoResearchInFlight.set(key, request);
+  return request;
+}
+
+
+async function fetchResearchShortVideosUncached(
   query = "",
   windowHours = 24,
   regionCode = "TR",

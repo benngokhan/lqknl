@@ -13,6 +13,17 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos";
 const CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels";
 
+// Avoid repeating identical channel/video reads when multiple Mira screens or workflows
+// request the same data close together. Writes invalidate this short-lived cache.
+const CHANNEL_VIDEO_CACHE_TTL_MS = 60_000;
+type ChannelVideoListResult = { channelId: string; channelTitle: string; videos: ChannelVideo[] };
+const channelVideoListCache = new Map<number, { expiresAt: number; value: ChannelVideoListResult }>();
+const channelVideoListInFlight = new Map<number, Promise<ChannelVideoListResult>>();
+
+export function invalidateYoutubeVideoListCache() {
+  channelVideoListCache.clear();
+}
+
 export const YOUTUBE_SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
   "https://www.googleapis.com/auth/youtube.readonly",
@@ -168,7 +179,7 @@ export type ChannelVideo = {
 };
 
 /** Read the authenticated channel's uploads playlist, including private videos owned by this account. */
-export async function listMyChannelVideos(maxVideos = 200): Promise<{ channelId: string; channelTitle: string; videos: ChannelVideo[] }> {
+async function fetchMyChannelVideosUncached(maxVideos: number): Promise<ChannelVideoListResult> {
   const token = await freshAccessToken();
   const limit = Math.max(1, Math.min(500, Math.floor(maxVideos)));
   const channelResponse = await fetch(`${CHANNELS_URL}?part=snippet,contentDetails&mine=true`, {
@@ -233,6 +244,26 @@ export async function listMyChannelVideos(maxVideos = 200): Promise<{ channelId:
     }
   }
   return { channelId: channel.id, channelTitle: String(channel.snippet?.title || ""), videos };
+}
+
+/** Return a short-lived cached list and coalesce concurrent identical reads. */
+export async function listMyChannelVideos(maxVideos = 200): Promise<ChannelVideoListResult> {
+  const limit = Math.max(1, Math.min(500, Math.floor(maxVideos)));
+  const now = Date.now();
+  const cached = channelVideoListCache.get(limit);
+  if (cached && cached.expiresAt > now) return cached.value;
+
+  const pending = channelVideoListInFlight.get(limit);
+  if (pending) return pending;
+
+  const request = fetchMyChannelVideosUncached(limit)
+    .then((value) => {
+      channelVideoListCache.set(limit, { expiresAt: Date.now() + CHANNEL_VIDEO_CACHE_TTL_MS, value });
+      return value;
+    })
+    .finally(() => channelVideoListInFlight.delete(limit));
+  channelVideoListInFlight.set(limit, request);
+  return request;
 }
 
 export type UploadInput = {
@@ -319,6 +350,7 @@ export async function uploadShort(input: UploadInput): Promise<UploadOutput> {
   });
   const videoId = uploaded.videoId;
   const effectivePrivacy = input.publishAt ? "private" : privacy;
+  invalidateYoutubeVideoListCache();
   return { videoId, url: `https://www.youtube.com/shorts/${videoId}`, privacyStatus: effectivePrivacy };
 }
 
@@ -425,6 +457,7 @@ export async function makeYoutubeVideoPublic(videoId: string): Promise<{ videoId
   if (!item?.id || item.status?.privacyStatus !== "public") {
     throw new Error("YouTube herkese açık durumunu doğrulamadı; video gizli kalmış olabilir.");
   }
+  invalidateYoutubeVideoListCache();
   return { videoId: item.id, url: `https://www.youtube.com/shorts/${item.id}`, privacyStatus: item.status.privacyStatus };
 }
 
@@ -535,5 +568,6 @@ export async function updateYoutubeVideoTags(videoId: string, tags: string[]): P
     );
   }
 
+  invalidateYoutubeVideoListCache();
   return { videoId, tags: verification.actual, verified: true };
 }
