@@ -1,4 +1,4 @@
-export type ModelProvider = "openrouter" | "groq" | "openai" | "gemini" | "claude" | "cerebras" | "ollama";
+export type ModelProvider = "modelscope" | "openrouter" | "groq" | "openai" | "gemini" | "claude" | "cerebras" | "ollama";
 
 export type ModelTurn = { role: "user" | "assistant"; content: string };
 
@@ -81,6 +81,33 @@ function historyForChat(request: ModelRequest) {
 
 function historyForOpenAI(request: ModelRequest) {
   return historyForChat(request);
+}
+
+async function callModelScope(request: ModelRequest): Promise<ModelResult> {
+  const key = process.env.MODELSCOPE_API_KEY;
+  if (!key) throw new Error("MODELSCOPE_API_KEY missing");
+
+  const baseUrl = (process.env.MODELSCOPE_BASE_URL || "https://api-inference.modelscope.cn/v1").replace(/\\/$/, "");
+  const model = process.env.MODELSCOPE_MODEL || "Qwen/Qwen3-235B-A22B-Instruct-2507";
+  const res = await fetchWithRetry(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: historyForOpenAI(request),
+      temperature: 0.7,
+    }),
+  });
+
+  if (!res.ok) throw new Error(`ModelScope ${model} ${res.status}: ${await readError(res)}`);
+
+  const data = await res.json();
+  const content = cleanText(data?.choices?.[0]?.message?.content);
+  if (!content) throw new Error("ModelScope returned empty content");
+  return { provider: "modelscope", model, content };
 }
 
 async function callOllama(request: ModelRequest): Promise<ModelResult> {
@@ -310,6 +337,7 @@ async function callCerebras(): Promise<ModelResult> {
 }
 
 const providers: Record<ModelProvider, (request: ModelRequest) => Promise<ModelResult>> = {
+  modelscope: callModelScope,
   openrouter: callOpenRouter,
   groq: callGroq,
   gemini: callGemini,
@@ -320,7 +348,7 @@ const providers: Record<ModelProvider, (request: ModelRequest) => Promise<ModelR
 };
 
 // Default priority: OpenRouter, then Groq, Gemini, and Ollama.
-const DEFAULT_PROVIDER_ORDER: ModelProvider[] = ["openrouter", "groq", "gemini", "ollama"];
+const DEFAULT_PROVIDER_ORDER: ModelProvider[] = ["modelscope", "openrouter", "groq", "gemini", "ollama"];
 const ALLOWED_PROVIDER_ORDER = new Set<ModelProvider>(DEFAULT_PROVIDER_ORDER);
 
 function getProviderOrder(): ModelProvider[] {
