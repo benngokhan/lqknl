@@ -435,8 +435,9 @@ export async function updateYoutubeVideoTags(videoId: string, tags: string[]): P
 
   if (!verification.matches) {
     const actual = verification.actual;
-    const missing = cleanTags.filter((tag) => !new Set(actual.map(normalize)).has(normalize(tag)));
-    const unexpected = actual.filter((tag) => !expected.has(normalize(tag)));
+    const actualSet = new Set<string>(actual.map((tag: string) => normalize(tag)));
+    const missing = cleanTags.filter((tag: string) => !actualSet.has(normalize(tag)));
+    const unexpected = actual.filter((tag: string) => !expected.has(normalize(tag)));
     throw new Error(
       "YouTube güncelleme isteğini kabul etti ancak yeniden okuma doğrulaması başarısız. " +
       "Beklenen etiket: " + cleanTags.length + ", okunan: " + actual.length +
