@@ -539,6 +539,82 @@ export async function POST(req: Request) {
       }
     }
 
+    // YouTube gerçek kanal/veri isteklerini sohbetten çalışan entegrasyona yönlendir.
+    // Salt bilgi/analiz istekleri yalnızca okuma yapar; etiket değişikliği otomatik uygulanmaz.
+    const youtubeTerms = /(?:youtube|you\s*tube|kanalım|kanalimin|kanalımdaki|videolarım|videolarımdaki|etiketlerim|etiketlerini)/iu.test(message);
+    const youtubeAction = /(?:listele|göster|oku|incele|analiz|kontrol|bağlantı|eriş|erişebiliyor|bak|öğren|durum|kaç\s+video|hangi\s+videolar|etiket)/iu.test(message);
+    const asksYoutubeTagAnalysis = youtubeTerms &&
+      /(?:etiket|tag|metadata)/iu.test(message) &&
+      /(?:analiz|incele|iyileştir|öner|kontrol|denetle|bak)/iu.test(message);
+    const asksYoutubeData = youtubeTerms && youtubeAction &&
+      /(?:kanal|video|etiket|bağlantı|eriş|durum|listele|göster|oku|analiz|incele)/iu.test(message);
+
+    if (asksYoutubeTagAnalysis || asksYoutubeData) {
+      try {
+        const base = selfOrigin();
+        const endpoint = `${base}/api/youtube/tags`;
+        const response = asksYoutubeTagAnalysis
+          ? await fetchWithTimeoutMs(endpoint, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+              },
+              body: JSON.stringify({ action: "analyze", limit: 30 }),
+              cache: "no-store",
+            }, VIDEO_TIMEOUT_MS)
+          : await fetchWithTimeoutMs(`${endpoint}?limit=40`, {
+              headers: cookieHeader ? { Cookie: cookieHeader } : {},
+              cache: "no-store",
+            }, VIDEO_TIMEOUT_MS);
+        const data = await response.json().catch(() => ({})) as {
+          ok?: boolean;
+          error?: string;
+          channelTitle?: string;
+          count?: number;
+          analyzedCount?: number;
+          videos?: Array<{ title?: string; currentTags?: string[]; url?: string; privacyStatus?: string }>;
+          report?: Array<{ title?: string; recommendedTags?: string[]; added?: string[]; removed?: string[]; reason?: string; url?: string }>;
+          note?: string;
+        };
+
+        if (!response.ok || data.ok === false) {
+          const reason = data.error || `HTTP ${response.status}`;
+          return NextResponse.json({
+            reply: `YouTube verisine erişemedim. Gerçek hata: ${reason}. Herhangi bir değişiklik yapılmadı.`,
+            emotion: "focused",
+          });
+        }
+
+        if (asksYoutubeTagAnalysis) {
+          const report = Array.isArray(data.report) ? data.report : [];
+          const summary = report.slice(0, 12).map((item, index) =>
+            `${index + 1}. ${item.title || "Başlıksız video"}\nMevcut etiketlere göre öneri: ${(item.recommendedTags || []).join(", ") || "öneri dönmedi"}\nEklenecek: ${(item.added || []).join(", ") || "yok"} | Çıkarılacak: ${(item.removed || []).join(", ") || "yok"}\nGerekçe: ${item.reason || "—"}`
+          ).join("\n\n");
+          return NextResponse.json({
+            reply: `YouTube kanalına bağlandım ve gerçek video verileriyle etiket analizini tamamladım.\nKanal: ${data.channelTitle || "bilinmiyor"}\nAnaliz edilen video: ${data.analyzedCount ?? report.length}\n\n${summary || "Analiz raporu boş döndü."}\n\n${data.note || "Bu yalnızca analizdir; YouTube etiketleri değiştirilmedi."}`,
+            emotion: "focused",
+          });
+        }
+
+        const videos = Array.isArray(data.videos) ? data.videos : [];
+        const summary = videos.slice(0, 20).map((video, index) =>
+          `${index + 1}. ${video.title || "Başlıksız video"}\nEtiketler: ${(video.currentTags || []).join(", ") || "etiket yok"}\nDurum: ${video.privacyStatus || "bilinmiyor"}\n${video.url || ""}`
+        ).join("\n\n");
+        return NextResponse.json({
+          reply: `YouTube API erişimi doğrulandı.\nKanal: ${data.channelTitle || "bilinmiyor"}\nOkunan video: ${data.count ?? videos.length}\n\n${summary || "Listelenecek video bulunamadı."}`,
+          emotion: "focused",
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.error("Mira chat YouTube dispatch failed:", error);
+        return NextResponse.json({
+          reply: `YouTube isteği sırasında bağlantı/servis hatası oluştu: ${reason.slice(0, 250)}. İşlem tamamlanmış sayılmadı.`,
+          emotion: "focused",
+        }, { status: 502 });
+      }
+    }
+
     // Son üretilen video hakkında soru: yanıtı model tahmininden değil, gerçek video varlığından oluştur.
     const asksLatestVideoDetails =
       /(?:en\s+son|son)(?:\s+ürettiğin|\s+üretilen|\s+hazırladığın|\s+hazırlanan)?[\s\S]{0,70}(?:video|mp4)|(?:video|mp4)[\s\S]{0,70}(?:en\s+son|son)(?:\s+ürettiğin|\s+üretilen|\s+hazırladığın|\s+hazırlanan)?/iu.test(message) &&
