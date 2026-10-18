@@ -2,18 +2,20 @@ name: Mira Drive-to-YouTube Schedule
 
 on:
   schedule:
-    # Europe/Istanbul (UTC+03): run 10 minutes before each publication slot.
+    # Europe/Istanbul (UTC+03): run 10 minutes before Shorts 12:30, 16:30, 20:30 and long-video 18:00 slots.
     - cron: "20 9 * * *"
-    - cron: "20 16 * * *"
+    - cron: "20 13 * * *"
+    - cron: "20 17 * * *"
     - cron: "50 14 * * *"
   workflow_dispatch:
     inputs:
       slot:
-        description: "shorts-noon, shorts-evening, or long"
+        description: "shorts-noon, shorts-afternoon, shorts-evening, or long"
         required: true
         type: choice
         options:
           - shorts-noon
+          - shorts-afternoon
           - shorts-evening
           - long
       mode:
@@ -47,7 +49,10 @@ jobs:
           if [[ "$EVENT_SCHEDULE" == "20 9 * * *" ]]; then
             echo "slot=shorts-noon" >> "$GITHUB_OUTPUT"
             echo "mode=scheduled" >> "$GITHUB_OUTPUT"
-          elif [[ "$EVENT_SCHEDULE" == "20 16 * * *" ]]; then
+          elif [[ "$EVENT_SCHEDULE" == "20 13 * * *" ]]; then
+            echo "slot=shorts-afternoon" >> "$GITHUB_OUTPUT"
+            echo "mode=scheduled" >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT_SCHEDULE" == "20 17 * * *" ]]; then
             echo "slot=shorts-evening" >> "$GITHUB_OUTPUT"
             echo "mode=scheduled" >> "$GITHUB_OUTPUT"
           elif [[ "$EVENT_SCHEDULE" == "50 14 * * *" ]]; then

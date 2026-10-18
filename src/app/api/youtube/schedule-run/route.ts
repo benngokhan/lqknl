@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-type Slot = "shorts-noon" | "shorts-evening" | "long";
+type Slot = "shorts-noon" | "shorts-afternoon" | "shorts-evening" | "long";
 type Mode = "scheduled" | "immediate";
 
 function authorized(req: Request) {
@@ -43,7 +43,7 @@ function daysFromStart(date: string) {
 }
 
 function slotTime(slot: Slot) {
-  return slot === "shorts-noon" ? "12:30" : slot === "shorts-evening" ? "19:30" : "18:00";
+  return slot === "shorts-noon" ? "12:30" : slot === "shorts-afternoon" ? "16:30" : slot === "shorts-evening" ? "20:30" : "18:00";
 }
 
 function filenameIndex(name: string, kind: "short" | "long") {
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const slot = body.slot as Slot;
   const mode = (body.mode === "immediate" ? "immediate" : "scheduled") as Mode;
-  if (!["shorts-noon", "shorts-evening", "long"].includes(slot)) {
+  if (!["shorts-noon", "shorts-afternoon", "shorts-evening", "long"].includes(slot)) {
     return NextResponse.json({ ok: false, error: "slot: shorts-noon, shorts-evening veya long olmalı." }, { status: 400 });
   }
   if (body.confirm !== true) return NextResponse.json({ ok: false, error: "İşlem için confirm=true gerekli." }, { status: 400 });
