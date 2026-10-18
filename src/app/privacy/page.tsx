@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
 export default function PrivacyPage() {
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12 text-white">
-      <a href="/" className="text-sm text-violet-300 underline">AI Mira ana sayfası</a>
+      <Link href="/" className="text-sm text-violet-300 underline">AI Mira ana sayfası</Link>
       <h1 className="mt-6 text-3xl font-bold">Gizlilik Politikası</h1>
       <p className="mt-2 text-sm text-white/60">Son güncelleme: 18 Ekim 2026</p>
 
@@ -28,7 +29,7 @@ export default function PrivacyPage() {
         </section>
         <section>
           <h2 className="text-xl font-semibold text-white">4. YouTube API Hizmetleri</h2>
-          <p>AI Mira, YouTube API Hizmetleri'ni kullanabilir. YouTube API üzerinden alınan verilerin kullanımı ve aktarımı, Google API Hizmetleri Kullanıcı Verileri Politikası ve YouTube Hizmet Şartları dahil ilgili koşullara tabidir. Kullanıcı, Google güvenlik ayarlarından AI Mira'nın Google hesabına erişim iznini istediği zaman inceleyebilir veya kaldırabilir: <a className="text-violet-300 underline" href="https://myaccount.google.com/permissions">Google Hesabı izinleri</a>.</p>
+          <p>AI Mira, YouTube API Hizmetleri&apos;ni kullanabilir. YouTube API üzerinden alınan verilerin kullanımı ve aktarımı, Google API Hizmetleri Kullanıcı Verileri Politikası ve YouTube Hizmet Şartları dahil ilgili koşullara tabidir. Kullanıcı, Google güvenlik ayarlarından AI Mira&apos;nın Google hesabına erişim iznini istediği zaman inceleyebilir veya kaldırabilir: <a className="text-violet-300 underline" href="https://myaccount.google.com/permissions">Google Hesabı izinleri</a>.</p>
         </section>
         <section>
           <h2 className="text-xl font-semibold text-white">5. Paylaşım ve satış</h2>
@@ -40,7 +41,7 @@ export default function PrivacyPage() {
         </section>
         <section>
           <h2 className="text-xl font-semibold text-white">7. Kullanıcının tercihleri</h2>
-          <p>Kullanıcı, Google Hesabı izinleri sayfasından AI Mira'nın Google/YouTube erişimini kaldırabilir. Erişim kaldırıldığında YouTube hesabına bağlı özellikler yeniden yetkilendirme yapılana kadar çalışmayabilir. Kişisel bilgiyle ilgili bir talep için uygulama yöneticisiyle AI Mira'nın işletim kanalı üzerinden iletişim kurulmalıdır.</p>
+          <p>Kullanıcı, Google Hesabı izinleri sayfasından AI Mira&apos;nın Google/YouTube erişimini kaldırabilir. Erişim kaldırıldığında YouTube hesabına bağlı özellikler yeniden yetkilendirme yapılana kadar çalışmayabilir. Kişisel bilgiyle ilgili bir talep için uygulama yöneticisiyle AI Mira&apos;nın işletim kanalı üzerinden iletişim kurulmalıdır.</p>
         </section>
         <section>
           <h2 className="text-xl font-semibold text-white">8. Çocukların gizliliği</h2>

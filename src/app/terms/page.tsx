@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -55,7 +56,7 @@ const sections = [
 export default function TermsPage() {
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12 text-white">
-      <a href="/" className="text-sm text-violet-300 underline">AI Mira home page</a>
+      <Link href="/" className="text-sm text-violet-300 underline">AI Mira home page</Link>
       <h1 className="mt-6 text-3xl font-bold">Terms of Service</h1>
       <p className="mt-3 text-sm text-slate-400">Effective date: October 18, 2026</p>
       <p className="mt-6 text-slate-200 leading-7">
@@ -70,7 +71,7 @@ export default function TermsPage() {
           <p className="mt-2 leading-7 text-slate-200">{section.body}</p>
           {section.title === "7. Privacy" && (
             <p className="mt-2 leading-7">
-              <a href="/privacy" className="text-violet-300 underline">Read the AI Mira Privacy Policy</a>.
+              <Link href="/privacy" className="text-violet-300 underline">Read the AI Mira Privacy Policy</Link>.
             </p>
           )}
         </section>

@@ -436,20 +436,39 @@ export default function Home() {
   }
 
   async function pollManualScriptProgress(contentId: number, title: string) {
-    const deadline = Date.now() + 5 * 60 * 1000;
-    while (Date.now() < deadline) {
+    // Süre sınırı yok: uzun kaynak kontrolü/LLM/render adımları sürerken canlı akış kapanmasın.
+    // Başarı durumu 5 saniye değişmeden kalırsa terminal kabul edilir; arada yeni aşama gelirse izlemeye devam edilir.
+    let lastSignature = '';
+    let terminalSince: number | null = null;
+    while (true) {
       try {
         const res = await fetch('/api/automation/produce-events?contentId=' + contentId, { cache: 'no-store' });
+        if (!res.ok) throw new Error('İlerleme API HTTP ' + res.status);
         const data = await res.json().catch(() => null);
         const events = Array.isArray(data?.events) ? data.events as VideoProgressEvent[] : [];
-        const manualEvents = events.filter((event) => event.stage && !event.stage.toLowerCase().includes('video üretimi'));
-        const latest = manualEvents[manualEvents.length - 1];
-        setManualScriptProgress({ contentId, title, events: manualEvents, status: latest?.status || 'running' });
-        if (latest && (latest.status === 'success' || latest.status === 'failed')) return;
-      } catch { /* Geçici polling hatası sonraki turda yeniden denenir. */ }
-      await new Promise((resolve) => setTimeout(resolve, 1200));
+        const latest = events[events.length - 1];
+        setManualScriptProgress({ contentId, title, events, status: latest?.status || 'running' });
+        const terminal = Boolean(latest && (
+          latest.status === 'failed' ||
+          (latest.status === 'success' && /senaryo hazır|video hazır|üretim tamamlandı/i.test(latest.stage))
+        ));
+        const signature = latest ? String(latest.id) + ':' + latest.status + ':' + latest.stage : '';
+        if (terminal) {
+          if (signature !== lastSignature) {
+            lastSignature = signature;
+            terminalSince = Date.now();
+          } else if (terminalSince !== null && Date.now() - terminalSince >= 5000) {
+            return;
+          }
+        } else {
+          lastSignature = signature;
+          terminalSince = null;
+        }
+      } catch {
+        // Geçici ağ/API hatasında akış kapanmaz; sonraki turda yeniden denenir.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 900));
     }
-    setManualTopicResult('Konu #' + contentId + ' için bekleme süresi aşıldı. Kuyruğu yenileyerek gerçek durumu kontrol et.');
   }
 
   async function addManualTopic() {
