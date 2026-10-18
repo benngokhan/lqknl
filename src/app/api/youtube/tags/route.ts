@@ -81,15 +81,38 @@ export async function POST(req: Request) {
       }));
       if (!source.length) return NextResponse.json({ ok: true, channelTitle: channel.channelTitle, count: 0, report: [] });
 
-      const result = await generateWithFallback({
-        system: "Sen Bilgi Dozu YouTube kanalı için metadata denetçisisin. Yalnızca verilen başlık, açıklama ve mevcut etiketleri kullan. Konuyla doğrudan ilgili, doğru ve doğal Türkçe/ilgili dilde etiketler öner. Uydurma iddia ekleme. En fazla 15 etiket öner; tekrarları ve alakasız/genel etiketleri çıkar. Yalnızca geçerli JSON döndür.",
-        history: [],
-        message: "Aşağıdaki videoları incele. Her video için yalnızca şu şemada JSON dizisi döndür: [{\"videoId\":\"...\",\"recommendedTags\":[\"...\"],\"reason\":\"kısa gerekçe\"}]. Video kimliklerini aynen koru. Öneriler mevcut etiketlerden daha iyi değilse uygun mevcut etiketleri koru.\n" + JSON.stringify(source),
-      });
-
-      const raw = result.content.trim().replace(/^\u0060\u0060\u0060(?:json)?\s*/i, "").replace(/\s*\u0060\u0060\u0060$/, "");
-      const parsed = JSON.parse(raw) as Array<{ videoId?: unknown; recommendedTags?: unknown; reason?: unknown }>;
-      if (!Array.isArray(parsed)) throw new Error("Model yanıtı JSON dizisi değil.");
+      const parsedItems: Array<{ videoId?: unknown; recommendedTags?: unknown; reason?: unknown }> = [];
+      // Büyük tek parça JSON yanıtları kesilebildiğinden videoları küçük gruplar halinde analiz et.
+      for (let offset = 0; offset < source.length; offset += 5) {
+        const batch = source.slice(offset, offset + 5);
+        const prompt = (items: typeof source, retry = false) =>
+          (retry
+            ? "Önceki JSON yanıtı bozuk veya kesilmişti. Yalnızca geçerli, tek satırlık JSON dizisi üret. Açıklama alanını kısa tut; video kimliklerini aynen koru."
+            : "Aşağıdaki videoları incele. Yalnızca JSON dizisi döndür; her nesnede videoId, recommendedTags (dizi) ve reason (en fazla 120 karakter) alanları olsun. Video kimliklerini aynen koru. Öneriler mevcut etiketlerden daha iyi değilse uygun mevcut etiketleri koru.") +
+          "\n" + JSON.stringify(items);
+        let parsedBatch: unknown;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const result = await generateWithFallback({
+            system: "Sen Bilgi Dozu YouTube kanalı için metadata denetçisisin. Yalnızca verilen başlık, açıklama ve mevcut etiketleri kullan. Konuyla doğrudan ilgili, doğru ve doğal Türkçe/ilgili dilde etiketler öner. Uydurma iddia ekleme. En fazla 15 etiket öner; tekrarları ve alakasız/genel etiketleri çıkar. Yalnızca geçerli JSON döndür; satır sonlarını ve tırnakları JSON kurallarına uygun kaçır.",
+            history: [],
+            message: prompt(batch, attempt > 0),
+          });
+          const raw = result.content.trim()
+            .replace(/^\u0060\u0060\u0060(?:json)?\s*/i, "")
+            .replace(/\s*\u0060\u0060\u0060$/, "");
+          try {
+            parsedBatch = JSON.parse(raw);
+            if (!Array.isArray(parsedBatch)) throw new Error("Model yanıtı JSON dizisi değil.");
+            break;
+          } catch (error) {
+          }
+        }
+        if (!Array.isArray(parsedBatch)) {
+          throw new Error(`Model geçerli JSON üretemedi (videolar ${offset + 1}-${Math.min(offset + batch.length, source.length)}). Etiketler değiştirilmedi.`);
+        }
+        parsedItems.push(...parsedBatch as Array<{ videoId?: unknown; recommendedTags?: unknown; reason?: unknown }>);
+      }
+      const parsed = parsedItems;
       const byId = new Map(channel.videos.map((video) => [video.videoId, video]));
       const report = parsed.flatMap((item) => {
         if (typeof item.videoId !== "string" || !byId.has(item.videoId) || !Array.isArray(item.recommendedTags)) return [];
