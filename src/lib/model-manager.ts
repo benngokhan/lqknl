@@ -319,9 +319,9 @@ const providers: Record<ModelProvider, (request: ModelRequest) => Promise<ModelR
   cerebras: callCerebras,
 };
 
-// Provider priority requested for Mira: OpenRouter first, Groq second, then Gemini and Ollama backups.
-const DEFAULT_PROVIDER_ORDER: ModelProvider[] = ["groq", "openrouter", "gemini", "ollama"];
-const ALLOWED_PROVIDER_ORDER = new Set<ModelProvider>(["openrouter", "groq", "gemini", "ollama"]);
+// Default priority: OpenRouter, then Groq, Gemini, and Ollama.
+const DEFAULT_PROVIDER_ORDER: ModelProvider[] = ["openrouter", "groq", "gemini", "ollama"];
+const ALLOWED_PROVIDER_ORDER = new Set<ModelProvider>(DEFAULT_PROVIDER_ORDER);
 
 function getProviderOrder(): ModelProvider[] {
   const configured = (process.env.MODEL_PROVIDER_ORDER || "")
@@ -329,9 +329,8 @@ function getProviderOrder(): ModelProvider[] {
     .map((value) => value.trim().toLowerCase())
     .filter((value): value is ModelProvider => ALLOWED_PROVIDER_ORDER.has(value as ModelProvider));
 
-  // Keep the requested priority fixed: Groq first, OpenRouter second.
-  // Remaining providers are backups if the first two fail.
-  return DEFAULT_PROVIDER_ORDER;
+  // Respect the configured order, then append any missing providers as fallbacks.
+  return [...new Set([...configured, ...DEFAULT_PROVIDER_ORDER])];
 }
 
 export async function generateWithFallback(request: ModelRequest): Promise<ModelResult> {
