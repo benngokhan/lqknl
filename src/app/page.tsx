@@ -906,7 +906,7 @@ export default function Home() {
   };
 
   const appendChatActivity = (message: string, status: 'running' | 'success' | 'error') => {
-    setChatActivity((current) => [...current, { id: ++chatActivitySequence.current, message, status, createdAt: new Date().toISOString() }].slice(-3));
+    setChatActivity((current) => [...current, { id: ++chatActivitySequence.current, message, status, createdAt: new Date().toISOString() }]);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
