@@ -35,6 +35,7 @@ export async function POST(req: Request) {
   const requestedDescription = typeof body.description === "string" ? body.description.trim() : "";
   const requestedTags = Array.isArray(body.tags) ? body.tags.filter((tag): tag is string => typeof tag === "string").map((tag) => tag.trim()).filter(Boolean).slice(0, 30) : undefined;
   const requestedComment = typeof body.comment === "string" ? body.comment.trim() : undefined;
+  const publishNow = body.publishNow === true;
   const publishAt = typeof body.publishAt === "string" ? body.publishAt.trim() : "";
 
   if (!/^(?:video_\d+|uzun_video_\d+)\.mp4$/i.test(fileName)) {
@@ -42,10 +43,13 @@ export async function POST(req: Request) {
   }
   if (requestedTitle.length > 100) return NextResponse.json({ ok: false, error: "YouTube başlığı 100 karakteri aşamaz." }, { status: 400 });
   if (requestedDescription.length > 4900) return NextResponse.json({ ok: false, error: "Açıklama 4.900 karakteri aşamaz." }, { status: 400 });
-  if (!publishAt) return NextResponse.json({ ok: false, error: "Planlı yayın için publishAt ISO tarih-saat bilgisi gerekli." }, { status: 400 });
-  const scheduledDate = new Date(publishAt);
-  if (!Number.isFinite(scheduledDate.getTime()) || scheduledDate.getTime() <= Date.now() + 60_000) {
-    return NextResponse.json({ ok: false, error: "publishAt geçerli ve en az 1 dakika ileride olmalı." }, { status: 400 });
+  let scheduledDate = new Date();
+  if (!publishNow) {
+    if (!publishAt) return NextResponse.json({ ok: false, error: "Planlı yayın için publishAt ISO tarih-saat bilgisi gerekli. Hemen yayımlamak için publishNow=true gönder." }, { status: 400 });
+    scheduledDate = new Date(publishAt);
+    if (!Number.isFinite(scheduledDate.getTime()) || scheduledDate.getTime() <= Date.now() + 60_000) {
+      return NextResponse.json({ ok: false, error: "publishAt geçerli ve en az 1 dakika ileride olmalı." }, { status: 400 });
+    }
   }
 
   const config = youtubeStatus();
@@ -101,36 +105,43 @@ export async function POST(req: Request) {
     const [existingJob] = await db.select().from(youtubeUploadJobs)
       .where(eq(youtubeUploadJobs.driveFileId, file.id)).limit(1);
 
+    // A job/session created for scheduled mode must never be reused for immediate-public mode (or vice versa).
+    const existingSavedMetadata = existingJob?.metadata && typeof existingJob.metadata === "object"
+      ? existingJob.metadata as Record<string, unknown>
+      : {};
+    const existingPublishNow = existingSavedMetadata.publishNow === true;
+    if (existingJob && existingPublishNow !== publishNow) {
+      return NextResponse.json({ ok: false, needsReview: true, error: "Bu Drive dosyasının kayıtlı işi farklı bir yayın modunda. Yinelenen yüklemeyi önlemek için otomatik geçiş durduruldu; önce mevcut YouTube/iş durumu kontrol edilmeli." }, { status: 409 });
+    }
+
     // If a resumable session already exists, its initial metadata is immutable.
     // Reuse the exact metadata and schedule saved with that session, not a changed request body.
     let effectiveScheduledDate = scheduledDate;
     if (existingJob?.uploadSessionUrl) {
-      const saved = existingJob.metadata && typeof existingJob.metadata === "object"
-        ? existingJob.metadata as Record<string, unknown>
-        : {};
+      const saved = existingSavedMetadata;
       title = existingJob.title;
       if (typeof saved.description === "string") description = saved.description;
       if (Array.isArray(saved.tags)) tags = saved.tags.filter((tag): tag is string => typeof tag === "string");
       if (typeof saved.comment === "string") comment = saved.comment;
-      if (existingJob.publishAt) effectiveScheduledDate = existingJob.publishAt;
+      if (!publishNow && existingJob.publishAt) effectiveScheduledDate = existingJob.publishAt;
     }
 
     const candidate = normalizedTitle(title);
     const existing = channel.videos.find((video) => normalizedTitle(video.title) === candidate);
 
-    const successResponse = (videoId: string, url: string, reconciled = false, publishAtValue: Date = effectiveScheduledDate) => NextResponse.json({
+    const successResponse = (videoId: string, url: string, reconciled = false, publishAtValue: Date | null = (publishNow ? null : effectiveScheduledDate)) => NextResponse.json({
       ok: true,
       uploaded: false,
       alreadyUploaded: true,
       duplicate: true,
       reconciled,
       verified: true,
-      scheduled: true,
+      scheduled: !publishNow,
       fileName,
       videoId,
       url,
-      privacyStatus: "private",
-      publishAt: publishAtValue.toISOString(),
+      privacyStatus: publishNow ? "public" : "private",
+      publishAt: publishAtValue?.toISOString() ?? null,
       note: reconciled
         ? "Önceki yükleme yanıtı kaybolmuş olabilir; mevcut YouTube videosu Drive dosyasının işiyle eşleştirildi."
         : "Bu Drive dosyası daha önce başarıyla yüklenmiş.",
@@ -138,7 +149,7 @@ export async function POST(req: Request) {
 
     if (existingJob?.status === "completed") {
       if (existingJob.youtubeVideoId && existingJob.youtubeUrl) {
-        return successResponse(existingJob.youtubeVideoId, existingJob.youtubeUrl, false, existingJob.publishAt || effectiveScheduledDate);
+        return successResponse(existingJob.youtubeVideoId, existingJob.youtubeUrl, false, publishNow ? null : (existingJob.publishAt || effectiveScheduledDate));
       }
       return NextResponse.json({
         ok: false,
@@ -155,8 +166,8 @@ export async function POST(req: Request) {
             title,
             description,
             tags,
-            privacyStatus: "private",
-            publishAt: effectiveScheduledDate.toISOString(),
+            privacyStatus: publishNow ? "public" : "private",
+            ...(publishNow ? {} : { publishAt: effectiveScheduledDate.toISOString() }),
           });
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
@@ -177,7 +188,7 @@ export async function POST(req: Request) {
           updatedAt: now,
           completedAt: existingJob.completedAt || now,
         }).where(eq(youtubeUploadJobs.id, existingJob.id));
-        return successResponse(existing.videoId, existing.url, true, existingJob.publishAt || effectiveScheduledDate);
+        return successResponse(existing.videoId, existing.url, true, publishNow ? null : (existingJob.publishAt || effectiveScheduledDate));
       }
       return NextResponse.json({
         ok: false,
@@ -246,11 +257,11 @@ export async function POST(req: Request) {
       const [claimed] = await db.update(youtubeUploadJobs).set({
         status: "uploading",
         title,
-        publishAt: effectiveScheduledDate,
+        publishAt: publishNow ? null : effectiveScheduledDate,
         attempts: existingJob.attempts + 1,
         leaseUntil,
         lastError: null,
-        metadata: { tags, description, comment, hasComment: Boolean(comment), contentHash, fileSize: actualBytes, modifiedTime: file.modifiedTime || null, source: "google_drive" },
+        metadata: { tags, description, comment, hasComment: Boolean(comment), publishNow, contentHash, fileSize: actualBytes, modifiedTime: file.modifiedTime || null, source: "google_drive" },
         updatedAt: now,
       }).where(and(
         eq(youtubeUploadJobs.id, existingJob.id),
@@ -274,9 +285,9 @@ export async function POST(req: Request) {
         title,
         status: "uploading",
         attempts: 1,
-        publishAt: effectiveScheduledDate,
+        publishAt: publishNow ? null : effectiveScheduledDate,
         leaseUntil,
-        metadata: { tags, description, comment, hasComment: Boolean(comment), contentHash, fileSize: actualBytes, modifiedTime: file.modifiedTime || null, source: "google_drive" },
+        metadata: { tags, description, comment, hasComment: Boolean(comment), publishNow, contentHash, fileSize: actualBytes, modifiedTime: file.modifiedTime || null, source: "google_drive" },
         createdAt: now,
         updatedAt: now,
       }).onConflictDoNothing({ target: youtubeUploadJobs.driveFileId }).returning();
@@ -291,8 +302,8 @@ export async function POST(req: Request) {
       title,
       description,
       tags,
-      privacyStatus: "private",
-      publishAt: effectiveScheduledDate.toISOString(),
+      privacyStatus: publishNow ? "public" : "private",
+      ...(!publishNow ? { publishAt: effectiveScheduledDate.toISOString() } : {}),
       video: downloaded.data,
       ...(uploadSessionUrl ? { uploadSessionUrl } : {}),
       onUploadSession: async (sessionUrl) => {
@@ -310,8 +321,8 @@ export async function POST(req: Request) {
       title,
       description,
       tags,
-      privacyStatus: "private",
-      publishAt: effectiveScheduledDate.toISOString(),
+      privacyStatus: publishNow ? "public" : "private",
+      ...(publishNow ? {} : { publishAt: effectiveScheduledDate.toISOString() }),
     });
 
     if (activeJobId !== null) {
@@ -337,7 +348,7 @@ export async function POST(req: Request) {
         commentResult = { added: true, commentId: result.commentId };
         // Notify only after YouTube confirms that the comment was actually created.
         const notice = await sendTelegramMessage(
-          `💬 Yorum atıldı, lütfen sabitle.\n\nVideo: ${title}\nDosya: ${fileName}\nYayın zamanı: ${effectiveScheduledDate.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}\nYouTube: ${uploaded.url}\n\nYorum metni:\n${comment}`,
+          `💬 Yorum atıldı, lütfen sabitle.\n\nVideo: ${title}\nDosya: ${fileName}\nYayın durumu: ${publishNow ? "hemen herkese açık" : effectiveScheduledDate.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}\nYouTube: ${uploaded.url}\n\nYorum metni:\n${comment}`,
         );
         telegramNotification = notice.sent
           ? { sent: true }
@@ -345,7 +356,7 @@ export async function POST(req: Request) {
       } catch (error) {
         commentResult = { added: false, error: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300) };
         const notice = await sendTelegramMessage(
-          `⚠️ Video yüklendi ve planlandı ancak otomatik yorum atılamadı.\n\nVideo: ${title}\nDosya: ${fileName}\nYouTube: ${uploaded.url}\nHata: ${commentResult.error || "Bilinmeyen hata"}`,
+          `⚠️ Video yüklendi${publishNow ? " ve herkese açık yayımlandı" : " ve planlandı"} ancak otomatik yorum atılamadı.\n\nVideo: ${title}\nDosya: ${fileName}\nYouTube: ${uploaded.url}\nHata: ${commentResult.error || "Bilinmeyen hata"}`,
         );
         telegramNotification = notice.sent
           ? { sent: true }
@@ -353,7 +364,7 @@ export async function POST(req: Request) {
       }
     } else {
       const notice = await sendTelegramMessage(
-        `⚠️ Video yüklendi ve planlandı ancak baslik.xlsx içinde yorum metni bulunamadı.\n\nVideo: ${title}\nDosya: ${fileName}\nYouTube: ${uploaded.url}`,
+        `⚠️ Video ${publishNow ? "herkese açık yayımlandı" : "yüklendi ve planlandı"} ancak baslik.xlsx içinde yorum metni bulunamadı.\n\nVideo: ${title}\nDosya: ${fileName}\nYouTube: ${uploaded.url}`,
       );
       telegramNotification = notice.sent
         ? { sent: true }
@@ -364,17 +375,17 @@ export async function POST(req: Request) {
       ok: true,
       uploaded: true,
       verified: true,
-      scheduled: true,
+      scheduled: !publishNow,
       fileName,
       videoId: uploaded.videoId,
       url: uploaded.url,
       privacyStatus: uploaded.privacyStatus,
-      publishAt: effectiveScheduledDate.toISOString(),
+      publishAt: publishNow ? null : effectiveScheduledDate.toISOString(),
       comment: commentResult,
       telegramNotification,
       pinned: false,
       pinNote: "YouTube Data API yorum sabitlemeyi desteklemiyor; sabitleme YouTube Studio'dan yapılmalı.",
-      note: "Yalnızca planlandı. Videonun yayınlandığı veya yorumun sabitlendiği iddia edilmiyor.",
+      note: publishNow ? "Video herkese açık olarak yüklendi ve yayın durumu doğrulandı. Yorum sabitleme YouTube Studio üzerinden yapılmalı." : "Yalnızca planlandı. Videonun yayınlandığı veya yorumun sabitlendiği iddia edilmiyor.",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Bilinmeyen YouTube yükleme hatası";
