@@ -606,3 +606,23 @@ export async function updateYoutubeVideoTags(videoId: string, tags: string[]): P
   invalidateYoutubeVideoListCache();
   return { videoId, tags: verification.actual, verified: true };
 }
+
+
+/** Check whether a video has at least one top-level comment. API errors are thrown, never treated as zero comments. */
+export async function hasYoutubeComments(videoId: string): Promise<boolean> {
+  if (!/^[a-zA-Z0-9_-]{6,20}$/.test(videoId)) throw new Error("Geçersiz YouTube video ID");
+  const accessToken = await freshAccessToken();
+  const params = new URLSearchParams({ part: "id", videoId, maxResults: "1" });
+  const response = await fetch("https://www.googleapis.com/youtube/v3/commentThreads?" + params.toString(), {
+    headers: { Authorization: "Bearer " + accessToken },
+    signal: AbortSignal.timeout(15_000),
+    cache: "no-store",
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const reason = data?.error?.errors?.[0]?.reason;
+    if (reason === "commentsDisabled") throw new Error("Yorumlar bu videoda kapalı.");
+    throw new Error("YouTube yorumları okunamadı HTTP " + response.status + ": " + String(data?.error?.message || "API hatası").slice(0, 250));
+  }
+  return Array.isArray(data?.items) && data.items.length > 0;
+}
