@@ -85,7 +85,7 @@ export async function POST(req: Request) {
         });
         const comment = generated.content.trim().replace(/^["'“”]+|["'“”]+$/g, "").slice(0, 1000);
         if (!comment || comment.length < 8) throw new Error("Mira geçerli bir yorum üretemedi.");
-        const result = await addYoutubeComment(video.videoId, comment);
+        await addYoutubeComment(video.videoId, comment);
         added.push({ videoId: video.videoId, title: video.title, url: "https://www.youtube.com/watch?v=" + video.videoId, comment });
       } catch (error) {
         failures.push({ videoId: video.videoId, title: video.title, error: error instanceof Error ? error.message.slice(0, 250) : String(error).slice(0, 250) });
