@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useSpeaker } from '@/components/useSpeaker';
 
+type IntegrationStatus = { status: "online" | "offline" | "unknown"; detail: string };
+interface IntegrationHealth { checkedAt: string; drive: IntegrationStatus; youtube: IntegrationStatus }
+
 interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -199,6 +202,8 @@ function renderAnalysisReport(report: string | null | undefined): ReactNode[] {
 
 export default function Home() {
   const [entered, setEntered] = useState(false);
+  const [integrationHealth, setIntegrationHealth] = useState<IntegrationHealth | null>(null);
+  const [integrationHealthError, setIntegrationHealthError] = useState(false);
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -825,6 +830,27 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!entered) return;
+    let active = true;
+    const check = async () => {
+      try {
+        const response = await fetch("/api/integrations/status", { cache: "no-store" });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.ok) throw new Error("Durum alınamadı");
+        if (active) {
+          setIntegrationHealth(data as IntegrationHealth);
+          setIntegrationHealthError(false);
+        }
+      } catch {
+        if (active) setIntegrationHealthError(true);
+      }
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [entered]);
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, loading]);
 
@@ -1102,8 +1128,24 @@ export default function Home() {
 
   return (
     <main className="flex flex-col h-[100dvh] max-w-4xl mx-auto p-3 sm:p-4 bg-slate-900 text-white relative overflow-hidden">
-      <header className="shrink-0 py-3 sm:py-4 border-b border-slate-700 flex justify-between items-center">
-        <h1 className="text-xl font-bold">Asistan Mira</h1>
+      <header className="shrink-0 py-3 sm:py-4 border-b border-slate-700 flex justify-between items-center gap-2">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold">Asistan Mira</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] sm:text-[11px]" aria-label="Google Drive ve YouTube bağlantı durumları">
+            {([
+              ["Google Drive", integrationHealth?.drive],
+              ["YouTube", integrationHealth?.youtube],
+            ] as const).map(([label, item]) => {
+              const state = integrationHealthError ? "unknown" : item?.status ?? "unknown";
+              const dot = state === "online" ? "bg-emerald-400" : state === "offline" ? "bg-red-500" : "bg-amber-400";
+              const text = state === "online" ? "Online" : state === "offline" ? "Offline" : "Kontrol ediliyor";
+              return <span key={label} className="inline-flex items-center gap-1 text-slate-300" title={item?.detail || (integrationHealthError ? "Durum servisine ulaşılamadı" : "Bağlantı kontrol ediliyor")}>
+                <span className={`inline-block h-2 w-2 rounded-full ${dot}`} />
+                {label} <span className={state === "online" ? "text-emerald-300" : state === "offline" ? "text-red-300" : "text-amber-300"}>{text}</span>
+              </span>;
+            })}
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           {voiceError && (
             <span className="text-[11px] text-amber-300/90" role="alert">
