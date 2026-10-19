@@ -65,7 +65,7 @@ jobs:
 
       - name: Call authenticated Mira scheduler
         env:
-          MIRA_BASE_URL: https://aimira.up.railway.app
+          MIRA_BASE_URL: https://qkn0.up.railway.app
           MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
           SLOT: ${{ steps.slot.outputs.slot }}
           MODE: ${{ steps.slot.outputs.mode }}
