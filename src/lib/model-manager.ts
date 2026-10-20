@@ -40,9 +40,9 @@ const configuredTimeout = Number(process.env.MODEL_TIMEOUT_MS);
 const PROVIDER_TIMEOUT_MS =
   Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 24000;
 
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = PROVIDER_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(input, { ...init, signal: controller.signal });
   } finally {
@@ -138,10 +138,12 @@ async function callGemini(request: ModelRequest): Promise<ModelResult> {
   if (!key) throw new Error("GEMINI_API_KEY missing");
 
   const configuredModel = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+  // Try the configured model first, then faster Flash-Lite and stable fallbacks.
   const modelOrder = [...new Set([
     configuredModel,
-    "gemini-3.6-flash",
     "gemini-3.5-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3.8-flash",
   ])];
   const contents = [
     ...recentHistory(request.history).map((turn) => ({
@@ -155,7 +157,8 @@ async function callGemini(request: ModelRequest): Promise<ModelResult> {
   for (const model of modelOrder) {
     try {
       const url = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent?key=" + encodeURIComponent(key);
-      const res = await fetchWithRetry(url, {
+      // On 503/overload, try the next model instead of retrying the same model.
+      const res = await fetchWithTimeout(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -163,7 +166,7 @@ async function callGemini(request: ModelRequest): Promise<ModelResult> {
           contents,
           generationConfig: { temperature: 0.7 },
         }),
-      });
+      }, 6500);
 
       if (!res.ok) {
         const detail = "Gemini " + model + " " + res.status + ": " + await readError(res);
