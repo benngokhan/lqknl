@@ -3,8 +3,8 @@ const slot = "shorts-noon" as const;
 const mode = "immediate" as const;
 const dryRun = false;
 
-const baseUrl = (Bun.env.MIRA_BASE_URL || "https://qkn0.up.railway.app").replace(/\/$/, "");
-const secret = Bun.env.MIRA_AUTOMATION_SECRET;
+const baseUrl = (process.env.MIRA_BASE_URL || "https://qkn0.up.railway.app").replace(/\/$/, "");
+const secret = process.env.MIRA_AUTOMATION_SECRET;
 if (!secret) throw new Error("MIRA_AUTOMATION_SECRET is not configured");
 
 console.log(JSON.stringify({
@@ -32,8 +32,8 @@ console.log(JSON.stringify({
   status: response.status,
   body: raw,
 }));
-let result: any = null;
-try { result = JSON.parse(raw); } catch {}
+let result: { ok?: boolean } | null = null;
+try { result = JSON.parse(raw) as { ok?: boolean }; } catch {}
 if (!response.ok || result?.ok !== true) {
   throw new Error(`Mira endpoint failed: HTTP ${response.status}`);
 }
