@@ -1177,26 +1177,7 @@ export default function Home() {
               {voiceError}
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => setShowWorkspacePanels((open) => !open)}
-            aria-expanded={showWorkspacePanels}
-            className="text-xs bg-slate-800 text-slate-200 border border-slate-600 px-3 py-2 rounded-lg hover:bg-slate-700"
-          >
-            {showWorkspacePanels ? 'Panelleri Gizle' : 'Araçlar'}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const nextOpen = !taskCenterOpen;
-              setTaskCenterOpen(nextOpen);
-              if (nextOpen) void loadManagedDrafts();
-            }}
-            aria-expanded={taskCenterOpen}
-            className="text-xs bg-blue-600/30 text-blue-300 border border-blue-500/40 px-3 py-2 rounded-lg hover:bg-blue-600/50"
-          >
-            {taskCenterOpen ? 'Görev Merkezi ▴' : 'Görev Merkezi'}
-          </button>
+          {/* Araçlar ve Görev Merkezi panelleri kullanılmadığı için arayüzden gizlendi. */}
         </div>
       </header>
 
@@ -1230,7 +1211,7 @@ export default function Home() {
           )}
           <p className="text-[10px] text-slate-500">Son yayın YouTube kanalından okunur; planlanan video ayrı gösterilir.</p>
         </section>
-        {taskCenterOpen && (
+        {false && taskCenterOpen && (
           <section className="rounded-xl border border-sky-400/40 bg-slate-800/95 p-3 sm:p-4 space-y-3" aria-label="Görev Merkezi taslak yönetimi">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -1342,7 +1323,7 @@ export default function Home() {
             <p className="text-[11px] text-slate-500">“Sil ve yok et” geri alınamaz; taslak, senaryo, ilişkili medya ve başlık izleri temizlenir. Sistem yalnızca başlığı saklamayan tek yönlü bir eşleşme özeti tutarak aynı konunun yeniden üretilmesini engeller. Liste veritabanındaki son 500 içerik kaydını gösterir.</p>
           </section>
         )}
-        {showWorkspacePanels && (
+        {false && showWorkspacePanels && (
           <>
         <section className="rounded-xl border border-violet-500/30 bg-slate-800/80 p-3">
           <div className="hidden">
