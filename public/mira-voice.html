@@ -22,6 +22,11 @@ header{position:sticky;top:0;z-index:2;background:var(--paper);display:flex;alig
 .ticker:hover .track{animation-play-state:paused}
 @keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @media(prefers-reduced-motion:reduce){.ticker .track{animation:none}}
+.system-panel{width:min(100% - 36px,900px);margin:14px auto 0;padding:16px;background:var(--card);border:1px solid var(--line);border-radius:16px}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.panel-head h2{font-family:'Fraunces',Georgia,serif;font-size:21px;margin:0 0 4px}.panel-head p{font-size:12px;color:var(--muted);margin:0}.refresh{border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:10px;padding:9px 12px;font:inherit;font-size:12px;cursor:pointer}
+.status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.status-card,.activity-card{min-width:0;border:1px solid var(--line);border-radius:12px;padding:12px;background:#fffefa}.card-label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}.status-card strong{display:block;font-size:14px;margin-bottom:5px;overflow-wrap:anywhere}.status-card small{display:block;font-size:11px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
+.activity-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.activity-card h3{font-size:14px;margin:0 0 12px}.activity-card p{font-size:12px;line-height:1.5;margin:10px 0;overflow-wrap:anywhere}.activity-card a{display:block;color:var(--clay);font-weight:600;overflow-wrap:anywhere;margin-bottom:4px}.activity-card ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}.activity-card li{font-size:12px;line-height:1.45;border-bottom:1px solid var(--line);padding-bottom:8px;overflow-wrap:anywhere}.activity-card li:last-child{border-bottom:0;padding-bottom:0}.activity-meta{display:block;color:var(--muted);font-size:10px;margin-bottom:3px}.panel-note{font-size:11px;color:var(--muted);line-height:1.5;margin:12px 0 0}
+@media(max-width:650px){.system-panel{width:calc(100% - 24px);padding:12px}.status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.activity-grid{grid-template-columns:1fr}.ticker{margin-left:12px;margin-right:12px}.panel-head h2{font-size:19px}}
 main{width:min(100%,760px);margin:auto;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 18px;gap:22px}
 .orb-wrap{position:relative;width:clamp(140px,42vw,200px);height:clamp(140px,42vw,200px);margin:6px 0}.orb{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 35% 30%,#F3D9C6,var(--clay) 70%,#A44E2B);box-shadow:0 20px 60px -20px #c4623a80;animation:breathe 4s ease-in-out infinite;transition:background .4s}.orb.listening{background:radial-gradient(circle at 35% 30%,#FBE3D2,#D9663A 70%,#B4502A);animation:pulse .9s ease-in-out infinite}.orb.thinking{background:radial-gradient(circle at 35% 30%,#E4EBE4,var(--sage) 70%,#5F7D68);animation:spin 2.4s linear infinite}.orb.speaking{background:radial-gradient(circle at 35% 30%,#F8EBD8,#D9A441 70%,#B9832A);animation:pulse .5s ease-in-out infinite alternate}.ring{position:absolute;inset:-15px;border-radius:50%;border:1.5px dashed var(--sand);animation:spin 30s linear infinite}@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}@keyframes spin{to{transform:rotate(360deg)}}
 .state{font-size:14px;color:var(--muted);min-height:20px;text-align:center}.mic{width:68px;height:68px;border-radius:50%;border:0;cursor:pointer;background:var(--ink);color:var(--card);display:grid;place-items:center;transition:transform .2s,background .2s}.mic:hover{transform:scale(1.05)}.mic.on{background:var(--clay)}button:focus-visible,input:focus-visible{outline:2px solid var(--clay);outline-offset:3px}
@@ -32,24 +37,44 @@ form{width:100%;max-width:620px;display:flex;gap:9px}input{flex:1;min-width:0;pa
 </head>
 <body>
 <header><div class="brand">Mira<span>.</span></div><div class="status"><span class="dot" id="dot"></span><span id="statusText">Arayüz hazır</span></div></header>
-<div class="ticker" aria-label="Kayan durum bilgisi">
+<div class="ticker" aria-label="Canlı sistem durumları">
   <div class="track">
-    <div class="set">
-      <div class="item"><span class="dot"></span><span class="lbl">Mira</span><span class="val">Sesli asistan arayüzü</span></div>
-      <div class="item"><span class="lbl">Durum</span><span class="val">Önizleme</span></div>
-      <div class="item"><span class="lbl">YouTube</span><span class="val">Henüz bağlanmadı</span></div>
-      <div class="item"><span class="lbl">Google</span><span class="val">Henüz bağlanmadı</span></div>
-      <div class="item"><span class="lbl">Otomasyon</span><span class="val">Mevcut akışa dokunulmadı</span></div>
+    <div class="set" id="tickerPrimary">
+      <div class="item"><span class="dot" data-dot="drive"></span><span class="lbl">Google Drive</span><span class="val" data-k="drive">Kontrol ediliyor…</span></div>
+      <div class="item"><span class="dot" data-dot="youtube"></span><span class="lbl">YouTube</span><span class="val" data-k="youtube">Kontrol ediliyor…</span></div>
+      <div class="item"><span class="dot" data-dot="database"></span><span class="lbl">Veritabanı</span><span class="val" data-k="database">Kontrol ediliyor…</span></div>
+      <div class="item"><span class="lbl">Son video</span><span class="val" data-k="lastVideo">Veri bekleniyor…</span></div>
+      <div class="item"><span class="lbl">Sıradaki</span><span class="val" data-k="nextVideo">Veri bekleniyor…</span></div>
+      <div class="item"><span class="lbl">Son yorum</span><span class="val" data-k="comment">Kayıt aranıyor…</span></div>
+      <div class="item"><span class="lbl">Telegram</span><span class="val" data-k="telegram">Kayıt aranıyor…</span></div>
+      <div class="item"><span class="lbl">Zamanlama</span><span class="val">10 dakikada bir</span></div>
     </div>
-    <div class="set" aria-hidden="true">
-      <div class="item"><span class="dot"></span><span class="lbl">Mira</span><span class="val">Sesli asistan arayüzü</span></div>
-      <div class="item"><span class="lbl">Durum</span><span class="val">Önizleme</span></div>
-      <div class="item"><span class="lbl">YouTube</span><span class="val">Henüz bağlanmadı</span></div>
-      <div class="item"><span class="lbl">Google</span><span class="val">Henüz bağlanmadı</span></div>
-      <div class="item"><span class="lbl">Otomasyon</span><span class="val">Mevcut akışa dokunulmadı</span></div>
+    <div class="set" id="tickerMirror" aria-hidden="true">
+      <div class="item"><span class="dot" data-dot="drive"></span><span class="lbl">Google Drive</span><span class="val" data-k="drive">Kontrol ediliyor…</span></div>
+      <div class="item"><span class="dot" data-dot="youtube"></span><span class="lbl">YouTube</span><span class="val" data-k="youtube">Kontrol ediliyor…</span></div>
+      <div class="item"><span class="dot" data-dot="database"></span><span class="lbl">Veritabanı</span><span class="val" data-k="database">Kontrol ediliyor…</span></div>
+      <div class="item"><span class="lbl">Son video</span><span class="val" data-k="lastVideo">Veri bekleniyor…</span></div>
+      <div class="item"><span class="lbl">Sıradaki</span><span class="val" data-k="nextVideo">Veri bekleniyor…</span></div>
+      <div class="item"><span class="lbl">Son yorum</span><span class="val" data-k="comment">Kayıt aranıyor…</span></div>
+      <div class="item"><span class="lbl">Telegram</span><span class="val" data-k="telegram">Kayıt aranıyor…</span></div>
+      <div class="item"><span class="lbl">Zamanlama</span><span class="val">10 dakikada bir</span></div>
     </div>
   </div>
 </div>
+<section class="system-panel" aria-label="Mira sistem özeti">
+  <div class="panel-head"><div><h2>Sistem özeti</h2><p id="refreshText">Canlı durum bilgileri yükleniyor…</p></div><button id="refreshButton" class="refresh" type="button">Yenile</button></div>
+  <div class="status-grid">
+    <article class="status-card"><span class="card-label">Google Drive</span><strong id="driveCard">Kontrol ediliyor…</strong><small id="driveDetail">Bağlantı doğrulanıyor.</small></article>
+    <article class="status-card"><span class="card-label">YouTube</span><strong id="youtubeCard">Kontrol ediliyor…</strong><small id="youtubeDetail">Kanal erişimi doğrulanıyor.</small></article>
+    <article class="status-card"><span class="card-label">Veritabanı</span><strong id="databaseCard">Kontrol ediliyor…</strong><small id="databaseDetail">Bağlantı doğrulanıyor.</small></article>
+    <article class="status-card"><span class="card-label">Otomasyon / bildirimler</span><strong id="automationCard">Kayıtlar bekleniyor…</strong><small id="automationDetail">Son işlem kayıtları okunuyor.</small></article>
+  </div>
+  <div class="activity-grid">
+    <article class="activity-card"><h3>Yayın durumu</h3><p><span class="card-label">Son yayınlanan video</span><a id="lastVideoLink" href="#" hidden></a><span id="lastVideoText">Bilgi bekleniyor.</span></p><p><span class="card-label">Sıradaki planlı yayın</span><a id="nextVideoLink" href="#" hidden></a><span id="nextVideoText">Bilgi bekleniyor.</span></p></article>
+    <article class="activity-card"><h3>Son hareketler</h3><ul id="activityList"><li>Oturum ve kayıt bilgileri kontrol ediliyor…</li></ul></article>
+  </div>
+  <p class="panel-note">Bu panel yalnızca mevcut API'lerden okunabilen verileri gösterir. Erişim izni yoksa veya bir kayıt yoksa bunu açıkça belirtir; başarılı olmayan bir işlemi başarılı göstermez.</p>
+</section>
 <main>
   <div class="orb-wrap"><div class="ring"></div><div class="orb" id="orb"></div></div>
   <div class="state" id="state">Mikrofona dokunup konuşun</div>
@@ -71,6 +96,71 @@ form{width:100%;max-width:620px;display:flex;gap:9px}input{flex:1;min-width:0;pa
  function speak(text,done){setState('speaking');if(!('speechSynthesis'in window)){done&&done();return}const u=new SpeechSynthesisUtterance(text);u.lang='tr-TR';u.onend=()=>done&&done();u.onerror=()=>done&&done();speechSynthesis.cancel();speechSynthesis.speak(u)}
  function respond(value){if(!value.trim())return;addMsg(value,'user');setState('thinking');setTimeout(()=>{const answer=demoReply(value);addMsg(answer,'mira');speak(answer,()=>setState('idle'))},350)}
  if(SR){recognition=new SR();recognition.lang='tr-TR';recognition.interimResults=false;recognition.continuous=false;recognition.onresult=e=>{listening=false;respond(e.results[0][0].transcript)};recognition.onerror=()=>{listening=false;setState('idle')};recognition.onend=()=>{if(listening){listening=false;setState('idle')}}}
+
+ const refreshText=document.getElementById('refreshText');
+ const refreshButton=document.getElementById('refreshButton');
+ const activityList=document.getElementById('activityList');
+ const safeTime=value=>{if(!value)return '';const d=new Date(value);return Number.isNaN(d.getTime())?String(value):d.toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})};
+ function setText(key,value){document.querySelectorAll('[data-k="'+key+'"]').forEach(el=>el.textContent=value)}
+ function setDot(key,good){document.querySelectorAll('[data-dot="'+key+'"]').forEach(el=>el.style.background=good?'var(--sage)':'var(--clay)')}
+ function setCard(id,value){const el=document.getElementById(id);if(el)el.textContent=value}
+ function setDetail(id,value){const el=document.getElementById(id);if(el)el.textContent=value||''}
+ function setLink(linkId,textId,item){const a=document.getElementById(linkId),fallback=document.getElementById(textId);if(item&&item.title&&item.url){a.textContent=item.title;a.href=item.url;a.hidden=false;fallback.textContent='';}else{a.hidden=true;a.removeAttribute('href');a.textContent='';fallback.textContent='Kayıt bulunamadı.'}}
+ async function getJson(url){const r=await fetch(url,{cache:'no-store',credentials:'same-origin'});let data={};try{data=await r.json()}catch(_){}return {http:r.status,data}}
+ async function refreshSystemStatus(){
+   refreshButton.disabled=true;refreshText.textContent='Son kontrol: '+new Date().toLocaleTimeString('tr-TR')+' — veriler okunuyor…';
+   const [integrations,publication,logs,health]=await Promise.allSettled([
+     getJson('/api/integrations/status'),getJson('/api/youtube/last-publication'),getJson('/api/automation/logs?limit=12'),getJson('/api/health')
+   ]);
+   const read=(x)=>x.status==='fulfilled'?x.value:null;
+   const ints=read(integrations),pub=read(publication),logResult=read(logs),dbResult=read(health);
+   const needLogin=[ints,pub,logResult].some(x=>x&&x.http===401);
+   if(ints&&ints.http===200&&ints.data&&ints.data.ok){
+     const d=ints.data.drive||{},y=ints.data.youtube||{};
+     setCard('driveCard',d.status==='online'?'Bağlı':d.status==='offline'?'Bağlantı yok':'Bilinmiyor');setDetail('driveDetail',d.detail||'Durum bilgisi yok.');
+     setCard('youtubeCard',y.status==='online'?'Bağlı':y.status==='offline'?'Bağlantı yok':'Bilinmiyor');setDetail('youtubeDetail',y.detail||'Durum bilgisi yok.');
+     setText('drive',d.status==='online'?'Çevrimiçi':d.status==='offline'?'Bağlantı yok':'Bilinmiyor');setDot('drive',d.status==='online');
+     setText('youtube',y.status==='online'?'Çevrimiçi':y.status==='offline'?'Bağlantı yok':'Bilinmiyor');setDot('youtube',y.status==='online');
+   }else{
+     const msg=ints&&ints.http===401?'Oturum gerekli':ints&&ints.data&&ints.data.error?ints.data.error:'Durum alınamadı';
+     setCard('driveCard',msg);setDetail('driveDetail','Mira oturumuyla giriş yapıp yenileyin.');setCard('youtubeCard',msg);setDetail('youtubeDetail','Mira oturumuyla giriş yapıp yenileyin.');
+     setText('drive',msg);setText('youtube',msg);setDot('drive',false);setDot('youtube',false);
+   }
+   const dbOk=Boolean(dbResult&&dbResult.http===200&&dbResult.data&&dbResult.data.ok&&dbResult.data.database);
+   setCard('databaseCard',dbOk?'Çalışıyor':dbResult&&dbResult.http===401?'Oturum gerekli':'Erişilemiyor');
+   setDetail('databaseDetail',dbOk?'Veritabanı sorgusu başarılı.':'Veritabanı sağlık kontrolü başarısız veya erişilemiyor.');
+   setText('database',dbOk?'Çalışıyor':'Erişilemiyor');setDot('database',dbOk);
+   let logRows=[];
+   if(logResult&&logResult.http===200&&logResult.data&&Array.isArray(logResult.data.logs))logRows=logResult.data.logs;
+   const commentRow=logRows.find(x=>/yorum|comment/i.test(String(x.message||'')+' '+String(x.source||'')));
+   const telegramRow=logRows.find(x=>/telegram/i.test(String(x.message||'')+' '+String(x.source||'')));
+   setText('comment',commentRow?(commentRow.message||'Yorum olayı kaydedildi').slice(0,90):'Kayıt bulunamadı');
+   setText('telegram',telegramRow?(telegramRow.message||'Telegram olayı kaydedildi').slice(0,90):'Kayıt bulunamadı');
+   if(pub&&pub.http===200&&pub.data&&pub.data.ok){
+     const last=pub.data.lastPublished?{title:pub.data.lastPublished.title,url:pub.data.lastPublished.url}:null;
+     const next=pub.data.nextScheduled?{title:pub.data.nextScheduled.title,url:pub.data.nextScheduled.url}:null;
+     setLink('lastVideoLink','lastVideoText',last);setLink('nextVideoLink','nextVideoText',next);
+     setText('lastVideo',last?last.title:'Kayıt bulunamadı');setText('nextVideo',next?next.title+' · '+safeTime(pub.data.nextScheduled.publishAt):'Planlı yayın yok');
+   }else{
+     const msg=pub&&pub.http===401?'Oturum gerekli':'Yayın bilgisi alınamadı';
+     setLink('lastVideoLink','lastVideoText',null);setLink('nextVideoLink','nextVideoText',null);document.getElementById('lastVideoText').textContent=msg;document.getElementById('nextVideoText').textContent=msg;setText('lastVideo',msg);setText('nextVideo',msg);
+   }
+   activityList.replaceChildren();
+   if(logRows.length){
+     logRows.slice(0,8).forEach(row=>{const li=document.createElement('li');const meta=document.createElement('span');meta.className='activity-meta';meta.textContent=safeTime(row.at)+' · '+String(row.source||'Mira')+' · '+String(row.level||'info');const body=document.createElement('span');body.textContent=String(row.message||'İşlem kaydı').slice(0,260);li.append(meta,body);activityList.appendChild(li)});
+   }else{
+     const li=document.createElement('li');li.textContent=logResult&&logResult.http===401?'Hareketleri görmek için Mira oturumuyla giriş yapın.':'Son hareket kaydı bulunamadı.';activityList.appendChild(li);
+   }
+   const latest=logRows[0];
+   setCard('automationCard',latest?(latest.level==='error'?'Son kayıt hata':latest.level==='warn'?'Uyarı kaydı':'Kayıtlar alındı'):needLogin?'Oturum gerekli':'Kayıt yok');
+   setDetail('automationDetail',latest?safeTime(latest.at)+' · '+String(latest.message||'').slice(0,130):'Yorum ve Telegram durumu yalnızca gerçek işlem kayıtlarında gösterilir.');
+   refreshText.textContent='Son kontrol: '+new Date().toLocaleTimeString('tr-TR')+(needLogin?' · Bazı veriler için oturum gerekli':' · Otomatik yenileme 60 saniyede bir');
+   refreshButton.disabled=false;
+ }
+ refreshButton.addEventListener('click',refreshSystemStatus);
+ refreshSystemStatus();
+ setInterval(refreshSystemStatus,60000);
+
  mic.addEventListener('click',()=>{if(!recognition){stateEl.textContent='Bu tarayıcı ses tanımayı desteklemiyor. Aşağıya yazabilirsiniz.';return}if(listening){recognition.stop();listening=false;setState('idle')}else{listening=true;setState('listening');try{recognition.start()}catch(_){listening=false;setState('idle')}}});
  form.addEventListener('submit',e=>{e.preventDefault();const value=input.value;input.value='';respond(value)});
 })();
