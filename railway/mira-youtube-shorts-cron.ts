@@ -37,3 +37,5 @@ try { result = JSON.parse(raw) as { ok?: boolean }; } catch {}
 if (!response.ok || result?.ok !== true) {
   throw new Error(`Mira endpoint failed: HTTP ${response.status}`);
 }
+
+export {};
