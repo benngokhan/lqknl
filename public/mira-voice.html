@@ -25,6 +25,14 @@ header{position:sticky;top:0;z-index:2;background:var(--paper);display:flex;alig
 .system-panel{width:min(100% - 36px,900px);margin:14px auto 0;padding:16px;background:var(--card);border:1px solid var(--line);border-radius:16px}
 .panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.panel-head h2{font-family:'Fraunces',Georgia,serif;font-size:21px;margin:0 0 4px}.panel-head p{font-size:12px;color:var(--muted);margin:0}.refresh{border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:10px;padding:9px 12px;font:inherit;font-size:12px;cursor:pointer}
 .status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.status-card,.activity-card{min-width:0;border:1px solid var(--line);border-radius:12px;padding:12px;background:#fffefa}.card-label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}.status-card strong{display:block;font-size:14px;margin-bottom:5px;overflow-wrap:anywhere}.status-card small{display:block;font-size:11px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
+.mascot{display:inline-grid;place-items:center;width:30px;height:30px;margin:0 0 8px;border-radius:10px;background:var(--paper);font-size:19px;transform-origin:50% 85%;animation:mascotBob 2.8s ease-in-out infinite;}
+.mascot-drive{animation-delay:-.3s}.mascot-youtube{animation-delay:-.8s}.mascot-db{animation-delay:-1.2s}.mascot-bell{animation:mascotWave 2.4s ease-in-out infinite}.mascot-film{animation-delay:-1.6s}.mascot-activity{animation:mascotWalk 3.2s ease-in-out infinite}
+.activity-card h3{display:flex;align-items:center;gap:9px}.activity-card h3 .mascot{flex:0 0 30px;margin:0}
+@keyframes mascotBob{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-4px) rotate(3deg)}}
+@keyframes mascotWave{0%,100%{transform:rotate(0)}20%{transform:rotate(12deg)}40%{transform:rotate(-8deg)}60%{transform:rotate(8deg)}80%{transform:rotate(-3deg)}}
+@keyframes mascotWalk{0%,100%{transform:translateX(0) rotate(-4deg)}25%{transform:translateX(3px) rotate(5deg)}50%{transform:translateX(0) rotate(-4deg)}75%{transform:translateX(-3px) rotate(5deg)}}
+@media(prefers-reduced-motion:reduce){.mascot{animation:none}}
+
 .activity-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.activity-card h3{font-size:14px;margin:0 0 12px}.activity-card p{font-size:12px;line-height:1.5;margin:10px 0;overflow-wrap:anywhere}.activity-card a{display:block;color:var(--clay);font-weight:600;overflow-wrap:anywhere;margin-bottom:4px}.activity-card ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}.activity-card li{font-size:12px;line-height:1.45;border-bottom:1px solid var(--line);padding-bottom:8px;overflow-wrap:anywhere}.activity-card li:last-child{border-bottom:0;padding-bottom:0}.activity-meta{display:block;color:var(--muted);font-size:10px;margin-bottom:3px}.panel-note{font-size:11px;color:var(--muted);line-height:1.5;margin:12px 0 0}
 @media(max-width:650px){.system-panel{width:calc(100% - 24px);padding:12px}.status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.activity-grid{grid-template-columns:1fr}.ticker{margin-left:12px;margin-right:12px}.panel-head h2{font-size:19px}}
 main{width:min(100%,760px);margin:auto;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 18px;gap:22px}
@@ -71,14 +79,14 @@ form{width:100%;max-width:620px;display:flex;gap:9px}input{flex:1;min-width:0;pa
 <section class="system-panel" aria-label="Mira sistem özeti">
   <div class="panel-head"><div><h2>Sistem özeti</h2><p id="refreshText">Canlı durum bilgileri yükleniyor…</p></div><button id="refreshButton" class="refresh" type="button">Yenile</button></div>
   <div class="status-grid">
-    <article class="status-card"><span class="card-label">Google Drive</span><strong id="driveCard">Kontrol ediliyor…</strong><small id="driveDetail">Bağlantı doğrulanıyor.</small></article>
-    <article class="status-card"><span class="card-label">YouTube</span><strong id="youtubeCard">Kontrol ediliyor…</strong><small id="youtubeDetail">Kanal erişimi doğrulanıyor.</small></article>
-    <article class="status-card"><span class="card-label">Veritabanı</span><strong id="databaseCard">Kontrol ediliyor…</strong><small id="databaseDetail">Bağlantı doğrulanıyor.</small></article>
-    <article class="status-card"><span class="card-label">Otomasyon / bildirimler</span><strong id="automationCard">Kayıtlar bekleniyor…</strong><small id="automationDetail">Son işlem kayıtları okunuyor.</small></article>
+    <article class="status-card"><span class="mascot mascot-drive" aria-hidden="true">📁</span><span class="card-label">Google Drive</span><strong id="driveCard">Kontrol ediliyor…</strong><small id="driveDetail">Bağlantı doğrulanıyor.</small></article>
+    <article class="status-card"><span class="mascot mascot-youtube" aria-hidden="true">🎬</span><span class="card-label">YouTube</span><strong id="youtubeCard">Kontrol ediliyor…</strong><small id="youtubeDetail">Kanal erişimi doğrulanıyor.</small></article>
+    <article class="status-card"><span class="mascot mascot-db" aria-hidden="true">🤖</span><span class="card-label">Veritabanı</span><strong id="databaseCard">Kontrol ediliyor…</strong><small id="databaseDetail">Bağlantı doğrulanıyor.</small></article>
+    <article class="status-card"><span class="mascot mascot-bell" aria-hidden="true">📨</span><span class="card-label">Otomasyon / bildirimler</span><strong id="automationCard">Kayıtlar bekleniyor…</strong><small id="automationDetail">Son işlem kayıtları okunuyor.</small></article>
   </div>
   <div class="activity-grid">
-    <article class="activity-card"><h3>Yayın durumu</h3><p><span class="card-label">Son yayınlanan video</span><a id="lastVideoLink" href="#" hidden></a><span id="lastVideoText">Bilgi bekleniyor.</span></p><p><span class="card-label">Sıradaki planlı yayın</span><a id="nextVideoLink" href="#" hidden></a><span id="nextVideoText">Bilgi bekleniyor.</span></p></article>
-    <article class="activity-card"><h3>Son hareketler</h3><ul id="activityList"><li>Oturum ve kayıt bilgileri kontrol ediliyor…</li></ul></article>
+    <article class="activity-card"><h3><span class="mascot mascot-film" aria-hidden="true">🎥</span>Yayın durumu</h3><p><span class="card-label">Son yayınlanan video</span><a id="lastVideoLink" href="#" hidden></a><span id="lastVideoText">Bilgi bekleniyor.</span></p><p><span class="card-label">Sıradaki planlı yayın</span><a id="nextVideoLink" href="#" hidden></a><span id="nextVideoText">Bilgi bekleniyor.</span></p></article>
+    <article class="activity-card"><h3><span class="mascot mascot-activity" aria-hidden="true">🚶</span>Son hareketler</h3><ul id="activityList"><li>Oturum ve kayıt bilgileri kontrol ediliyor…</li></ul></article>
   </div>
   <p class="panel-note">Bu panel yalnızca mevcut API'lerden okunabilen verileri gösterir. Erişim izni yoksa veya bir kayıt yoksa bunu açıkça belirtir; başarılı olmayan bir işlemi başarılı göstermez.</p>
 </section>
