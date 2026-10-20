@@ -37,7 +37,7 @@ function localDateTime(date: string, time: string) {
 }
 
 function daysFromStart(date: string) {
-  const start = Date.UTC(2026, 9, 23);
+  const start = Date.UTC(2026, 9, 20);
   const current = new Date(`${date}T00:00:00Z`).getTime();
   return Math.floor((current - start) / 86_400_000);
 }
@@ -78,7 +78,7 @@ export async function POST(req: Request) {
   } else {
     const today = dateKey(istanbulDateParts(now));
     if (today < "2026-10-20") {
-      return NextResponse.json({ ok: true, skipped: true, reason: "Otomasyon başlangıcı 23 Ekim 2026; planlı yayın yapılmadı.", slot, startsOn: "2026-10-20" });
+      return NextResponse.json({ ok: true, skipped: true, reason: "Otomasyon başlangıç tarihi henüz gelmedi; planlı yayın yapılmadı.", slot, startsOn: "2026-10-20" });
     }
     if (slot === "long" && !isLongVideoDay(today)) {
       return NextResponse.json({ ok: true, skipped: true, reason: "Uzun video yalnızca iki günde bir planlanır.", slot, date: today });
