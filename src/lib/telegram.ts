@@ -1,17 +1,29 @@
 export type TelegramSendResult =
-  | { sent: true }
-  | { sent: false; reason: "not_configured" | "send_failed"; error?: string };
+  | { sent: true; targetChatIdMasked: string; messageId: number | null; chatType: string | null }
+  | { sent: false; reason: "not_configured" | "send_failed"; error?: string; targetChatIdMasked?: string };
 
 type TelegramButton = { text: string; callback_data: string };
 
-/** Telegram notifications are optional; their failure must not break content production. */
+function maskChatId(chatId: string) {
+  if (chatId.length <= 4) return "****";
+  return `${chatId.slice(0, 2)}•••${chatId.slice(-2)}`;
+}
+
+/** Telegram notifications are optional; report Telegram's actual API result without exposing secrets. */
 export async function sendTelegramMessage(
   text: string,
   opts?: { parseMode?: "HTML"; inlineKeyboard?: TelegramButton[][] },
 ): Promise<TelegramSendResult> {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   const chatId = process.env.TELEGRAM_CHAT_ID?.trim();
-  if (!token || !chatId) return { sent: false, reason: "not_configured" };
+  const targetChatIdMasked = chatId ? maskChatId(chatId) : undefined;
+  if (!token || !chatId) {
+    console.error("[telegram] not_configured", JSON.stringify({
+      tokenConfigured: Boolean(token),
+      chatIdConfigured: Boolean(chatId),
+    }));
+    return { sent: false, reason: "not_configured" };
+  }
 
   try {
     const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -27,13 +39,36 @@ export async function sendTelegramMessage(
       signal: AbortSignal.timeout(10_000),
       cache: "no-store",
     });
-    const data = await response.json().catch(() => null) as { ok?: boolean; description?: string } | null;
+    const data = await response.json().catch(() => null) as {
+      ok?: boolean;
+      description?: string;
+      result?: { message_id?: number; chat?: { id?: number | string; type?: string } };
+    } | null;
     if (!response.ok || data?.ok !== true) {
-      return { sent: false, reason: "send_failed", error: data?.description || `Telegram HTTP ${response.status}` };
+      const error = data?.description || `Telegram HTTP ${response.status}`;
+      console.error("[telegram] send_failed", JSON.stringify({
+        httpStatus: response.status,
+        targetChatIdMasked,
+        error,
+      }));
+      return { sent: false, reason: "send_failed", error, targetChatIdMasked };
     }
-    return { sent: true };
+
+    const messageId = typeof data.result?.message_id === "number" ? data.result.message_id : null;
+    const chatType = typeof data.result?.chat?.type === "string" ? data.result.chat.type : null;
+    const apiChatId = data.result?.chat?.id != null ? String(data.result.chat.id) : "";
+    console.info("[telegram] send_succeeded", JSON.stringify({
+      httpStatus: response.status,
+      configuredTargetChatIdMasked: targetChatIdMasked,
+      apiReturnedChatIdMasked: apiChatId ? maskChatId(apiChatId) : null,
+      messageId,
+      chatType,
+    }));
+    return { sent: true, targetChatIdMasked: targetChatIdMasked!, messageId, chatType };
   } catch (error) {
-    return { sent: false, reason: "send_failed", error: error instanceof Error ? error.message : String(error) };
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error("[telegram] send_failed", JSON.stringify({ targetChatIdMasked, error: detail }));
+    return { sent: false, reason: "send_failed", error: detail, targetChatIdMasked };
   }
 }
 
