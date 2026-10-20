@@ -6,7 +6,7 @@ import { db } from "@/db";
 import { youtubeUploadJobs } from "@/db/schema";
 import { downloadDriveFile, listDriveFolderFiles } from "@/lib/google-drive";
 import { readDriveSpreadsheetMetadata } from "@/lib/drive-video-xlsx";
-import { addYoutubeComment, listMyChannelVideos, loadYoutubeTokens, uploadShort, verifyYoutubeVideo, youtubeStatus } from "@/lib/youtube";
+import { addYoutubeComment, listMyChannelVideos, loadYoutubeTokens, updateYoutubeVideoTags, uploadShort, verifyYoutubeVideo, youtubeStatus } from "@/lib/youtube";
 import { sendTelegramMessage } from "@/lib/telegram";
 
 export const runtime = "nodejs";
@@ -60,6 +60,7 @@ export async function POST(req: Request) {
 
   let activeJobId: number | null = null;
   let sessionPersisted = false;
+  let uploadedVideoId: string | null = null;
 
   try {
     const [files, channel] = await Promise.all([listDriveFolderFiles(), listMyChannelVideos(500)]);
@@ -321,13 +322,25 @@ export async function POST(req: Request) {
       },
     });
 
-    await verifyYoutubeVideo(uploaded.videoId, {
+    uploadedVideoId = uploaded.videoId;
+
+    const expectedMetadata = {
       title,
       description,
       tags,
       privacyStatus: publishNow ? "public" : "private",
       ...(publishNow ? {} : { publishAt: effectiveScheduledDate.toISOString() }),
-    });
+    };
+    try {
+      await verifyYoutubeVideo(uploaded.videoId, expectedMetadata);
+    } catch (verificationError) {
+      const verificationMessage = verificationError instanceof Error ? verificationError.message : String(verificationError);
+      // YouTube may accept the video upload but omit tags from the initial resource.
+      // Repair tags on the known video ID; never create a second upload for this failure.
+      if (!/\btags\b/i.test(verificationMessage)) throw verificationError;
+      await updateYoutubeVideoTags(uploaded.videoId, tags);
+      await verifyYoutubeVideo(uploaded.videoId, expectedMetadata);
+    }
 
     if (activeJobId !== null) {
       const completedAt = new Date();
@@ -395,7 +408,7 @@ export async function POST(req: Request) {
     const message = error instanceof Error ? error.message : "Bilinmeyen YouTube yükleme hatası";
     if (activeJobId !== null) {
       await db.update(youtubeUploadJobs).set({
-        status: sessionPersisted ? "needs_review" : "failed",
+        status: sessionPersisted || uploadedVideoId ? "needs_review" : "failed",
         lastError: message.slice(0, 1500),
         leaseUntil: null,
         updatedAt: new Date(),
@@ -403,8 +416,10 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({
       ok: false,
-      uploaded: false,
-      needsReview: sessionPersisted,
+      uploaded: Boolean(uploadedVideoId),
+      videoId: uploadedVideoId,
+      needsReview: sessionPersisted || Boolean(uploadedVideoId),
+      outcome: uploadedVideoId ? "uploaded_but_verification_failed" : sessionPersisted ? "upload_outcome_unknown" : "upload_not_confirmed",
       error: message.slice(0, 600),
     }, { status: 502 });
   }
