@@ -211,6 +211,7 @@ export type ChannelVideo = {
   categoryId: string | null;
   publishedAt: string | null;
   privacyStatus: string | null;
+  viewCount: number;
   url: string;
 };
 
@@ -257,7 +258,7 @@ async function fetchMyChannelVideosUncached(maxVideos: number): Promise<ChannelV
 
   const videos: ChannelVideo[] = [];
   for (let offset = 0; offset < ids.length; offset += 50) {
-    const params = new URLSearchParams({ part: "snippet,status", id: ids.slice(offset, offset + 50).join(","), maxResults: "50" });
+    const params = new URLSearchParams({ part: "snippet,status,statistics", id: ids.slice(offset, offset + 50).join(","), maxResults: "50" });
     const response = await fetch(`https://www.googleapis.com/youtube/v3/videos?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(20_000),
@@ -275,6 +276,7 @@ async function fetchMyChannelVideosUncached(maxVideos: number): Promise<ChannelV
         categoryId: typeof item.snippet?.categoryId === "string" ? item.snippet.categoryId : null,
         publishedAt: typeof item.snippet?.publishedAt === "string" ? item.snippet.publishedAt : null,
         privacyStatus: typeof item.status?.privacyStatus === "string" ? item.status.privacyStatus : null,
+        viewCount: Number(item.statistics?.viewCount || 0),
         url: `https://www.youtube.com/watch?v=${item.id}`,
       });
     }
