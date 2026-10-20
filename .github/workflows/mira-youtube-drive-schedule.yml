@@ -19,7 +19,7 @@ on:
           - shorts-evening
           - long
       mode:
-        description: "scheduled or immediate (publishes privately, then YouTube schedules/publication)"
+        description: "scheduled (upload privately for scheduled publication) or immediate (publish publicly now, comment, then notify)"
         required: true
         default: scheduled
         type: choice
