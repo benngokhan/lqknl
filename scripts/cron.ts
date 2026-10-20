@@ -1,3 +1,5 @@
+export {};
+
 const slot = "shorts-noon" as const;
 const mode = "immediate" as const;
 
