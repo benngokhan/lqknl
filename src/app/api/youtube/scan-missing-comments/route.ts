@@ -39,8 +39,12 @@ export async function POST(req: Request) {
   }
 
   const dryRun = body.dryRun === true;
-  if (!dryRun && body.confirm !== true) {
-    return NextResponse.json({ ok: false, error: "Yorum eklemek için confirm:true gönder; önce kontrol etmek için dryRun:true kullan." }, { status: 400 });
+  if (!dryRun) {
+    return NextResponse.json({
+      ok: false,
+      disabled: true,
+      error: "Otomatik YouTube yorumları kullanıcı tercihi gereği devre dışı. Yalnızca dryRun:true ile tarama yapılabilir.",
+    }, { status: 410 });
   }
 
   const config = youtubeStatus();
