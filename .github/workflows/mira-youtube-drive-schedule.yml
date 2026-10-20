@@ -1,4 +1,5 @@
 name: Mira Drive-to-YouTube Schedule
+# Manual dispatch is enabled; keep this workflow on the repository's default branch.
 
 on:
   schedule:
