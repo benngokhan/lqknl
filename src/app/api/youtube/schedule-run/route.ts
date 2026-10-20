@@ -115,7 +115,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const minimumIndex = slot === "long" ? 3 : 11;
+  const minimumIndex = slot === "long" ? 3 : 6;
   const file = videoFiles.find((item) => {
     if (filenameIndex(item.name, slot === "long" ? "long" : "short") < minimumIndex) return false;
     const job = byDriveId.get(item.id);
