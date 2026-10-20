@@ -468,7 +468,7 @@ export async function addYoutubeComment(videoId: string, text: string): Promise<
   const commentId = data?.snippet?.topLevelComment?.id || data?.id;
   if (typeof commentId !== "string" || !commentId) throw new Error("YouTube yorum kimliği döndürmedi.");
   const notification = await sendTelegramMessage(
-    `✅ Mira YouTube yorumunu gönderdi.\\n\\nVideo: https://www.youtube.com/watch?v=${videoId}\\nYorum: ${cleanText}`,
+    `✅ Mira YouTube yorumunu gönderdi.\n\nVideo: https://www.youtube.com/watch?v=${videoId}\nYorum: ${cleanText}`,
   );
   if (!notification.sent) {
     console.error("[youtube-comment-notification] Telegram bildirimi gönderilemedi:", notification.reason, notification.reason === "send_failed" ? notification.error : "Telegram değişkenleri eksik");
