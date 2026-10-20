@@ -11,7 +11,7 @@
 :root{--paper:#F6F1E7;--card:#FFFDF8;--ink:#22201C;--muted:#8A8273;--line:#E6DDCB;--clay:#C4623A;--sage:#7E9C86;--sand:#E9D9BC;color-scheme:light}
 *{box-sizing:border-box}html,body{min-height:100%;margin:0}body{min-height:100dvh;background:var(--paper);color:var(--ink);font-family:'DM Sans',system-ui,sans-serif;padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left);display:flex;flex-direction:column}
 header{position:sticky;top:0;z-index:2;background:var(--paper);display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;min-width:0}.brand img{display:block;width:min(250px,55vw);height:auto;max-height:58px;object-fit:contain;object-position:left center}.status{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}.dot{width:8px;height:8px;border-radius:50%;background:var(--sage)}
-.ticker{margin:14px 18px 0;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;white-space:nowrap;padding:10px 0;font-size:12px}
+.ticker{margin:14px 18px 0;background:transparent;border:1px solid var(--line);border-radius:12px;overflow:hidden;white-space:nowrap;padding:10px 0;font-size:12px}
 .ticker .track{display:inline-flex;width:max-content;animation:tick 28s linear infinite}
 .ticker .set{display:inline-flex;align-items:center;flex-shrink:0}
 .ticker .item{display:inline-flex;align-items:center;gap:6px;padding:0 16px}
@@ -22,9 +22,9 @@ header{position:sticky;top:0;z-index:2;background:var(--paper);display:flex;alig
 .ticker:hover .track{animation-play-state:paused}
 @keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @media(prefers-reduced-motion:reduce){.ticker .track{animation:none}}
-.system-panel{width:min(100% - 36px,900px);margin:14px auto 0;padding:16px;background:var(--card);border:1px solid var(--line);border-radius:16px}
+.system-panel{width:min(100% - 36px,900px);margin:14px auto 0;padding:16px;background:transparent;border:1px solid var(--line);border-radius:16px}
 .panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.panel-head h2{font-family:'Fraunces',Georgia,serif;font-size:21px;margin:0 0 4px}.panel-head p{font-size:12px;color:var(--muted);margin:0}.refresh{border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:10px;padding:9px 12px;font:inherit;font-size:12px;cursor:pointer}
-.status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.status-card,.activity-card{min-width:0;border:1px solid var(--line);border-radius:12px;padding:12px;background:#fffefa}.card-label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}.status-card strong{display:block;font-size:14px;margin-bottom:5px;overflow-wrap:anywhere}.status-card small{display:block;font-size:11px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
+.status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.status-card,.activity-card{min-width:0;border:1px solid var(--line);border-radius:12px;padding:12px;background:transparent}.card-label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}.status-card strong{display:block;font-size:14px;margin-bottom:5px;overflow-wrap:anywhere}.status-card small{display:block;font-size:11px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
 .mascot{display:inline-grid;place-items:center;width:30px;height:30px;margin:0 0 8px;border-radius:10px;background:var(--paper);font-size:19px;transform-origin:50% 85%;animation:mascotBob 2.8s ease-in-out infinite;}
 .mascot-drive{animation-delay:-.3s}.mascot-youtube{animation-delay:-.8s}.mascot-db{animation-delay:-1.2s}.mascot-bell{animation:mascotWave 2.4s ease-in-out infinite}.mascot-film{animation-delay:-1.6s}.mascot-activity{animation:mascotWalk 3.2s ease-in-out infinite}
 .activity-card h3{display:flex;align-items:center;gap:9px}.activity-card h3 .mascot{flex:0 0 30px;margin:0}
