@@ -1,0 +1,4 @@
+# Python dependencies for the branded video motor (motor/shorts_pipeline.py)
+Pillow>=10.4,<13
+numpy>=1.26,<3
+imageio-ffmpeg>=0.5,<1
