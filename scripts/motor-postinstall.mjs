@@ -23,19 +23,28 @@ for (const py of ["python3", "python"]) {
   }
   report(`${py} import kontrolü`, probe);
 
-  // Railway/Nix ortamlarında pip, externally-managed uyarısı verebilir.
-  const pip = spawnSync(py, [
-    "-m", "pip", "install", "--break-system-packages",
+  // Node-only Railway images may include Python without pip. Bootstrap an isolated
+  // venv, then vendor packages into /app/pylib, which motor-render exposes via PYTHONPATH.
+  const venvPath = "/tmp/mira-python-venv";
+  const venv = spawnSync(py, ["-m", "venv", venvPath], {
+    encoding: "utf8", timeout: 30_000, env
+  });
+  report(`${py} venv kurulumu (exit=${venv.status ?? "null"})`, venv);
+  if (venv.status !== 0) continue;
+
+  const venvPython = `${venvPath}/bin/python`;
+  const pip = spawnSync(venvPython, [
+    "-m", "pip", "install", "--target", "/app/pylib",
     "--disable-pip-version-check", "--no-cache-dir", ...wheels
   ], { encoding: "utf8", timeout: 240_000, env });
-  report(`${py} pip kurulumu (exit=${pip.status ?? "null"})`, pip);
+  report(`${py} bağımlılık kurulumu (exit=${pip.status ?? "null"})`, pip);
 
   const verify = spawnSync(py, ["-c", "import PIL, numpy, imageio_ffmpeg; print('MOTOR_DEPS_OK')"], {
-    encoding: "utf8", timeout: 15000
+    encoding: "utf8", timeout: 15000, env
   });
   report(`${py} son doğrulama`, verify);
   if (pip.status === 0 && verify.status === 0) {
-    console.log(`[motor] ${py} ile bağımlılıklar kuruldu ve doğrulandı`);
+    console.log(`[motor] ${py} ile bağımlılıklar /app/pylib içine kuruldu ve doğrulandı`);
     process.exit(0);
   }
 }
