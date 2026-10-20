@@ -11,7 +11,17 @@
 :root{--paper:#F6F1E7;--card:#FFFDF8;--ink:#22201C;--muted:#8A8273;--line:#E6DDCB;--clay:#C4623A;--sage:#7E9C86;--sand:#E9D9BC;color-scheme:light}
 *{box-sizing:border-box}html,body{min-height:100%;margin:0}body{min-height:100dvh;background:var(--paper);color:var(--ink);font-family:'DM Sans',system-ui,sans-serif;padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left);display:flex;flex-direction:column}
 header{position:sticky;top:0;z-index:2;background:var(--paper);display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line)}.brand{font-family:'Fraunces',Georgia,serif;font-size:25px;font-weight:600}.brand span{color:var(--clay)}.status{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}.dot{width:8px;height:8px;border-radius:50%;background:var(--sage)}
-.notice{margin:14px 18px 0;padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);font-size:12px;color:var(--muted);text-align:center}
+.ticker{margin:14px 18px 0;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;white-space:nowrap;padding:10px 0;font-size:12px}
+.ticker .track{display:inline-flex;width:max-content;animation:tick 28s linear infinite}
+.ticker .set{display:inline-flex;align-items:center;flex-shrink:0}
+.ticker .item{display:inline-flex;align-items:center;gap:6px;padding:0 16px}
+.ticker .item+.item{border-left:1px solid var(--line)}
+.ticker .lbl{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.ticker .val{font-weight:600}
+.ticker .dot{width:8px;height:8px;border-radius:50%;background:var(--sage);flex-shrink:0}
+.ticker:hover .track{animation-play-state:paused}
+@keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@media(prefers-reduced-motion:reduce){.ticker .track{animation:none}}
 main{width:min(100%,760px);margin:auto;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 18px;gap:22px}
 .orb-wrap{position:relative;width:clamp(140px,42vw,200px);height:clamp(140px,42vw,200px);margin:6px 0}.orb{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 35% 30%,#F3D9C6,var(--clay) 70%,#A44E2B);box-shadow:0 20px 60px -20px #c4623a80;animation:breathe 4s ease-in-out infinite;transition:background .4s}.orb.listening{background:radial-gradient(circle at 35% 30%,#FBE3D2,#D9663A 70%,#B4502A);animation:pulse .9s ease-in-out infinite}.orb.thinking{background:radial-gradient(circle at 35% 30%,#E4EBE4,var(--sage) 70%,#5F7D68);animation:spin 2.4s linear infinite}.orb.speaking{background:radial-gradient(circle at 35% 30%,#F8EBD8,#D9A441 70%,#B9832A);animation:pulse .5s ease-in-out infinite alternate}.ring{position:absolute;inset:-15px;border-radius:50%;border:1.5px dashed var(--sand);animation:spin 30s linear infinite}@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}@keyframes spin{to{transform:rotate(360deg)}}
 .state{font-size:14px;color:var(--muted);min-height:20px;text-align:center}.mic{width:68px;height:68px;border-radius:50%;border:0;cursor:pointer;background:var(--ink);color:var(--card);display:grid;place-items:center;transition:transform .2s,background .2s}.mic:hover{transform:scale(1.05)}.mic.on{background:var(--clay)}button:focus-visible,input:focus-visible{outline:2px solid var(--clay);outline-offset:3px}
@@ -22,7 +32,24 @@ form{width:100%;max-width:620px;display:flex;gap:9px}input{flex:1;min-width:0;pa
 </head>
 <body>
 <header><div class="brand">Mira<span>.</span></div><div class="status"><span class="dot" id="dot"></span><span id="statusText">Arayüz hazır</span></div></header>
-<div class="notice">Sesli arayüz önizlemesi · YouTube/Google durumları ve otomasyon henüz bu ekrana bağlanmadı.</div>
+<div class="ticker" aria-label="Kayan durum bilgisi">
+  <div class="track">
+    <div class="set">
+      <div class="item"><span class="dot"></span><span class="lbl">Mira</span><span class="val">Sesli asistan arayüzü</span></div>
+      <div class="item"><span class="lbl">Durum</span><span class="val">Önizleme</span></div>
+      <div class="item"><span class="lbl">YouTube</span><span class="val">Henüz bağlanmadı</span></div>
+      <div class="item"><span class="lbl">Google</span><span class="val">Henüz bağlanmadı</span></div>
+      <div class="item"><span class="lbl">Otomasyon</span><span class="val">Mevcut akışa dokunulmadı</span></div>
+    </div>
+    <div class="set" aria-hidden="true">
+      <div class="item"><span class="dot"></span><span class="lbl">Mira</span><span class="val">Sesli asistan arayüzü</span></div>
+      <div class="item"><span class="lbl">Durum</span><span class="val">Önizleme</span></div>
+      <div class="item"><span class="lbl">YouTube</span><span class="val">Henüz bağlanmadı</span></div>
+      <div class="item"><span class="lbl">Google</span><span class="val">Henüz bağlanmadı</span></div>
+      <div class="item"><span class="lbl">Otomasyon</span><span class="val">Mevcut akışa dokunulmadı</span></div>
+    </div>
+  </div>
+</div>
 <main>
   <div class="orb-wrap"><div class="ring"></div><div class="orb" id="orb"></div></div>
   <div class="state" id="state">Mikrofona dokunup konuşun</div>
