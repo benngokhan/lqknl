@@ -102,12 +102,15 @@ export async function POST(req: Request) {
   const jobs = await db.select().from(youtubeUploadJobs);
   const byDriveId = new Map(jobs.map((job) => [job.driveFileId, job]));
   const targetWindow = 2 * 60_000;
+  // Explicit immediate test runs may skip a previously booked slot and select the next
+  // numbered Shorts file. This does not re-select video_11 or any uncertain/active job.
+  const forceNextImmediate = mode === "immediate" && slot !== "long";
   const slotAlreadyBooked = jobs.find((job) =>
     job.publishAt &&
     Math.abs(job.publishAt.getTime() - publishAt.getTime()) <= targetWindow &&
     ["uploading", "completed", "needs_review"].includes(job.status)
   );
-  if (slotAlreadyBooked) {
+  if (slotAlreadyBooked && !forceNextImmediate) {
     return NextResponse.json({
       ok: true, skipped: true, reason: "Bu yayın saati için zaten bir Drive yükleme işi kayıtlı; ikinci yükleme engellendi.",
       slot, fileName: slotAlreadyBooked.driveFileName, publishAt: slotAlreadyBooked.publishAt?.toISOString(),
@@ -115,12 +118,15 @@ export async function POST(req: Request) {
     });
   }
 
-  const minimumIndex = slot === "long" ? 3 : 6;
+  const minimumIndex = slot === "long" ? 3 : (forceNextImmediate ? 12 : 6);
   const candidates = videoFiles.filter((item) => {
-    if (filenameIndex(item.name, slot === "long" ? "long" : "short") < minimumIndex) return false;
+    const index = filenameIndex(item.name, slot === "long" ? "long" : "short");
+    if (index < minimumIndex) return false;
+    // During an immediate Shorts test, move past the previously problematic video_11.
+    if (forceNextImmediate && item.name.toLowerCase() === "video_11.mp4") return false;
     const job = byDriveId.get(item.id);
     if (!job) return true;
-    // Completed, active or uncertain jobs are never selected a second time.
+    // Never select completed, active, uncertain, or resumable jobs—even in test mode.
     return !["completed", "uploading", "needs_review"].includes(job.status) && !job.uploadSessionUrl;
   });
   if (!candidates.length) {
