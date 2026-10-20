@@ -1,8 +1,11 @@
 name: Mira Drive-to-YouTube Schedule
-# Manual dispatch is enabled; keep this workflow on the repository's default branch.
 
 on:
-  # Scheduled execution is handled by Railway Cron; GitHub Actions remains manual-only.
+  # GitHub Actions replaces the deleted Railway Cron. Times are UTC.
+  # 09:00 UTC = 12:00 Türkiye; 17:00 UTC = 20:00 Türkiye.
+  schedule:
+    - cron: "0 9 * * *"
+    - cron: "0 17 * * *"
   workflow_dispatch:
     inputs:
       slot:
@@ -15,7 +18,7 @@ on:
           - shorts-evening
           - long
       mode:
-        description: "scheduled (upload privately for scheduled publication) or immediate (publish publicly now, without comments, then notify)"
+        description: "scheduled uploads privately for automatic publication; immediate publishes publicly now"
         required: true
         default: scheduled
         type: choice
@@ -42,21 +45,25 @@ jobs:
           MANUAL_SLOT: ${{ inputs.slot }}
           MANUAL_MODE: ${{ inputs.mode }}
         run: |
-          if [[ "$EVENT_SCHEDULE" == "10 10 * * *" ]]; then
+          if [[ "$EVENT_SCHEDULE" == "0 9 * * *" ]]; then
             echo "slot=shorts-noon" >> "$GITHUB_OUTPUT"
             echo "mode=scheduled" >> "$GITHUB_OUTPUT"
-          elif [[ "$EVENT_SCHEDULE" == "30 13 * * *" ]]; then
-            echo "slot=shorts-afternoon" >> "$GITHUB_OUTPUT"
-            echo "mode=scheduled" >> "$GITHUB_OUTPUT"
-          elif [[ "$EVENT_SCHEDULE" == "30 17 * * *" ]]; then
+          elif [[ "$EVENT_SCHEDULE" == "0 17 * * *" ]]; then
             echo "slot=shorts-evening" >> "$GITHUB_OUTPUT"
-            echo "mode=scheduled" >> "$GITHUB_OUTPUT"
-          elif [[ "$EVENT_SCHEDULE" == "00 15 * * *" ]]; then
-            echo "slot=long" >> "$GITHUB_OUTPUT"
             echo "mode=scheduled" >> "$GITHUB_OUTPUT"
           else
             echo "slot=$MANUAL_SLOT" >> "$GITHUB_OUTPUT"
             echo "mode=${MANUAL_MODE:-scheduled}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate required secret
+        env:
+          MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
+        shell: bash
+        run: |
+          if [[ -z "$MIRA_AUTOMATION_SECRET" ]]; then
+            echo "::error::GitHub Actions secret MIRA_AUTOMATION_SECRET is not configured."
+            exit 1
           fi
 
       - name: Call authenticated Mira scheduler
@@ -67,10 +74,6 @@ jobs:
           MODE: ${{ steps.slot.outputs.mode }}
         shell: bash
         run: |
-          if [[ -z "$MIRA_AUTOMATION_SECRET" ]]; then
-            echo "::error::GitHub Actions secret MIRA_AUTOMATION_SECRET is not configured."
-            exit 1
-          fi
           response_file="$(mktemp)"
           status="$(curl --silent --show-error --max-time 290 \
             -o "$response_file" -w "%{http_code}" \
