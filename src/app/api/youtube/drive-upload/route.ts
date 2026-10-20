@@ -352,7 +352,7 @@ export async function POST(req: Request) {
         commentResult = { added: true, commentId: result.commentId };
         // Notify only after YouTube confirms that the comment was actually created.
         const notice = await sendTelegramMessage(
-          `💬 Video altına yorum atıldı, sabitlemek için tıkla: https://www.youtube.com/watch?v=${uploaded.videoId}`,
+          `🚀 YOUTUBE SHORTS CANLI YAYINDA! 🎬\n📦 Dosya: ${fileName}\n✅ Durum: Herkese Açık (Public)\n💬 Yorum Eklendi! (Studio'dan sabitlemeyi unutma)\n🔗 İzle & Sabitle: https://www.youtube.com/shorts/${uploaded.videoId}`,
         );
         telegramNotification = notice.sent
           ? { sent: true }
