@@ -132,7 +132,9 @@ export async function POST(req: Request) {
   const response = await fetch(`${origin}/api/youtube/drive-upload`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-mira-key": secret },
-    body: JSON.stringify({ confirm: true, fileName: file.name, publishAt: publishAt.toISOString() }),
+    body: JSON.stringify(mode === "immediate"
+      ? { confirm: true, fileName: file.name, publishNow: true }
+      : { confirm: true, fileName: file.name, publishAt: publishAt.toISOString() }),
     cache: "no-store",
     signal: AbortSignal.timeout(260_000),
   });
