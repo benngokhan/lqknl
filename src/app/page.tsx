@@ -1531,32 +1531,32 @@ export default function Home() {
             </div>
           )}
           {videoProgress && (
-            <div className={`mt-3 rounded-xl border p-3 sm:p-4 ${videoProgress.status === 'failed' ? 'border-red-400/40 bg-red-950/20' : videoProgress.status === 'success' ? 'border-emerald-400/30 bg-emerald-950/15' : 'border-sky-400/30 bg-slate-950/80'}`} role="status" aria-live="polite">
+            <div className={`mt-3 rounded-xl border p-3 sm:p-4 ${videoProgress!.status === 'failed' ? 'border-red-400/40 bg-red-950/20' : videoProgress!.status === 'success' ? 'border-emerald-400/30 bg-emerald-950/15' : 'border-sky-400/30 bg-slate-950/80'}`} role="status" aria-live="polite">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-[11px] uppercase tracking-wider text-slate-400">Video üretim monitörü · #{videoProgress.contentId}</p>
-                  <h3 className="mt-1 break-words text-sm font-semibold text-white">{videoProgress.title}</h3>
-                  <p className="mt-1 text-xs text-slate-300">{videoProgress.stage}</p>
+                  <p className="text-[11px] uppercase tracking-wider text-slate-400">Video üretim monitörü · #{videoProgress!.contentId}</p>
+                  <h3 className="mt-1 break-words text-sm font-semibold text-white">{videoProgress!.title}</h3>
+                  <p className="mt-1 text-xs text-slate-300">{videoProgress!.stage}</p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${videoProgress.status === 'failed' ? 'bg-red-400/15 text-red-300' : videoProgress.status === 'success' ? 'bg-emerald-400/15 text-emerald-300' : 'bg-sky-400/15 text-sky-200'}`}>
-                    {videoProgress.status === 'failed' ? 'Hata' : videoProgress.status === 'success' ? 'Tamamlandı' : videoProgress.status === 'waiting' ? 'Bekliyor' : 'Çalışıyor'}
+                  <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${videoProgress!.status === 'failed' ? 'bg-red-400/15 text-red-300' : videoProgress!.status === 'success' ? 'bg-emerald-400/15 text-emerald-300' : 'bg-sky-400/15 text-sky-200'}`}>
+                    {videoProgress!.status === 'failed' ? 'Hata' : videoProgress!.status === 'success' ? 'Tamamlandı' : videoProgress!.status === 'waiting' ? 'Bekliyor' : 'Çalışıyor'}
                   </span>
-                  <p className={`mt-2 text-xl font-bold tabular-nums ${videoProgress.status === 'failed' ? 'text-red-300' : videoProgress.status === 'success' ? 'text-emerald-300' : 'text-sky-200'}`}>{videoProgress.percentage}%</p>
+                  <p className={`mt-2 text-xl font-bold tabular-nums ${videoProgress!.status === 'failed' ? 'text-red-300' : videoProgress!.status === 'success' ? 'text-emerald-300' : 'text-sky-200'}`}>{videoProgress!.percentage}%</p>
                 </div>
               </div>
               <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-slate-800">
-                <div className={`h-full rounded-full transition-all duration-500 ${videoProgress.status === 'failed' ? 'bg-red-400' : videoProgress.status === 'success' ? 'bg-emerald-400' : 'bg-sky-400'}`} style={{ width: `${videoProgress.percentage}%` }} />
+                <div className={`h-full rounded-full transition-all duration-500 ${videoProgress!.status === 'failed' ? 'bg-red-400' : videoProgress!.status === 'success' ? 'bg-emerald-400' : 'bg-sky-400'}`} style={{ width: `${videoProgress!.percentage}%` }} />
               </div>
               <p className="mt-2 text-[11px] text-slate-500">Aşamalar sunucudan düzenli okunur. Başarısız aşamalar kaydedilir; yeniden deneme önceki kayıtlı görsel ve ses dosyalarını kullanır.</p>
-              {(videoProgress.status === 'waiting' || videoProgress.status === 'failed') && (
+              {(videoProgress!.status === 'waiting' || videoProgress!.status === 'failed') && (
                 <button
                   type="button"
-                  onClick={() => void resumeVideoProduction(videoProgress.contentId, videoProgress.title)}
+                  onClick={() => void resumeVideoProduction(videoProgress!.contentId, videoProgress!.title)}
                   disabled={reviewBusyId !== null}
                   className="mt-3 w-full rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-200 hover:bg-amber-500/20 disabled:opacity-50"
                 >
-                  {reviewBusyId === videoProgress.contentId ? 'Devam ediliyor…' : 'Kaldığı yerden yeniden dene'}
+                  {reviewBusyId === videoProgress!.contentId ? 'Devam ediliyor…' : 'Kaldığı yerden yeniden dene'}
                 </button>
               )}
               <div className="mt-4 border-t border-slate-700 pt-3">
