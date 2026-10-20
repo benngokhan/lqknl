@@ -4,10 +4,10 @@ name: Mira Drive-to-YouTube Schedule
 on:
   schedule:
     # Europe/Istanbul (UTC+03): 12:30 daily, 16:30 only on non-long days, evening 20:30 normally / 21:00 on long-video days, long video 18:00 every other day.
-    - cron: "23 9 * * *"
-    - cron: "23 13 * * *"
-    - cron: "23 17 * * *"
-    - cron: "53 14 * * *"
+    - cron: "30 13 * * *"
+    - cron: "30 13 * * *"
+    - cron: "30 17 * * *"
+    - cron: "00 15 * * *"
   workflow_dispatch:
     inputs:
       slot:
@@ -47,16 +47,16 @@ jobs:
           MANUAL_SLOT: ${{ inputs.slot }}
           MANUAL_MODE: ${{ inputs.mode }}
         run: |
-          if [[ "$EVENT_SCHEDULE" == "23 9 * * *" ]]; then
+          if [[ "$EVENT_SCHEDULE" == "30 13 * * *" ]]; then
             echo "slot=shorts-noon" >> "$GITHUB_OUTPUT"
             echo "mode=scheduled" >> "$GITHUB_OUTPUT"
-          elif [[ "$EVENT_SCHEDULE" == "23 13 * * *" ]]; then
+          elif [[ "$EVENT_SCHEDULE" == "30 13 * * *" ]]; then
             echo "slot=shorts-afternoon" >> "$GITHUB_OUTPUT"
             echo "mode=scheduled" >> "$GITHUB_OUTPUT"
-          elif [[ "$EVENT_SCHEDULE" == "23 17 * * *" ]]; then
+          elif [[ "$EVENT_SCHEDULE" == "30 17 * * *" ]]; then
             echo "slot=shorts-evening" >> "$GITHUB_OUTPUT"
             echo "mode=scheduled" >> "$GITHUB_OUTPUT"
-          elif [[ "$EVENT_SCHEDULE" == "53 14 * * *" ]]; then
+          elif [[ "$EVENT_SCHEDULE" == "00 15 * * *" ]]; then
             echo "slot=long" >> "$GITHUB_OUTPUT"
             echo "mode=scheduled" >> "$GITHUB_OUTPUT"
           else
