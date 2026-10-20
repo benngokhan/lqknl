@@ -1201,18 +1201,6 @@ export default function Home() {
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain my-3 sm:my-4 space-y-4 pr-1 sm:pr-2 pb-2">
-                <section className="flex h-10 min-w-0 items-center gap-2 rounded-lg border border-emerald-500/30 bg-slate-800/90 px-3" aria-label="YouTube güncel yayın bandı" aria-live="polite">
-          <span className="shrink-0 text-[10px] font-bold tracking-wide text-emerald-300">● YOUTUBE</span>
-          <span className="shrink-0 border-l border-slate-600 pl-2 text-[10px] font-semibold text-sky-300">{publicationTickerItem?.label || (latestPublicationLoading ? 'GÜNCELLENİYOR' : 'YAYIN AKIŞI')}</span>
-          <div className="min-w-0 flex-1 truncate text-xs text-slate-100">
-            {publicationTickerItem?.url ? (
-              <a href={publicationTickerItem.url} target="_blank" rel="noopener noreferrer" className="block truncate hover:text-sky-200">{publicationTickerItem.text}</a>
-            ) : (
-              <span className="block truncate">{publicationTickerItem?.text || latestPublicationError || 'YouTube yayın bilgisi bekleniyor…'}</span>
-            )}
-          </div>
-          <span className="shrink-0 text-[10px] text-slate-500">{publicationTickerItems.length ? ((publicationTickerIndex % publicationTickerItems.length) + 1) + '/' + publicationTickerItems.length : '···'}</span>
-        </section>
         {false && taskCenterOpen && (
           <section className="rounded-xl border border-sky-400/40 bg-slate-800/95 p-3 sm:p-4 space-y-3" aria-label="Görev Merkezi taslak yönetimi">
             <div className="flex flex-wrap items-center justify-between gap-2">
