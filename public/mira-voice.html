@@ -10,7 +10,7 @@
 <style>
 :root{--paper:#F6F1E7;--card:#FFFDF8;--ink:#22201C;--muted:#8A8273;--line:#E6DDCB;--clay:#C4623A;--sage:#7E9C86;--sand:#E9D9BC;color-scheme:light}
 *{box-sizing:border-box}html,body{min-height:100%;margin:0}body{min-height:100dvh;background:var(--paper);color:var(--ink);font-family:'DM Sans',system-ui,sans-serif;padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left);display:flex;flex-direction:column}
-header{position:sticky;top:0;z-index:2;background:var(--paper);display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line)}.brand{font-family:'Fraunces',Georgia,serif;font-size:25px;font-weight:600}.brand span{color:var(--clay)}.status{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}.dot{width:8px;height:8px;border-radius:50%;background:var(--sage)}
+header{position:sticky;top:0;z-index:2;background:var(--paper);display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;min-width:0}.brand img{display:block;width:min(250px,55vw);height:auto;max-height:58px;object-fit:contain;object-position:left center}.status{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}.dot{width:8px;height:8px;border-radius:50%;background:var(--sage)}
 .ticker{margin:14px 18px 0;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;white-space:nowrap;padding:10px 0;font-size:12px}
 .ticker .track{display:inline-flex;width:max-content;animation:tick 28s linear infinite}
 .ticker .set{display:inline-flex;align-items:center;flex-shrink:0}
@@ -36,7 +36,7 @@ form{width:100%;max-width:620px;display:flex;gap:9px}input{flex:1;min-width:0;pa
 </style>
 </head>
 <body>
-<header><div class="brand">Mira<span>.</span></div><div class="status"><span class="dot" id="dot"></span><span id="statusText">Arayüz hazır</span></div></header>
+<header><div class="brand"><img src="/mira-logo.svg" alt="Mira AI Agent"></div><div class="status"><span class="dot" id="dot"></span><span id="statusText">Arayüz hazır</span></div></header>
 <div class="ticker" aria-label="Canlı sistem durumları">
   <div class="track">
     <div class="set" id="tickerPrimary">
