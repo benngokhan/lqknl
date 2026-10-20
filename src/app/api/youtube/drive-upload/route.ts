@@ -36,7 +36,7 @@ export async function POST(req: Request) {
   const requestedTags = Array.isArray(body.tags) ? body.tags.filter((tag): tag is string => typeof tag === "string").map((tag) => tag.trim()).filter(Boolean).slice(0, 30) : undefined;
   const requestedComment = typeof body.comment === "string" ? body.comment.trim() : undefined;
   // Automatic YouTube comments are disabled globally by user preference.
-  const disableComment = true;
+  const disableComment = body.disableComment === true;
   const publishNow = body.publishNow === true;
   const publishAt = typeof body.publishAt === "string" ? body.publishAt.trim() : "";
 
@@ -350,7 +350,7 @@ export async function POST(req: Request) {
         commentResult = { added: true, commentId: result.commentId };
         // Notify only after YouTube confirms that the comment was actually created.
         const notice = await sendTelegramMessage(
-          `💬 Yorum atıldı, lütfen sabitle.\n\nVideo: ${title}\nDosya: ${fileName}\nYayın durumu: ${publishNow ? "hemen herkese açık" : effectiveScheduledDate.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}\nYouTube: ${uploaded.url}\n\nYorum metni:\n${comment}`,
+          `💬 Video altına yorum atıldı, sabitlemek için tıkla: https://www.youtube.com/watch?v=${uploaded.videoId}`,
         );
         telegramNotification = notice.sent
           ? { sent: true }
