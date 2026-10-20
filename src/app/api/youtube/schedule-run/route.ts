@@ -77,8 +77,8 @@ export async function POST(req: Request) {
     date = dateKey(istanbulDateParts(publishAt));
   } else {
     const today = dateKey(istanbulDateParts(now));
-    if (today < "2026-10-23") {
-      return NextResponse.json({ ok: true, skipped: true, reason: "Otomasyon başlangıcı 23 Ekim 2026; planlı yayın yapılmadı.", slot, startsOn: "2026-10-23" });
+    if (today < "2026-10-20") {
+      return NextResponse.json({ ok: true, skipped: true, reason: "Otomasyon başlangıcı 23 Ekim 2026; planlı yayın yapılmadı.", slot, startsOn: "2026-10-20" });
     }
     if (slot === "long" && !isLongVideoDay(today)) {
       return NextResponse.json({ ok: true, skipped: true, reason: "Uzun video yalnızca iki günde bir planlanır.", slot, date: today });
