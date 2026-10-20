@@ -35,7 +35,8 @@ export async function POST(req: Request) {
   const requestedDescription = typeof body.description === "string" ? body.description.trim() : "";
   const requestedTags = Array.isArray(body.tags) ? body.tags.filter((tag): tag is string => typeof tag === "string").map((tag) => tag.trim()).filter(Boolean).slice(0, 30) : undefined;
   const requestedComment = typeof body.comment === "string" ? body.comment.trim() : undefined;
-  const disableComment = body.disableComment === true;
+  // Automatic YouTube comments are disabled globally by user preference.
+  const disableComment = true;
   const publishNow = body.publishNow === true;
   const publishAt = typeof body.publishAt === "string" ? body.publishAt.trim() : "";
 
