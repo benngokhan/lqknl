@@ -3,8 +3,8 @@ name: Mira Drive-to-YouTube Schedule
 
 on:
   schedule:
-    # Europe/Istanbul (UTC+03): temporary 12:40 trigger, 16:30, evening 20:30, long video 18:00.
-    - cron: "40 9 * * *"
+    # Europe/Istanbul (UTC+03): temporary 13:10 trigger, 16:30, evening 20:30, long video 18:00.
+    - cron: "10 10 * * *"
     - cron: "30 13 * * *"
     - cron: "30 17 * * *"
     - cron: "00 15 * * *"
@@ -47,7 +47,7 @@ jobs:
           MANUAL_SLOT: ${{ inputs.slot }}
           MANUAL_MODE: ${{ inputs.mode }}
         run: |
-          if [[ "$EVENT_SCHEDULE" == "40 9 * * *" ]]; then
+          if [[ "$EVENT_SCHEDULE" == "10 10 * * *" ]]; then
             echo "slot=shorts-noon" >> "$GITHUB_OUTPUT"
             echo "mode=scheduled" >> "$GITHUB_OUTPUT"
           elif [[ "$EVENT_SCHEDULE" == "30 13 * * *" ]]; then
@@ -82,7 +82,7 @@ jobs:
             -X POST "${MIRA_BASE_URL}/api/youtube/schedule-run" \
             -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" \
             -H "Content-Type: application/json" \
-            -d "{\"confirm\":true,\"slot\":\"${SLOT}\",\"mode\":\"${MODE}\"}" || true)"
+            -d "{\"confirm\":true,\"slot\":\"$SLOT\",\"mode\":\"$MODE\"}" || true)"
           cat "$response_file"
           if [[ "$status" != "200" ]]; then
             echo "::error::Mira schedule endpoint returned HTTP $status"
