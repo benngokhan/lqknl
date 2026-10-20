@@ -2,12 +2,7 @@ name: Mira Drive-to-YouTube Schedule
 # Manual dispatch is enabled; keep this workflow on the repository's default branch.
 
 on:
-  schedule:
-    # Europe/Istanbul (UTC+03): temporary 13:10 trigger, 16:30, evening 20:30, long video 18:00.
-    - cron: "10 10 * * *"
-    - cron: "30 13 * * *"
-    - cron: "30 17 * * *"
-    - cron: "00 15 * * *"
+  # Scheduled execution is handled by Railway Cron; GitHub Actions remains manual-only.
   workflow_dispatch:
     inputs:
       slot:
