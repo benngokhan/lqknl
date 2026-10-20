@@ -25,9 +25,12 @@ export async function GET(req: Request) {
         .limit(50),
     ]);
 
-    const lastPublished = channel.videos
-      .filter((video) => video.privacyStatus === "public" && video.publishedAt)
+    const publicVideos = channel.videos.filter((video) => video.privacyStatus === "public" && video.publishedAt);
+    const lastPublished = publicVideos
       .sort((a, b) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime())[0] || null;
+    const mostViewed = publicVideos
+      .slice()
+      .sort((a, b) => b.viewCount - a.viewCount)[0] || null;
 
     const now = Date.now();
     const scheduledJobs = jobs
@@ -42,6 +45,11 @@ export async function GET(req: Request) {
         title: lastPublished.title,
         publishedAt: lastPublished.publishedAt,
         url: lastPublished.url,
+      } : null,
+      mostViewed: mostViewed ? {
+        title: mostViewed.title,
+        viewCount: mostViewed.viewCount,
+        url: mostViewed.url,
       } : null,
       nextScheduled: nextScheduledJob ? {
         title: nextScheduledJob.title,
