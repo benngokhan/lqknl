@@ -5,6 +5,13 @@ import { useSpeaker } from '@/components/useSpeaker';
 
 type IntegrationStatus = { status: "online" | "offline" | "unknown"; detail: string };
 interface IntegrationHealth { checkedAt: string; drive: IntegrationStatus; youtube: IntegrationStatus }
+interface LatestPublicationData {
+  ok: boolean;
+  error?: string;
+  checkedAt?: string;
+  lastPublished: { title: string; publishedAt: string; url: string } | null;
+  nextScheduled: { title: string; publishAt: string; url: string; fileName: string } | null;
+}
 
 interface Message {
   role: 'user' | 'assistant';
@@ -204,6 +211,9 @@ export default function Home() {
   const [entered, setEntered] = useState(false);
   const [integrationHealth, setIntegrationHealth] = useState<IntegrationHealth | null>(null);
   const [integrationHealthError, setIntegrationHealthError] = useState(false);
+  const [latestPublication, setLatestPublication] = useState<LatestPublicationData | null>(null);
+  const [latestPublicationLoading, setLatestPublicationLoading] = useState(false);
+  const [latestPublicationError, setLatestPublicationError] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -274,6 +284,21 @@ export default function Home() {
     }
   }
 
+  async function loadLatestPublication() {
+    setLatestPublicationLoading(true);
+    setLatestPublicationError('');
+    try {
+      const res = await fetch('/api/youtube/last-publication', { cache: 'no-store' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || data?.ok !== true) throw new Error(data?.error || `YouTube yayın bilgisi alınamadı (HTTP ${res.status}).`);
+      setLatestPublication(data as LatestPublicationData);
+    } catch (error) {
+      setLatestPublicationError(error instanceof Error ? error.message : 'YouTube yayın bilgisi alınamadı.');
+    } finally {
+      setLatestPublicationLoading(false);
+    }
+  }
+
   async function runDraftAnalysis() {
     if (analysisRunLoading) return;
     setAnalysisRunLoading(true);
@@ -296,7 +321,6 @@ export default function Home() {
       setAnalysisRunLoading(false);
     }
   }
-
 
   const progressPollingIds = useRef<Set<number>>(new Set());
 
@@ -894,6 +918,7 @@ export default function Home() {
     void loadAnalysis();
     void loadReadyVideos();
     void loadManualQueue();
+    void loadLatestPublication();
     return () => { active = false; };
   }, [entered]);
 
@@ -1176,6 +1201,35 @@ export default function Home() {
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain my-3 sm:my-4 space-y-4 pr-1 sm:pr-2 pb-2">
+        <section className="rounded-xl border border-emerald-500/30 bg-slate-800/90 p-3 sm:p-4 space-y-3" aria-label="Son YouTube yayınları">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-white">YouTube · Son yayın</h2>
+            <button type="button" onClick={() => void loadLatestPublication()} disabled={latestPublicationLoading} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50">
+              {latestPublicationLoading ? 'Kontrol ediliyor…' : 'Yenile'}
+            </button>
+          </div>
+          {latestPublicationError && <p className="text-xs text-red-300" role="alert">{latestPublicationError}</p>}
+          {latestPublicationLoading && !latestPublication && <p className="text-xs text-slate-400">YouTube kanalındaki yayınlar kontrol ediliyor…</p>}
+          {latestPublication?.lastPublished ? (
+            <div className="rounded-lg border border-emerald-500/20 bg-slate-950/60 p-3">
+              <p className="text-[11px] uppercase tracking-wide text-emerald-300">Son herkese açık video</p>
+              <p className="mt-1 break-words text-sm font-medium text-white">{latestPublication.lastPublished.title}</p>
+              <p className="mt-1 text-xs text-slate-400">Yayın tarihi: {new Date(latestPublication.lastPublished.publishedAt).toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+              <a href={latestPublication.lastPublished.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-sky-300 underline underline-offset-2 hover:text-sky-200">YouTube videosunu aç ↗</a>
+            </div>
+          ) : latestPublication && !latestPublicationLoading && !latestPublicationError ? (
+            <p className="text-xs text-slate-400">Kanalda herkese açık video bulunamadı.</p>
+          ) : null}
+          {latestPublication?.nextScheduled && (
+            <div className="rounded-lg border border-sky-500/20 bg-slate-950/50 p-3">
+              <p className="text-[11px] uppercase tracking-wide text-sky-300">Sıradaki planlı video</p>
+              <p className="mt-1 break-words text-sm font-medium text-white">{latestPublication.nextScheduled.title}</p>
+              <p className="mt-1 text-xs text-slate-400">Planlanan zaman: {new Date(latestPublication.nextScheduled.publishAt).toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+              <a href={latestPublication.nextScheduled.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-sky-300 underline underline-offset-2 hover:text-sky-200">YouTube bağlantısını aç ↗</a>
+            </div>
+          )}
+          <p className="text-[10px] text-slate-500">Son yayın YouTube kanalından okunur; planlanan video ayrı gösterilir.</p>
+        </section>
         {taskCenterOpen && (
           <section className="rounded-xl border border-sky-400/40 bg-slate-800/95 p-3 sm:p-4 space-y-3" aria-label="Görev Merkezi taslak yönetimi">
             <div className="flex flex-wrap items-center justify-between gap-2">
