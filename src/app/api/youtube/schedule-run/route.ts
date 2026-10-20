@@ -127,7 +127,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, exhausted: true, error: "Bu sırada yüklenebilecek yeni ve güvenli bir Drive videosu bulunamadı.", slot, minimumIndex }, { status: 409 });
   }
 
-  const origin = new URL(req.url).origin;
+  // Dry-run checks Drive/DB candidate selection without uploading or publishing.
+  if (body.dryRun === true) {
+    return NextResponse.json({
+      ok: true,
+      dryRun: true,
+      slot,
+      mode,
+      candidateCount: candidates.length,
+      selectedFileName: candidates[0]?.name || null,
+      duplicateSkips: [],
+      note: "Drive ve veritabanı seçimi doğrulandı; bu test turunda YouTube yüklemesi yapılmadı.",
+    });
+  }
+
+  // Internal service-to-self requests must use the local HTTP listener, not Railway public HTTPS.
+  const origin = `http://127.0.0.1:${process.env.PORT || "8080"}`;
   const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
   const duplicateSkips: Array<{ fileName: string; reason: string }> = [];
   for (const file of candidates) {
