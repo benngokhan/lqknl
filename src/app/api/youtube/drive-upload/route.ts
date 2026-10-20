@@ -35,8 +35,6 @@ export async function POST(req: Request) {
   const requestedDescription = typeof body.description === "string" ? body.description.trim() : "";
   const requestedTags = Array.isArray(body.tags) ? body.tags.filter((tag): tag is string => typeof tag === "string").map((tag) => tag.trim()).filter(Boolean).slice(0, 30) : undefined;
   const requestedComment = typeof body.comment === "string" ? body.comment.trim() : undefined;
-  // Automatic YouTube comments are disabled globally by user preference.
-  const disableComment = body.disableComment === true;
   const publishNow = body.publishNow === true;
   const publishAt = typeof body.publishAt === "string" ? body.publishAt.trim() : "";
 
@@ -94,7 +92,7 @@ export async function POST(req: Request) {
     let title = requestedTitle || driveMetadata.title;
     let description = requestedDescription || driveMetadata.description;
     let tags = requestedTags ?? driveMetadata.tags;
-    let comment = disableComment ? "" : (requestedComment ?? driveMetadata.pinnedComment);
+    let comment = requestedComment ?? driveMetadata.pinnedComment;
 
     if (!title || title.length > 100) {
       return NextResponse.json({ ok: false, error: "Başlık istekte veya baslik.xlsx içindeki eşleşen satırda bulunmalı ve 1–100 karakter olmalı." }, { status: 400 });
@@ -102,6 +100,10 @@ export async function POST(req: Request) {
     if (description.length > 4900) return NextResponse.json({ ok: false, error: "Açıklama 4.900 karakteri aşamaz." }, { status: 400 });
     if (tags.some((tag) => tag.length > 100) || tags.join(",").length > 500) {
       return NextResponse.json({ ok: false, error: "Etiket sınırları aşılıyor: her etiket en fazla 100, ayraçlarla toplam 500 karakter olabilir." }, { status: 400 });
+    }
+
+    if (!comment) {
+      return NextResponse.json({ ok: false, error: "baslik.xlsx içindeki Sabit Yorum boş; yorum eklenemeyeceği için video yüklemesi başlatılmadı." }, { status: 422 });
     }
 
     const [existingJob] = await db.select().from(youtubeUploadJobs)
@@ -124,7 +126,7 @@ export async function POST(req: Request) {
       title = existingJob.title;
       if (typeof saved.description === "string") description = saved.description;
       if (Array.isArray(saved.tags)) tags = saved.tags.filter((tag): tag is string => typeof tag === "string");
-      if (!disableComment && typeof saved.comment === "string") comment = saved.comment;
+      if (typeof saved.comment === "string") comment = saved.comment;
       if (!publishNow && existingJob.publishAt) effectiveScheduledDate = existingJob.publishAt;
     }
 
@@ -342,7 +344,7 @@ export async function POST(req: Request) {
       sessionPersisted = false;
     }
 
-    let commentResult: { added: boolean; commentId?: string; error?: string } = { added: false, error: disableComment ? "Otomasyon ayarı gereği yorum atlanıyor." : "Yorum metni verilmedi." };
+    let commentResult: { added: boolean; commentId?: string; error?: string } = { added: false, error: "Yorum metni verilmedi." };
     let telegramNotification: { sent: boolean; reason?: string; error?: string } = { sent: false, reason: "Bildirim henüz gönderilmedi." };
     if (comment) {
       try {
@@ -364,16 +366,6 @@ export async function POST(req: Request) {
           ? { sent: true }
           : { sent: false, reason: notice.reason, error: notice.error };
       }
-    } else if (disableComment) {
-      const publishDescription = publishNow
-        ? "hemen herkese açık yayımlandı"
-        : `planlandı: ${effectiveScheduledDate.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}`;
-      const notice = await sendTelegramMessage(
-        `📅 Mira video yayınını planladı.\n\nVideo: ${title}\nDosya: ${fileName}\nDurum: ${publishDescription}\nYouTube: ${uploaded.url}`,
-      );
-      telegramNotification = notice.sent
-        ? { sent: true }
-        : { sent: false, reason: notice.reason, error: notice.error };
     } else {
       const notice = await sendTelegramMessage(
         `⚠️ Video ${publishNow ? "herkese açık yayımlandı" : "yüklendi ve planlandı"} ancak baslik.xlsx içinde yorum metni bulunamadı.\n\nVideo: ${title}\nDosya: ${fileName}\nYouTube: ${uploaded.url}`,
