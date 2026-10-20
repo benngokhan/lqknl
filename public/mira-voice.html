@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mira • Sesli Arayüz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#F6F1E7;--card:#FFFDF8;--ink:#22201C;--muted:#8A8273;--line:#E6DDCB;--clay:#C4623A;--sage:#7E9C86;--sand:#E9D9BC;color-scheme:light}
+*{box-sizing:border-box}html,body{min-height:100%;margin:0}body{min-height:100dvh;background:var(--paper);color:var(--ink);font-family:'DM Sans',system-ui,sans-serif;padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left);display:flex;flex-direction:column}
+header{position:sticky;top:0;z-index:2;background:var(--paper);display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line)}.brand{font-family:'Fraunces',Georgia,serif;font-size:25px;font-weight:600}.brand span{color:var(--clay)}.status{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}.dot{width:8px;height:8px;border-radius:50%;background:var(--sage)}
+.notice{margin:14px 18px 0;padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);font-size:12px;color:var(--muted);text-align:center}
+main{width:min(100%,760px);margin:auto;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 18px;gap:22px}
+.orb-wrap{position:relative;width:clamp(140px,42vw,200px);height:clamp(140px,42vw,200px);margin:6px 0}.orb{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 35% 30%,#F3D9C6,var(--clay) 70%,#A44E2B);box-shadow:0 20px 60px -20px #c4623a80;animation:breathe 4s ease-in-out infinite;transition:background .4s}.orb.listening{background:radial-gradient(circle at 35% 30%,#FBE3D2,#D9663A 70%,#B4502A);animation:pulse .9s ease-in-out infinite}.orb.thinking{background:radial-gradient(circle at 35% 30%,#E4EBE4,var(--sage) 70%,#5F7D68);animation:spin 2.4s linear infinite}.orb.speaking{background:radial-gradient(circle at 35% 30%,#F8EBD8,#D9A441 70%,#B9832A);animation:pulse .5s ease-in-out infinite alternate}.ring{position:absolute;inset:-15px;border-radius:50%;border:1.5px dashed var(--sand);animation:spin 30s linear infinite}@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}@keyframes spin{to{transform:rotate(360deg)}}
+.state{font-size:14px;color:var(--muted);min-height:20px;text-align:center}.mic{width:68px;height:68px;border-radius:50%;border:0;cursor:pointer;background:var(--ink);color:var(--card);display:grid;place-items:center;transition:transform .2s,background .2s}.mic:hover{transform:scale(1.05)}.mic.on{background:var(--clay)}button:focus-visible,input:focus-visible{outline:2px solid var(--clay);outline-offset:3px}
+.chat{width:100%;max-width:620px;min-height:100px;max-height:260px;overflow-y:auto;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:10px}.empty{color:var(--muted);font-size:14px;text-align:center;margin:auto;padding:16px 0}.msg{max-width:85%;padding:10px 13px;border-radius:15px;font-size:14px;line-height:1.5;overflow-wrap:anywhere}.msg.user{align-self:flex-end;background:var(--ink);color:var(--card);border-bottom-right-radius:4px}.msg.mira{align-self:flex-start;background:var(--sand);border-bottom-left-radius:4px}
+form{width:100%;max-width:620px;display:flex;gap:9px}input{flex:1;min-width:0;padding:13px 15px;border-radius:13px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-size:14px}.send{padding:0 18px;border-radius:13px;border:0;background:var(--clay);color:white;font:inherit;font-weight:600;cursor:pointer}footer{text-align:center;font-size:12px;color:var(--muted);padding:16px 18px 20px}
+@media(max-height:740px){main{gap:14px;padding-top:18px;padding-bottom:18px}.orb-wrap{width:130px;height:130px}.chat{max-height:190px}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001s!important;animation-iteration-count:1!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<header><div class="brand">Mira<span>.</span></div><div class="status"><span class="dot" id="dot"></span><span id="statusText">Arayüz hazır</span></div></header>
+<div class="notice">Sesli arayüz önizlemesi · YouTube/Google durumları ve otomasyon henüz bu ekrana bağlanmadı.</div>
+<main>
+  <div class="orb-wrap"><div class="ring"></div><div class="orb" id="orb"></div></div>
+  <div class="state" id="state">Mikrofona dokunup konuşun</div>
+  <button class="mic" id="mic" aria-label="Dinlemeyi başlat veya durdur">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4"/></svg>
+  </button>
+  <div class="chat" id="chat" aria-live="polite"><p class="empty" id="empty">Bir şey söyleyin ya da yazın.</p></div>
+  <form id="form"><input type="text" id="text" placeholder="Ya da bir şey yazın…" autocomplete="off" aria-label="Mesajınız"><button class="send" type="submit">Gönder</button></form>
+</main>
+<footer>Bu sayfa yalnızca ayrı bir arayüz önizlemesidir; mevcut yükleme, yorum, zamanlama ve bildirim akışlarını değiştirmez.</footer>
+<script>
+(()=> {
+ const orb=document.getElementById('orb'), stateEl=document.getElementById('state'), statusText=document.getElementById('statusText'), dot=document.getElementById('dot'), mic=document.getElementById('mic'), chat=document.getElementById('chat'), form=document.getElementById('form'), input=document.getElementById('text');
+ const SR=window.SpeechRecognition||window.webkitSpeechRecognition; let recognition=null,listening=false;
+ const states={idle:{orb:'orb',text:'Mikrofona dokunup konuşun',status:'Arayüz hazır',dot:'var(--sage)'},listening:{orb:'orb listening',text:'Dinliyorum…',status:'Dinliyor',dot:'var(--clay)'},thinking:{orb:'orb thinking',text:'Önizleme yanıtı hazırlanıyor…',status:'İşleniyor',dot:'var(--sage)'},speaking:{orb:'orb speaking',text:'Sesli yanıt…',status:'Konuşuyor',dot:'#D9A441'}};
+ function setState(name){const s=states[name];orb.className=s.orb;stateEl.textContent=s.text;statusText.textContent=s.status;dot.style.background=s.dot;mic.classList.toggle('on',name==='listening')}
+ function addMsg(text,who){const d=document.createElement('div');d.className='msg '+who;d.textContent=text;const empty=document.getElementById('empty');if(empty)empty.remove();chat.appendChild(d);chat.scrollTop=chat.scrollHeight}
+ function demoReply(input){const t=input.toLocaleLowerCase('tr-TR');if(/merhaba|selam|hey/.test(t))return 'Merhaba! Bu, Mira sesli arayüzünün önizlemesidir.';if(/saat kaç|saat kac/.test(t))return 'Şu an saat '+new Date().toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})+'.';if(/tarih|bugün ne|bugun ne/.test(t))return 'Bugün '+new Date().toLocaleDateString('tr-TR',{day:'numeric',month:'long',weekday:'long'})+'.';return 'Arayüz çalışıyor; gerçek Mira yapay zekâsı ve otomasyon verileri henüz bu önizlemeye bağlanmadı.'}
+ function speak(text,done){setState('speaking');if(!('speechSynthesis'in window)){done&&done();return}const u=new SpeechSynthesisUtterance(text);u.lang='tr-TR';u.onend=()=>done&&done();u.onerror=()=>done&&done();speechSynthesis.cancel();speechSynthesis.speak(u)}
+ function respond(value){if(!value.trim())return;addMsg(value,'user');setState('thinking');setTimeout(()=>{const answer=demoReply(value);addMsg(answer,'mira');speak(answer,()=>setState('idle'))},350)}
+ if(SR){recognition=new SR();recognition.lang='tr-TR';recognition.interimResults=false;recognition.continuous=false;recognition.onresult=e=>{listening=false;respond(e.results[0][0].transcript)};recognition.onerror=()=>{listening=false;setState('idle')};recognition.onend=()=>{if(listening){listening=false;setState('idle')}}}
+ mic.addEventListener('click',()=>{if(!recognition){stateEl.textContent='Bu tarayıcı ses tanımayı desteklemiyor. Aşağıya yazabilirsiniz.';return}if(listening){recognition.stop();listening=false;setState('idle')}else{listening=true;setState('listening');try{recognition.start()}catch(_){listening=false;setState('idle')}}});
+ form.addEventListener('submit',e=>{e.preventDefault();const value=input.value;input.value='';respond(value)});
+})();
+</script>
+</body>
+</html>
