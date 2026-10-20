@@ -55,7 +55,7 @@ function isRetryableStatus(status: number): boolean {
 }
 
 async function fetchWithRetry(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-  const maxRetries = 0;
+  const maxRetries = 2;
 
   for (let attempt = 0; ; attempt += 1) {
     const response = await fetchWithTimeout(input, init);
@@ -137,7 +137,12 @@ async function callGemini(request: ModelRequest): Promise<ModelResult> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY missing");
 
-  const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+  const configuredModel = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+  const modelOrder = [...new Set([
+    configuredModel,
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
+  ])];
   const contents = [
     ...recentHistory(request.history).map((turn) => ({
       role: turn.role === "assistant" ? "model" : "user",
@@ -145,31 +150,50 @@ async function callGemini(request: ModelRequest): Promise<ModelResult> {
     })),
     { role: "user", parts: [{ text: request.message }] },
   ];
+  const failures: string[] = [];
 
-  const res = await fetchWithRetry(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: request.system }] },
-        contents,
-        generationConfig: { temperature: 0.7 },
-      }),
-    },
-  );
+  for (const model of modelOrder) {
+    try {
+      const url = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent?key=" + encodeURIComponent(key);
+      const res = await fetchWithRetry(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: request.system }] },
+          contents,
+          generationConfig: { temperature: 0.7 },
+        }),
+      });
 
-  if (!res.ok) throw new Error(`Gemini ${model} ${res.status}: ${await readError(res)}`);
+      if (!res.ok) {
+        const detail = "Gemini " + model + " " + res.status + ": " + await readError(res);
+        failures.push(detail);
+        console.error("[Mira LLM] Gemini model failed; trying next model", { model, status: res.status });
+        continue;
+      }
 
-  const data = await res.json();
-  const content = cleanText(
-    data?.candidates?.[0]?.content?.parts
-      ?.map((part: { text?: unknown }) => cleanText(part.text))
-      .filter(Boolean)
-      .join("\n"),
-  );
-  if (!content) throw new Error("Gemini returned empty content");
-  return { provider: "gemini", model, content };
+      const data = await res.json();
+      const content = cleanText(
+        data?.candidates?.[0]?.content?.parts
+          ?.map((part: { text?: unknown }) => cleanText(part.text))
+          .filter(Boolean)
+          .join("\n"),
+      );
+      if (!content) {
+        failures.push("Gemini " + model + ": empty content");
+        continue;
+      }
+      if (model !== configuredModel) {
+        console.warn("[Mira LLM] Gemini fallback model succeeded", { configuredModel, model });
+      }
+      return { provider: "gemini", model, content };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push("Gemini " + model + ": " + message);
+    }
+  }
+
+  throw new Error("All Gemini models failed. Tried: " + modelOrder.join(" -> ") + ". Details: " + failures.join(" | "));
 }
 
 async function callClaude(request: ModelRequest): Promise<ModelResult> {
