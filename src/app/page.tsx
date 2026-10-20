@@ -11,6 +11,7 @@ interface LatestPublicationData {
   checkedAt?: string;
   lastPublished: { title: string; publishedAt: string; url: string } | null;
   nextScheduled: { title: string; publishAt: string; url: string; fileName: string } | null;
+  mostViewed: { title: string; viewCount: number; url: string } | null;
 }
 
 interface Message {
@@ -214,6 +215,7 @@ export default function Home() {
   const [latestPublication, setLatestPublication] = useState<LatestPublicationData | null>(null);
   const [latestPublicationLoading, setLatestPublicationLoading] = useState(false);
   const [latestPublicationError, setLatestPublicationError] = useState('');
+  const [publicationTickerIndex, setPublicationTickerIndex] = useState(0);
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -923,6 +925,13 @@ export default function Home() {
   }, [entered]);
 
   useEffect(() => {
+    if (!entered) return;
+    const rotateTimer = window.setInterval(() => setPublicationTickerIndex((index) => index + 1), 2700);
+    const refreshTimer = window.setInterval(() => void loadLatestPublication(), 60_000);
+    return () => { window.clearInterval(rotateTimer); window.clearInterval(refreshTimer); };
+  }, [entered]);
+
+  useEffect(() => {
     if (!historyLoaded) return;
     try {
       localStorage.setItem('mira_chat_history_v1', JSON.stringify(messages.slice(-200)));
@@ -930,6 +939,16 @@ export default function Home() {
       console.error('Sohbet geçmişi bu cihazda saklanamadı:', error);
     }
   }, [messages, historyLoaded]);
+
+  const publicationTickerItems = [
+    ...(latestPublication?.lastPublished ? [
+      { label: 'SON YAYIN', text: latestPublication.lastPublished.title, url: latestPublication.lastPublished.url },
+      { label: 'YAYIN TARİHİ', text: new Date(latestPublication.lastPublished.publishedAt).toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }), url: null },
+    ] : []),
+    ...(latestPublication?.mostViewed ? [{ label: 'EN ÇOK GÖRÜNTÜLENEN', text: latestPublication.mostViewed.title + ' · ' + latestPublication.mostViewed.viewCount.toLocaleString('tr-TR') + ' görüntülenme', url: latestPublication.mostViewed.url }] : []),
+    ...(latestPublication?.nextScheduled ? [{ label: 'SIRADAKİ PLANLI', text: latestPublication.nextScheduled.title + ' · ' + new Date(latestPublication.nextScheduled.publishAt).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' }), url: latestPublication.nextScheduled.url }] : []),
+  ];
+  const publicationTickerItem = publicationTickerItems.length ? publicationTickerItems[publicationTickerIndex % publicationTickerItems.length] : null;
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1182,34 +1201,17 @@ export default function Home() {
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain my-3 sm:my-4 space-y-4 pr-1 sm:pr-2 pb-2">
-        <section className="rounded-xl border border-emerald-500/30 bg-slate-800/90 p-3 sm:p-4 space-y-3" aria-label="Son YouTube yayınları">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-white">YouTube · Son yayın</h2>
-            <button type="button" onClick={() => void loadLatestPublication()} disabled={latestPublicationLoading} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50">
-              {latestPublicationLoading ? 'Kontrol ediliyor…' : 'Yenile'}
-            </button>
+                <section className="flex h-10 min-w-0 items-center gap-2 rounded-lg border border-emerald-500/30 bg-slate-800/90 px-3" aria-label="YouTube güncel yayın bandı" aria-live="polite">
+          <span className="shrink-0 text-[10px] font-bold tracking-wide text-emerald-300">● YOUTUBE</span>
+          <span className="shrink-0 border-l border-slate-600 pl-2 text-[10px] font-semibold text-sky-300">{publicationTickerItem?.label || (latestPublicationLoading ? 'GÜNCELLENİYOR' : 'YAYIN AKIŞI')}</span>
+          <div className="min-w-0 flex-1 truncate text-xs text-slate-100">
+            {publicationTickerItem?.url ? (
+              <a href={publicationTickerItem.url} target="_blank" rel="noopener noreferrer" className="block truncate hover:text-sky-200">{publicationTickerItem.text}</a>
+            ) : (
+              <span className="block truncate">{publicationTickerItem?.text || latestPublicationError || 'YouTube yayın bilgisi bekleniyor…'}</span>
+            )}
           </div>
-          {latestPublicationError && <p className="text-xs text-red-300" role="alert">{latestPublicationError}</p>}
-          {latestPublicationLoading && !latestPublication && <p className="text-xs text-slate-400">YouTube kanalındaki yayınlar kontrol ediliyor…</p>}
-          {latestPublication?.lastPublished ? (
-            <div className="rounded-lg border border-emerald-500/20 bg-slate-950/60 p-3">
-              <p className="text-[11px] uppercase tracking-wide text-emerald-300">Son herkese açık video</p>
-              <p className="mt-1 break-words text-sm font-medium text-white">{latestPublication.lastPublished.title}</p>
-              <p className="mt-1 text-xs text-slate-400">Yayın tarihi: {new Date(latestPublication.lastPublished.publishedAt).toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })}</p>
-              <a href={latestPublication.lastPublished.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-sky-300 underline underline-offset-2 hover:text-sky-200">YouTube videosunu aç ↗</a>
-            </div>
-          ) : latestPublication && !latestPublicationLoading && !latestPublicationError ? (
-            <p className="text-xs text-slate-400">Kanalda herkese açık video bulunamadı.</p>
-          ) : null}
-          {latestPublication?.nextScheduled && (
-            <div className="rounded-lg border border-sky-500/20 bg-slate-950/50 p-3">
-              <p className="text-[11px] uppercase tracking-wide text-sky-300">Sıradaki planlı video</p>
-              <p className="mt-1 break-words text-sm font-medium text-white">{latestPublication.nextScheduled.title}</p>
-              <p className="mt-1 text-xs text-slate-400">Planlanan zaman: {new Date(latestPublication.nextScheduled.publishAt).toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })}</p>
-              <a href={latestPublication.nextScheduled.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-sky-300 underline underline-offset-2 hover:text-sky-200">YouTube bağlantısını aç ↗</a>
-            </div>
-          )}
-          <p className="text-[10px] text-slate-500">Son yayın YouTube kanalından okunur; planlanan video ayrı gösterilir.</p>
+          <span className="shrink-0 text-[10px] text-slate-500">{publicationTickerItems.length ? ((publicationTickerIndex % publicationTickerItems.length) + 1) + '/' + publicationTickerItems.length : '···'}</span>
         </section>
         {false && taskCenterOpen && (
           <section className="rounded-xl border border-sky-400/40 bg-slate-800/95 p-3 sm:p-4 space-y-3" aria-label="Görev Merkezi taslak yönetimi">
@@ -1373,7 +1375,7 @@ export default function Home() {
           </div>
           {manualTopicResult && <p className="mt-1 text-xs text-sky-300">{manualTopicResult}</p>}
           {manualScriptProgress && <div className="mt-3 rounded-lg border border-violet-500/30 bg-slate-950/80 p-3">
-            <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold text-white">Mira canlı işlem akışı · #{manualScriptProgress?.contentId}</p><span className={manualScriptProgress.status === 'success' ? 'text-xs text-emerald-300' : manualScriptProgress.status === 'failed' ? 'text-xs text-red-300' : 'text-xs text-sky-300'}>{manualScriptProgress.status === 'success' ? 'Hazır' : manualScriptProgress.status === 'failed' ? (manualScriptProgress.events[manualScriptProgress.events.length - 1]?.stage.toLocaleLowerCase('tr-TR').includes('doğrulanamadı') || manualScriptProgress.events[manualScriptProgress.events.length - 1]?.stage.toLocaleLowerCase('tr-TR').includes('kaynak/doğruluk') ? 'Doğrulanamadı' : 'Hata') : manualScriptProgress.events.length === 0 ? 'Aşama kaydı bekleniyor' : 'Hazırlanıyor'}</span></div>
+            <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold text-white">Mira canlı işlem akışı · #{manualScriptProgress.contentId}</p><span className={manualScriptProgress.status === 'success' ? 'text-xs text-emerald-300' : manualScriptProgress.status === 'failed' ? 'text-xs text-red-300' : 'text-xs text-sky-300'}>{manualScriptProgress.status === 'success' ? 'Hazır' : manualScriptProgress.status === 'failed' ? (manualScriptProgress.events[manualScriptProgress.events.length - 1]?.stage.toLocaleLowerCase('tr-TR').includes('doğrulanamadı') || manualScriptProgress.events[manualScriptProgress.events.length - 1]?.stage.toLocaleLowerCase('tr-TR').includes('kaynak/doğruluk') ? 'Doğrulanamadı' : 'Hata') : manualScriptProgress.events.length === 0 ? 'Aşama kaydı bekleniyor' : 'Hazırlanıyor'}</span></div>
             <div className="mt-2 space-y-2">{manualScriptProgress.events.length ? manualScriptProgress.events.map((event) => <div key={event.id} className="flex items-start gap-2 text-xs"><span className={event.status === 'success' ? 'text-emerald-300' : event.status === 'failed' ? 'text-red-300' : 'text-sky-300'}>{event.status === 'success' ? '✓' : event.status === 'failed' ? '!' : '•'}</span><div className="min-w-0 flex-1"><p className={event.status === 'failed' ? 'font-medium text-red-300' : 'font-medium text-slate-100'}>{event.stage}</p>{event.detail && <p className="mt-1 text-slate-300"><span className="text-slate-500">Neden:</span> {event.detail}</p>}{event.nextAction && <p className="mt-1 text-sky-200"><span className="text-sky-400">Sonraki adım:</span> {event.nextAction}</p>}<p className="mt-1 text-slate-500">{new Date(event.createdAt).toLocaleTimeString('tr-TR')} · %{event.percentage}</p></div></div>) : <p className="text-xs text-amber-200">Canlı aşama kaydı henüz alınmadı. Kuyruktaki “İşleniyor” durumu senaryonun hazır olduğunu veya kaynakların doğrulandığını göstermez; görevden gerçek ilerleme kaydı bekleniyor.</p>}</div>
           </div>}
           <div className="mt-3 rounded-lg border border-sky-500/20 bg-slate-900/70 p-3">
