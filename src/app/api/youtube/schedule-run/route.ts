@@ -116,36 +116,61 @@ export async function POST(req: Request) {
   }
 
   const minimumIndex = slot === "long" ? 3 : 6;
-  const file = videoFiles.find((item) => {
+  const candidates = videoFiles.filter((item) => {
     if (filenameIndex(item.name, slot === "long" ? "long" : "short") < minimumIndex) return false;
     const job = byDriveId.get(item.id);
     if (!job) return true;
     // Completed, active or uncertain jobs are never selected a second time.
     return !["completed", "uploading", "needs_review"].includes(job.status) && !job.uploadSessionUrl;
   });
-  if (!file) {
+  if (!candidates.length) {
     return NextResponse.json({ ok: false, exhausted: true, error: "Bu sırada yüklenebilecek yeni ve güvenli bir Drive videosu bulunamadı.", slot, minimumIndex }, { status: 409 });
   }
 
   const origin = new URL(req.url).origin;
   const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
-  const response = await fetch(`${origin}/api/youtube/drive-upload`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-mira-key": secret },
-    body: JSON.stringify(mode === "immediate"
-      ? { confirm: true, fileName: file.name, publishNow: true, disableComment: true }
-      : { confirm: true, fileName: file.name, publishAt: publishAt.toISOString(), disableComment: true }),
-    cache: "no-store",
-    signal: AbortSignal.timeout(260_000),
-  });
-  const result = await response.json().catch(() => ({ ok: false, error: "drive-upload JSON yanıtı okunamadı." })) as Record<string, unknown>;
+  const duplicateSkips: Array<{ fileName: string; reason: string }> = [];
+  for (const file of candidates) {
+    const response = await fetch(`${origin}/api/youtube/drive-upload`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-mira-key": secret },
+      body: JSON.stringify(mode === "immediate"
+        ? { confirm: true, fileName: file.name, publishNow: true, disableComment: true }
+        : { confirm: true, fileName: file.name, publishAt: publishAt.toISOString(), disableComment: true }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(260_000),
+    });
+    const result = await response.json().catch(() => ({ ok: false, error: "drive-upload JSON yanıtı okunamadı." })) as Record<string, unknown>;
+
+    // If this file was already uploaded (including an untracked duplicate title),
+    // continue to the next numbered file within the same scheduled run.
+    const upload = result.upload && typeof result.upload === "object"
+      ? result.upload as Record<string, unknown>
+      : result;
+    const isDuplicate = upload.alreadyUploaded === true || upload.duplicate === true;
+    if (isDuplicate) {
+      duplicateSkips.push({ fileName: file.name, reason: String(upload.error || upload.note || "Daha önce kullanılmış; sonraki dosya deneniyor.") });
+      continue;
+    }
+
+    return NextResponse.json({
+      ok: response.ok && result.ok === true,
+      slot,
+      mode,
+      fileName: file.name,
+      requestedPublishAt: publishAt.toISOString(),
+      httpStatus: response.status,
+      upload: result,
+      duplicateSkips,
+    }, { status: response.ok ? 200 : response.status });
+  }
+
   return NextResponse.json({
-    ok: response.ok && result.ok === true,
+    ok: false,
+    exhausted: true,
+    error: "Bu yayın saatinde sıradaki dosyalar zaten kullanılmış; yeni ve güvenli bir video bulunamadı.",
     slot,
-    mode,
-    fileName: file.name,
-    requestedPublishAt: publishAt.toISOString(),
-    httpStatus: response.status,
-    upload: result,
-  }, { status: response.ok ? 200 : response.status });
+    minimumIndex,
+    duplicateSkips,
+  }, { status: 409 });
 }
