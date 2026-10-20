@@ -9,6 +9,7 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "db:push": "drizzle-kit push --config drizzle.config.ts",
+    "cron": "tsx scripts/cron.ts",
     "postinstall": "node scripts/motor-postinstall.mjs"
   },
   "dependencies": {
