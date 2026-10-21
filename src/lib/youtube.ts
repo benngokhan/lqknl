@@ -64,7 +64,8 @@ export function buildAuthUrl(state: string) {
     response_type: "code",
     scope: YOUTUBE_SCOPES,
     access_type: "offline",
-    prompt: "consent", // refresh token her seferinde alınsın
+    include_granted_scopes: "true",
+    prompt: "consent", // Yeni YouTube scope izinlerini mevcut Google bağlantısına yeniden onaylat.
     state,
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
@@ -464,7 +465,13 @@ export async function addYoutubeComment(videoId: string, text: string): Promise<
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(`YouTube yorum eklenemedi HTTP ${response.status}: ${String(data?.error?.message || "API hatası").slice(0, 300)}`);
+    const reason = data?.error?.errors?.[0]?.reason;
+    const detail = String(data?.error?.message || "API hatası").slice(0, 260);
+    const reasonText = typeof reason === "string" ? ` [${reason}]` : "";
+    const scopeHint = response.status === 403
+      ? " Google OAuth bağlantısını /api/youtube/auth üzerinden yeniden yetkilendir; youtube.force-ssl izni verilmiş olmalı. Planlı/gizli videolarda yorum kısıtı varsa yayınlandıktan sonra tekrar dene."
+      : "";
+    throw new Error(`YouTube yorum eklenemedi HTTP ${response.status}${reasonText}: ${detail}${scopeHint}`);
   }
   const commentId = data?.snippet?.topLevelComment?.id || data?.id;
   if (typeof commentId !== "string" || !commentId) throw new Error("YouTube yorum kimliği döndürmedi.");
