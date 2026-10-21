@@ -1,6 +1,6 @@
 import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { NextResponse } from "next/server";
-import { getMyChannel, loadYoutubeTokens, saveYoutubeTokens, youtubeConfig, youtubeStatus } from "@/lib/youtube";
+import { debugYoutubeOAuth, getMyChannel, loadYoutubeTokens, saveYoutubeTokens, youtubeConfig, youtubeStatus } from "@/lib/youtube";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +24,8 @@ export async function GET(req: Request) {
     redirectUri: youtubeConfig().redirectUri,
     connected: Boolean(tokens) || envRefresh,
     tagManagementScopeGranted: tokens ? (tokens.scope || "").split(/\s+/).includes("https://www.googleapis.com/auth/youtube.force-ssl") : envRefresh ? null : false,
+    commentScopeRequired: "https://www.googleapis.com/auth/youtube.force-ssl",
+    oauthScopeCheck: "Use ?check=oauth to inspect live Google token scopes.",
     uploadScopeGranted: tokens?.scope?.split(/\s+/).includes("https://www.googleapis.com/auth/youtube.upload") ?? false,
     channelTitle: tokens?.channelTitle ?? null,
     refreshTokenStored: tokens ? `${tokens.refreshToken.slice(0, 6)}…(gizli)` : envRefresh ? "env üzerinden" : null,
@@ -34,8 +36,23 @@ export async function GET(req: Request) {
     },
   };
 
+  const check = new URL(req.url).searchParams.get("check");
+
+  // ?check=oauth inspects the actual live access-token scopes, not only the saved consent metadata.
+  if (check === "oauth") {
+    try {
+      const oauth = await debugYoutubeOAuth();
+      result.liveOAuthScopes = oauth.scopes;
+      result.liveCommentScopeGranted = oauth.scopes.includes("https://www.googleapis.com/auth/youtube.force-ssl");
+      result.liveUploadScopeGranted = oauth.uploadScopeGranted;
+      result.reconnectUrl = "/api/youtube/auth";
+    } catch (error) {
+      result.oauthScopeCheckError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
   // ?check=channel → 1 kota birimi harcar, kanalı canlı doğrular
-  if (new URL(req.url).searchParams.get("check") === "channel") {
+  if (check === "channel") {
     try {
       const channel = await getMyChannel();
       result.channelLive = channel;
