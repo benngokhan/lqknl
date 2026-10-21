@@ -465,13 +465,22 @@ export async function addYoutubeComment(videoId: string, text: string): Promise<
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const reason = data?.error?.errors?.[0]?.reason;
-    const detail = String(data?.error?.message || "API hatası").slice(0, 260);
-    const reasonText = typeof reason === "string" ? ` [${reason}]` : "";
+    // YouTube API error bodies contain the diagnostic reason/status; log the full
+    // response body in the thrown error so the scheduler's result captures it.
+    // Never include Authorization headers or access/refresh tokens.
+    const apiError = data?.error ?? data;
+    const reason = apiError?.errors?.[0]?.reason;
+    const apiStatus = apiError?.status;
+    const errorBody = JSON.stringify(apiError).slice(0, 2000);
     const scopeHint = response.status === 403
-      ? " Google OAuth bağlantısını /api/youtube/auth üzerinden yeniden yetkilendir; youtube.force-ssl izni verilmiş olmalı. Planlı/gizli videolarda yorum kısıtı varsa yayınlandıktan sonra tekrar dene."
+      ? " Olası neden: youtube.force-ssl OAuth izni eksik veya YouTube bu video için yoruma izin vermiyor."
       : "";
-    throw new Error(`YouTube yorum eklenemedi HTTP ${response.status}${reasonText}: ${detail}${scopeHint}`);
+    throw new Error(
+      `YouTube yorum eklenemedi HTTP ${response.status}` +
+      (typeof reason === "string" ? ` reason=${reason}` : "") +
+      (typeof apiStatus === "string" ? ` status=${apiStatus}` : "") +
+      ` BODY=${errorBody}${scopeHint}`
+    );
   }
   const commentId = data?.snippet?.topLevelComment?.id || data?.id;
   if (typeof commentId !== "string" || !commentId) throw new Error("YouTube yorum kimliği döndürmedi.");
