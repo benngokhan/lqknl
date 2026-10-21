@@ -64,6 +64,14 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const slot = body.slot as Slot;
   const mode = (body.mode === "immediate" ? "immediate" : "scheduled") as Mode;
+  const requestedFileName = typeof body.fileName === "string" ? body.fileName.trim() : "";
+  const requestedPublishAt = typeof body.publishAt === "string" ? body.publishAt.trim() : "";
+  if ((requestedFileName || requestedPublishAt) && mode !== "scheduled") {
+    return NextResponse.json({ ok: false, error: "Belirli dosya ve saat yalnızca scheduled modunda kullanılabilir." }, { status: 400 });
+  }
+  if ((requestedFileName && !/^video_\\d+\\.mp4$/i.test(requestedFileName)) || Boolean(requestedFileName) !== Boolean(requestedPublishAt)) {
+    return NextResponse.json({ ok: false, error: "Belirli Shorts planı için video_N.mp4 dosya adı ve publishAt birlikte verilmelidir." }, { status: 400 });
+  }
   if (!["shorts-noon", "shorts-afternoon", "shorts-evening", "long"].includes(slot)) {
     return NextResponse.json({ ok: false, error: "slot: shorts-noon, shorts-evening veya long olmalı." }, { status: 400 });
   }
@@ -75,6 +83,15 @@ export async function POST(req: Request) {
   if (mode === "immediate") {
     publishAt = new Date(now.getTime() + 10 * 60_000);
     date = dateKey(istanbulDateParts(publishAt));
+  } else if (requestedFileName && requestedPublishAt) {
+    publishAt = new Date(requestedPublishAt);
+    if (!Number.isFinite(publishAt.getTime()) || publishAt.getTime() <= now.getTime() + 60_000) {
+      return NextResponse.json({ ok: false, error: "Belirli yayın zamanı geçerli ve en az 1 dakika ileride olmalı.", requestedPublishAt }, { status: 400 });
+    }
+    date = dateKey(istanbulDateParts(publishAt));
+    if (slot === "long") {
+      return NextResponse.json({ ok: false, error: "Bu sabit dosya planı yalnızca Shorts içindir." }, { status: 400 });
+    }
   } else {
     const today = dateKey(istanbulDateParts(now));
     if (today < "2026-10-20") {
@@ -121,6 +138,7 @@ export async function POST(req: Request) {
   const minimumIndex = slot === "long" ? 3 : (forceNextImmediate ? 12 : 6);
   const candidates = videoFiles.filter((item) => {
     const index = filenameIndex(item.name, slot === "long" ? "long" : "short");
+    if (requestedFileName && item.name.toLowerCase() !== requestedFileName.toLowerCase()) return false;
     if (index < minimumIndex) return false;
     // During an immediate Shorts test, move past the previously problematic video_11.
     if (forceNextImmediate && item.name.toLowerCase() === "video_11.mp4") return false;
