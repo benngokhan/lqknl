@@ -69,7 +69,7 @@ export async function POST(req: Request) {
   if ((requestedFileName || requestedPublishAt) && mode !== "scheduled") {
     return NextResponse.json({ ok: false, error: "Belirli dosya ve saat yalnızca scheduled modunda kullanılabilir." }, { status: 400 });
   }
-  if ((requestedFileName && !/^video_\\d+\\.mp4$/i.test(requestedFileName)) || Boolean(requestedFileName) !== Boolean(requestedPublishAt)) {
+  if ((requestedFileName && !/^video_\d+\.mp4$/i.test(requestedFileName)) || Boolean(requestedFileName) !== Boolean(requestedPublishAt)) {
     return NextResponse.json({ ok: false, error: "Belirli Shorts planı için video_N.mp4 dosya adı ve publishAt birlikte verilmelidir." }, { status: 400 });
   }
   if (!["shorts-noon", "shorts-afternoon", "shorts-evening", "long"].includes(slot)) {
