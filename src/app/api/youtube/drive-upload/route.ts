@@ -357,30 +357,37 @@ export async function POST(req: Request) {
       sessionPersisted = false;
     }
 
-    let commentResult: { added: boolean; commentId?: string; error?: string; pendingUntilPublish?: boolean } = { added: false, error: "Yorum metni verilmedi." };
-    let telegramNotification: { sent: boolean; reason?: string; error?: string } = { sent: false, reason: "Yorum gönderilmediği için Telegram bildirimi yapılmadı." };
-    if (comment && publishNow) {
-      // Public uploads can accept comments. Notify Telegram only after YouTube confirms comment insertion.
+    let commentResult: { added: boolean; commentId?: string; error?: string } = { added: false, error: "Yorum metni verilmedi." };
+    let telegramNotification: { sent: boolean; reason?: string; error?: string } = { sent: false, reason: "Yorum henüz atılmadı." };
+    if (comment) {
       try {
         const result = await addYoutubeComment(uploaded.videoId, comment);
         commentResult = { added: true, commentId: result.commentId };
+        // Notify only after YouTube confirms that the comment was actually created.
         const notice = await sendTelegramMessage(
-          `💬 YouTube yorumu başarıyla gönderildi!\\n📦 Dosya: ${fileName}\\n🎬 Video: ${title}\\n🔗 ${uploaded.url}`,
+          `💬 Yorum atıldı, lütfen sabitle.\n\nVideo: ${title}\nDosya: ${fileName}\nYayın zamanı: ${effectiveScheduledDate.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}\nYouTube: ${uploaded.url}\n\nYorum metni:\n${comment}`,
         );
         telegramNotification = notice.sent
           ? { sent: true }
           : { sent: false, reason: notice.reason, error: notice.error };
       } catch (error) {
         commentResult = { added: false, error: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300) };
-        // No Telegram message unless the comment was actually added, per requested notification policy.
+        const notice = await sendTelegramMessage(
+          `⚠️ Video yüklendi ve planlandı ancak otomatik yorum atılamadı.\n\nVideo: ${title}\nDosya: ${fileName}\nYouTube: ${uploaded.url}\nHata: ${commentResult.error || "Bilinmeyen hata"}`,
+        );
+        telegramNotification = notice.sent
+          ? { sent: true }
+          : { sent: false, reason: notice.reason, error: notice.error };
       }
-    } else if (comment && !publishNow) {
-      commentResult = {
-        added: false,
-        pendingUntilPublish: true,
-        error: "Video gizli/planlı modda; otomasyon kuralı herkese açık anlık yayın bekliyor. Bu istekte yorum gönderilmedi.",
-      };
+    } else {
+      const notice = await sendTelegramMessage(
+        `⚠️ Video yüklendi ve planlandı ancak baslik.xlsx içinde yorum metni bulunamadı.\n\nVideo: ${title}\nDosya: ${fileName}\nYouTube: ${uploaded.url}`,
+      );
+      telegramNotification = notice.sent
+        ? { sent: true }
+        : { sent: false, reason: notice.reason, error: notice.error };
     }
+
     return NextResponse.json({
       ok: true,
       uploaded: true,

@@ -37,13 +37,13 @@ function localDateTime(date: string, time: string) {
 }
 
 function daysFromStart(date: string) {
-  const start = Date.UTC(2026, 9, 20);
+  const start = Date.UTC(2026, 9, 23);
   const current = new Date(`${date}T00:00:00Z`).getTime();
   return Math.floor((current - start) / 86_400_000);
 }
 
 function isLongVideoDay(date: string) {
-  return daysFromStart(date) % 2 === 1;
+  return daysFromStart(date) % 2 === 0;
 }
 
 function slotTime(slot: Slot, date: string) {
@@ -94,8 +94,8 @@ export async function POST(req: Request) {
     }
   } else {
     const today = dateKey(istanbulDateParts(now));
-    if (today < "2026-10-20") {
-      return NextResponse.json({ ok: true, skipped: true, reason: "Otomasyon başlangıç tarihi henüz gelmedi; planlı yayın yapılmadı.", slot, startsOn: "2026-10-20" });
+    if (today < "2026-10-23") {
+      return NextResponse.json({ ok: true, skipped: true, reason: "Otomasyon başlangıcı 23 Ekim 2026; planlı yayın yapılmadı.", slot, startsOn: "2026-10-23" });
     }
     if (slot === "long" && !isLongVideoDay(today)) {
       return NextResponse.json({ ok: true, skipped: true, reason: "Uzun video yalnızca iki günde bir planlanır.", slot, date: today });
@@ -142,7 +142,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const minimumIndex = slot === "long" ? 3 : (forceNextImmediate ? 12 : 6);
+  const minimumIndex = slot === "long" ? 3 : (forceNextImmediate ? 12 : 11);
   const candidates = videoFiles.filter((item) => {
     const index = filenameIndex(item.name, slot === "long" ? "long" : "short");
     if (requestedFileName && item.name.toLowerCase() !== requestedFileName.toLowerCase()) return false;

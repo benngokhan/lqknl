@@ -1,14 +1,14 @@
 name: Mira Drive-to-YouTube Schedule
 
 on:
-  # Automated uploads publish publicly immediately; times are UTC (Türkiye = UTC+03).
-  # Normal day: 12:00, 16:30, 20:00 Türkiye time (3 Shorts).
-  # Long-video day: 12:00 Short, 18:00 long video, 20:00 Short; afternoon Short is skipped.
+  # Scheduled uploads are prepared 10 minutes before their planned publication time (Türkiye = UTC+03).
+  # Normal day: 12:30, 16:30, 20:30 Türkiye time (3 Shorts).
+  # Long-video day: 12:30 Short, 18:00 long video, 21:00 Short; afternoon Short is skipped.
   schedule:
-    - cron: "0 9 * * *"
-    - cron: "30 13 * * *"
-    - cron: "0 15 * * *"
-    - cron: "0 17 * * *"
+    - cron: "20 9 * * *"
+    - cron: "20 13 * * *"
+    - cron: "50 14 * * *"
+    - cron: "20 17 * * *"
   workflow_dispatch:
     inputs:
       slot:
@@ -23,7 +23,7 @@ on:
       mode:
         description: "scheduled uploads privately for automatic publication; immediate publishes publicly now"
         required: true
-        default: immediate
+        default: scheduled
         type: choice
         options:
           - scheduled
@@ -62,21 +62,21 @@ jobs:
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "file_name=" >> "$GITHUB_OUTPUT"
           echo "publish_at=" >> "$GITHUB_OUTPUT"
-          if [[ "$EVENT_SCHEDULE" == "0 9 * * *" ]]; then
+          if [[ "$EVENT_SCHEDULE" == "20 9 * * *" ]]; then
             echo "slot=shorts-noon" >> "$GITHUB_OUTPUT"
-            echo "mode=immediate" >> "$GITHUB_OUTPUT"
-          elif [[ "$EVENT_SCHEDULE" == "30 13 * * *" ]]; then
+            echo "mode=scheduled" >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT_SCHEDULE" == "20 13 * * *" ]]; then
             echo "slot=shorts-afternoon" >> "$GITHUB_OUTPUT"
-            echo "mode=immediate" >> "$GITHUB_OUTPUT"
-          elif [[ "$EVENT_SCHEDULE" == "0 15 * * *" ]]; then
+            echo "mode=scheduled" >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT_SCHEDULE" == "50 14 * * *" ]]; then
             echo "slot=long" >> "$GITHUB_OUTPUT"
-            echo "mode=immediate" >> "$GITHUB_OUTPUT"
-          elif [[ "$EVENT_SCHEDULE" == "0 17 * * *" ]]; then
+            echo "mode=scheduled" >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT_SCHEDULE" == "20 17 * * *" ]]; then
             echo "slot=shorts-evening" >> "$GITHUB_OUTPUT"
-            echo "mode=immediate" >> "$GITHUB_OUTPUT"
+            echo "mode=scheduled" >> "$GITHUB_OUTPUT"
           else
             echo "slot=$MANUAL_SLOT" >> "$GITHUB_OUTPUT"
-            echo "mode=${MANUAL_MODE:-immediate}" >> "$GITHUB_OUTPUT"
+            echo "mode=${MANUAL_MODE:-scheduled}" >> "$GITHUB_OUTPUT"
             if [[ -n "$MANUAL_FILE_NAME" ]]; then
               echo "file_name=$MANUAL_FILE_NAME" >> "$GITHUB_OUTPUT"
             fi
