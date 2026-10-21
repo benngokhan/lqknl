@@ -1,13 +1,14 @@
 name: Mira Drive-to-YouTube Schedule
 
 on:
-  # GitHub Actions replaces the deleted Railway Cron. Times are UTC.
-  # Existing daily slots plus one-off exact-file preparation on 22 Oct 2026.
+  # Automated uploads publish publicly immediately; times are UTC (Türkiye = UTC+03).
+  # Normal day: 12:00, 16:30, 20:00 Türkiye time (3 Shorts).
+  # Long-video day: 12:00 Short, 18:00 long video, 20:00 Short; afternoon Short is skipped.
   schedule:
     - cron: "0 9 * * *"
+    - cron: "30 13 * * *"
+    - cron: "0 15 * * *"
     - cron: "0 17 * * *"
-    - cron: "0 6 22 10 *"
-    - cron: "30 6 22 10 *"
   workflow_dispatch:
     inputs:
       slot:
@@ -22,17 +23,17 @@ on:
       mode:
         description: "scheduled uploads privately for automatic publication; immediate publishes publicly now"
         required: true
-        default: scheduled
+        default: immediate
         type: choice
         options:
           - scheduled
           - immediate
       file_name:
-        description: "Optional exact Drive filename, e.g. video_17.mp4"
+        description: "Optional exact Drive filename, e.g. video_17.mp4 (scheduled mode only)"
         required: false
         type: string
       publish_at:
-        description: "Optional publication time in UTC ISO-8601, e.g. 2026-10-21T10:00:00.000Z"
+        description: "Optional future UTC time for scheduled mode; automated daily slots publish publicly immediately"
         required: false
         type: string
 
@@ -63,28 +64,19 @@ jobs:
           echo "publish_at=" >> "$GITHUB_OUTPUT"
           if [[ "$EVENT_SCHEDULE" == "0 9 * * *" ]]; then
             echo "slot=shorts-noon" >> "$GITHUB_OUTPUT"
-            echo "mode=scheduled" >> "$GITHUB_OUTPUT"
+            echo "mode=immediate" >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT_SCHEDULE" == "30 13 * * *" ]]; then
+            echo "slot=shorts-afternoon" >> "$GITHUB_OUTPUT"
+            echo "mode=immediate" >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT_SCHEDULE" == "0 15 * * *" ]]; then
+            echo "slot=long" >> "$GITHUB_OUTPUT"
+            echo "mode=immediate" >> "$GITHUB_OUTPUT"
           elif [[ "$EVENT_SCHEDULE" == "0 17 * * *" ]]; then
             echo "slot=shorts-evening" >> "$GITHUB_OUTPUT"
-            echo "mode=scheduled" >> "$GITHUB_OUTPUT"
-          elif [[ "$EVENT_SCHEDULE" == "0 6 22 10 *" || "$EVENT_SCHEDULE" == "30 6 22 10 *" ]]; then
-            if [[ "$(date -u +%F)" != "2026-10-22" ]]; then
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              echo "One-off 2026 schedule has expired; safely skipping."
-              exit 0
-            fi
-            echo "slot=shorts-noon" >> "$GITHUB_OUTPUT"
-            echo "mode=scheduled" >> "$GITHUB_OUTPUT"
-            if [[ "$EVENT_SCHEDULE" == "0 6 22 10 *" ]]; then
-              echo "file_name=video_17.mp4" >> "$GITHUB_OUTPUT"
-              echo "publish_at=2026-10-23T09:45:00.000Z" >> "$GITHUB_OUTPUT"
-            else
-              echo "file_name=video_18.mp4" >> "$GITHUB_OUTPUT"
-              echo "publish_at=2026-10-23T10:00:00.000Z" >> "$GITHUB_OUTPUT"
-            fi
+            echo "mode=immediate" >> "$GITHUB_OUTPUT"
           else
             echo "slot=$MANUAL_SLOT" >> "$GITHUB_OUTPUT"
-            echo "mode=${MANUAL_MODE:-scheduled}" >> "$GITHUB_OUTPUT"
+            echo "mode=${MANUAL_MODE:-immediate}" >> "$GITHUB_OUTPUT"
             if [[ -n "$MANUAL_FILE_NAME" ]]; then
               echo "file_name=$MANUAL_FILE_NAME" >> "$GITHUB_OUTPUT"
             fi
