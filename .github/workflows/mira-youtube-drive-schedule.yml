@@ -3,7 +3,7 @@ name: Mira Drive-to-YouTube Schedule
 on:
   # GitHub Actions replaces the deleted Railway Cron. Times are UTC.
   # Existing daily slots plus one-off exact-file preparation on 22 Oct 2026.
-  # Exact-file jobs run at 06:00 and 06:30 UTC to schedule publication for 23 Oct at 09:00/09:30 Türkiye.
+  # video_16.mp4 is already scheduled for 21 Oct; use the next two files for 23 Oct at 09:00/09:30 Türkiye.
   schedule:
     - cron: "0 9 * * *"
     - cron: "0 17 * * *"
@@ -66,10 +66,10 @@ jobs:
             echo "slot=shorts-noon" >> "$GITHUB_OUTPUT"
             echo "mode=scheduled" >> "$GITHUB_OUTPUT"
             if [[ "$EVENT_SCHEDULE" == "0 6 22 10 *" ]]; then
-              echo "file_name=video_16.mp4" >> "$GITHUB_OUTPUT"
+              echo "file_name=video_17.mp4" >> "$GITHUB_OUTPUT"
               echo "publish_at=2026-10-23T06:00:00.000Z" >> "$GITHUB_OUTPUT"
             else
-              echo "file_name=video_17.mp4" >> "$GITHUB_OUTPUT"
+              echo "file_name=video_18.mp4" >> "$GITHUB_OUTPUT"
               echo "publish_at=2026-10-23T06:30:00.000Z" >> "$GITHUB_OUTPUT"
             fi
           else
