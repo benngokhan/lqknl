@@ -2,10 +2,13 @@ name: Mira Drive-to-YouTube Schedule
 
 on:
   # GitHub Actions replaces the deleted Railway Cron. Times are UTC.
-  # 09:00 UTC = 12:00 Türkiye; 17:00 UTC = 20:00 Türkiye.
+  # Existing daily slots plus one-off exact-file preparation on 22 Oct 2026.
+  # Exact-file jobs run at 06:00 and 06:30 UTC to schedule publication for 23 Oct at 09:00/09:30 Türkiye.
   schedule:
     - cron: "0 9 * * *"
     - cron: "0 17 * * *"
+    - cron: "0 6 22 10 *"
+    - cron: "30 6 22 10 *"
   workflow_dispatch:
     inputs:
       slot:
@@ -45,18 +48,37 @@ jobs:
           MANUAL_SLOT: ${{ inputs.slot }}
           MANUAL_MODE: ${{ inputs.mode }}
         run: |
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "file_name=" >> "$GITHUB_OUTPUT"
+          echo "publish_at=" >> "$GITHUB_OUTPUT"
           if [[ "$EVENT_SCHEDULE" == "0 9 * * *" ]]; then
             echo "slot=shorts-noon" >> "$GITHUB_OUTPUT"
             echo "mode=scheduled" >> "$GITHUB_OUTPUT"
           elif [[ "$EVENT_SCHEDULE" == "0 17 * * *" ]]; then
             echo "slot=shorts-evening" >> "$GITHUB_OUTPUT"
             echo "mode=scheduled" >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT_SCHEDULE" == "0 6 22 10 *" || "$EVENT_SCHEDULE" == "30 6 22 10 *" ]]; then
+            if [[ "$(date -u +%F)" != "2026-10-22" ]]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "One-off 2026 schedule has expired; safely skipping."
+              exit 0
+            fi
+            echo "slot=shorts-noon" >> "$GITHUB_OUTPUT"
+            echo "mode=scheduled" >> "$GITHUB_OUTPUT"
+            if [[ "$EVENT_SCHEDULE" == "0 6 22 10 *" ]]; then
+              echo "file_name=video_16.mp4" >> "$GITHUB_OUTPUT"
+              echo "publish_at=2026-10-23T06:00:00.000Z" >> "$GITHUB_OUTPUT"
+            else
+              echo "file_name=video_17.mp4" >> "$GITHUB_OUTPUT"
+              echo "publish_at=2026-10-23T06:30:00.000Z" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "slot=$MANUAL_SLOT" >> "$GITHUB_OUTPUT"
             echo "mode=${MANUAL_MODE:-scheduled}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Validate required secret
+        if: steps.slot.outputs.skip != 'true'
         env:
           MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
         shell: bash
@@ -67,11 +89,14 @@ jobs:
           fi
 
       - name: Call authenticated Mira scheduler
+        if: steps.slot.outputs.skip != 'true'
         env:
           MIRA_BASE_URL: https://qkn0.up.railway.app
           MIRA_AUTOMATION_SECRET: ${{ secrets.MIRA_AUTOMATION_SECRET }}
           SLOT: ${{ steps.slot.outputs.slot }}
           MODE: ${{ steps.slot.outputs.mode }}
+          FILE_NAME: ${{ steps.slot.outputs.file_name }}
+          PUBLISH_AT: ${{ steps.slot.outputs.publish_at }}
         shell: bash
         run: |
           response_file="$(mktemp)"
@@ -80,7 +105,7 @@ jobs:
             -X POST "${MIRA_BASE_URL}/api/youtube/schedule-run" \
             -H "x-mira-key: ${MIRA_AUTOMATION_SECRET}" \
             -H "Content-Type: application/json" \
-            -d "{\"confirm\":true,\"slot\":\"$SLOT\",\"mode\":\"$MODE\"}" || true)"
+            -d "{\"confirm\":true,\"slot\":\"$SLOT\",\"mode\":\"$MODE\",\"fileName\":\"$FILE_NAME\",\"publishAt\":\"$PUBLISH_AT\"}" || true)"
           cat "$response_file"
           if [[ "$status" != "200" ]]; then
             echo "::error::Mira schedule endpoint returned HTTP $status"
