@@ -358,49 +358,29 @@ export async function POST(req: Request) {
     }
 
     let commentResult: { added: boolean; commentId?: string; error?: string; pendingUntilPublish?: boolean } = { added: false, error: "Yorum metni verilmedi." };
-    let telegramNotification: { sent: boolean; reason?: string; error?: string } = { sent: false, reason: "Bildirim henüz gönderilmedi." };
+    let telegramNotification: { sent: boolean; reason?: string; error?: string } = { sent: false, reason: "Yorum gönderilmediği için Telegram bildirimi yapılmadı." };
     if (comment && publishNow) {
-      // Only attempt comments after an immediate upload is public. Scheduled videos
-      // remain private until publishAt, and YouTube rejects commentThreads.insert then.
+      // Public uploads can accept comments. Notify Telegram only after YouTube confirms comment insertion.
       try {
         const result = await addYoutubeComment(uploaded.videoId, comment);
         commentResult = { added: true, commentId: result.commentId };
         const notice = await sendTelegramMessage(
-          `🚀 YOUTUBE SHORTS CANLI YAYINDA! 🎬\\n📦 Dosya: ${fileName}\\n✅ Durum: Herkese Açık (Public)\\n💬 Yorum Eklendi! (Studio'dan sabitlemeyi unutma)\\n🔗 İzle & Sabitle: https://www.youtube.com/shorts/${uploaded.videoId}`,
+          `💬 YouTube yorumu başarıyla gönderildi!\\n📦 Dosya: ${fileName}\\n🎬 Video: ${title}\\n🔗 ${uploaded.url}`,
         );
         telegramNotification = notice.sent
           ? { sent: true }
           : { sent: false, reason: notice.reason, error: notice.error };
       } catch (error) {
         commentResult = { added: false, error: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300) };
-        const notice = await sendTelegramMessage(
-          `⚠️ Video herkese açık yayımlandı ancak otomatik yorum atılamadı.\\n\\nVideo: ${title}\\nDosya: ${fileName}\\nYouTube: ${uploaded.url}\\nHata: ${commentResult.error || "Bilinmeyen hata"}`,
-        );
-        telegramNotification = notice.sent
-          ? { sent: true }
-          : { sent: false, reason: notice.reason, error: notice.error };
+        // No Telegram message unless the comment was actually added, per requested notification policy.
       }
     } else if (comment && !publishNow) {
       commentResult = {
         added: false,
         pendingUntilPublish: true,
-        error: "Video planlı yayın için gizli durumda; YouTube yorum API'si yayın öncesi yorum kabul etmez. Yorum henüz gönderilmedi.",
+        error: "Video gizli/planlı modda; otomasyon kuralı herkese açık anlık yayın bekliyor. Bu istekte yorum gönderilmedi.",
       };
-      const notice = await sendTelegramMessage(
-        `🕒 Video planlandı; yorum henüz gönderilmedi çünkü video yayın saatine kadar gizli.\\n\\nVideo: ${title}\\nDosya: ${fileName}\\nPlanlanan yayın: ${effectiveScheduledDate.toISOString()}\\nYouTube: ${uploaded.url}\\nYorum, video herkese açık olduktan sonra gönderilmelidir.`,
-      );
-      telegramNotification = notice.sent
-        ? { sent: true }
-        : { sent: false, reason: notice.reason, error: notice.error };
-    } else {
-      const notice = await sendTelegramMessage(
-        `⚠️ Video ${publishNow ? "herkese açık yayımlandı" : "yüklendi ve planlandı"} ancak baslik.xlsx içinde yorum metni bulunamadı.\\n\\nVideo: ${title}\\nDosya: ${fileName}\\nYouTube: ${uploaded.url}`,
-      );
-      telegramNotification = notice.sent
-        ? { sent: true }
-        : { sent: false, reason: notice.reason, error: notice.error };
     }
-
     return NextResponse.json({
       ok: true,
       uploaded: true,
