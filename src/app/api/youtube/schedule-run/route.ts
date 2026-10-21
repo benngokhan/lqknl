@@ -128,6 +128,13 @@ export async function POST(req: Request) {
     ["uploading", "completed", "needs_review"].includes(job.status)
   );
   if (slotAlreadyBooked && !forceNextImmediate) {
+    if (requestedFileName && slotAlreadyBooked.driveFileName.toLowerCase() !== requestedFileName.toLowerCase()) {
+      return NextResponse.json({
+        ok: false, skipped: false, error: "İstenen yayın saatinde farklı bir video kayıtlı; yanlış dosya planlanmaması için işlem durduruldu.",
+        slot, requestedFileName, bookedFileName: slotAlreadyBooked.driveFileName,
+        publishAt: slotAlreadyBooked.publishAt?.toISOString(),
+      }, { status: 409 });
+    }
     return NextResponse.json({
       ok: true, skipped: true, reason: "Bu yayın saati için zaten bir Drive yükleme işi kayıtlı; ikinci yükleme engellendi.",
       slot, fileName: slotAlreadyBooked.driveFileName, publishAt: slotAlreadyBooked.publishAt?.toISOString(),
