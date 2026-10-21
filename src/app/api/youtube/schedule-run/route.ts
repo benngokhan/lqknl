@@ -43,7 +43,7 @@ function daysFromStart(date: string) {
 }
 
 function isLongVideoDay(date: string) {
-  return daysFromStart(date) % 2 === 0;
+  return daysFromStart(date) % 2 === 1;
 }
 
 function slotTime(slot: Slot, date: string) {
