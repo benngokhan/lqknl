@@ -80,7 +80,27 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb: ()
   }
 
   useEffect(() => {
-    void loadStatus();
+    let active = true;
+    fetch('/api/kartal/status', { cache: 'no-store' })
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!active) return;
+        if (!ok || !data?.ok) {
+          setError(data?.error || 'Veri çekilemedi');
+        } else {
+          setReport(data.report as StatusReport);
+          setError('');
+        }
+        setLoading(false);
+      })
+      .catch((e) => {
+        if (!active) return;
+        setError(e instanceof Error ? e.message : 'Bağlantı hatası');
+        setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   function toggleRow(key: string) {
