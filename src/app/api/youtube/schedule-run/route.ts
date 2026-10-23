@@ -149,7 +149,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const minimumIndex = slot === "long" ? 3 : 20;
+  const minimumIndex = slot === "long" ? 3 : 31;
   const candidates = videoFiles.filter((item) => {
     const index = filenameIndex(item.name, slot === "long" ? "long" : "short");
     if (requestedFileName && item.name.toLowerCase() !== requestedFileName.toLowerCase()) return false;

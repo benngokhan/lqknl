@@ -59,7 +59,7 @@ const DEFAULT_REPO = "benngokhan/yt_auto_uploader";
 const DEFAULT_BRANCH = "main";
 const DEFAULT_WORKFLOW = "youtube-drive-uploader.yml";
 const DEFAULT_DAILY_RATE = 3;
-const MIN_SHORTS_NUMBER = 20;
+const MIN_SHORTS_NUMBER = 31;
 const FETCH_TIMEOUT_MS = 15_000;
 const CACHE_TTL_MS = 10_000;
 

@@ -42,10 +42,10 @@ export type VoiceOrbStageProps = {
 };
 
 const DEFAULT_STOCK: Required<Stock> = {
-  shorts: 60,
+  shorts: 50,
   long: 9,
-  days: 23,
-  nextTitle: "",
+  days: 19.7,
+  nextTitle: "Gözünde Bir Kör Nokta Var — Beynin Boşluğu Gizliyor!",
 };
 
 const ORB_STYLES = `

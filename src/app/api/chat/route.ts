@@ -139,10 +139,10 @@ async function buildVoiceInventory(): Promise<VoiceInventory> {
 
   const videoFiles = files.filter((file) => file.mimeType === "video/mp4");
   const shortsFiles = videoFiles
-    .filter((file) => /^video_\d+\.mp4$/i.test(file.name))
+    .filter((file) => /^video_\d+\.mp4$/i.test(file.name) && filenameIndex(file.name, "short") >= 31)
     .sort((a, b) => filenameIndex(a.name, "short") - filenameIndex(b.name, "short"));
   const longFiles = videoFiles
-    .filter((file) => /^uzun_video_\d+\.mp4$/i.test(file.name))
+    .filter((file) => /^uzun_video_\d+\.mp4$/i.test(file.name) && filenameIndex(file.name, "long") >= 3)
     .sort((a, b) => filenameIndex(a.name, "long") - filenameIndex(b.name, "long"));
 
   // baslik.xlsx satırları (Dosya Adı → Video Başlık). Okunamazsa başlık = dosya adı.
