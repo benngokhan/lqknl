@@ -1,101 +1,181 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from "react";
 
 interface WorkerItem {
   id: string;
   name: string;
-  status: 'ok' | 'warn' | 'err';
-  status_text: string;
+  role: string;
+  status: string;
   updated_at: string;
-  jobs_done: number;
+  telegram_last?: string;
   last_action: string;
-  error_message: string;
+}
+
+interface VideoItem {
+  no: number;
+  file: string;
+  title: string;
+  status: string;
+  views: number;
+  likes: number;
+  comments: number;
+  published_at: string;
+  url: string;
 }
 
 interface AlertItem {
   id: string;
+  level: string;
+  worker: string;
+  time: string;
   title: string;
-  status: 'ok' | 'warn' | 'err';
-  status_text: string;
-  updated_at: string;
   detail: string;
-}
-
-interface VideoItem {
-  id: string;
-  url: string;
-  title: string;
-  publishedAt: string;
-  views: number;
-  likes: number;
-  comments: number;
+  action: string;
 }
 
 interface StatusReport {
+  system_name: string;
   updated_at: string;
-  overall_status: 'ok' | 'warn' | 'err';
-  overall_label: string;
-  summary: {
-    total_views: number;
+  overall_status: string;
+  channel: {
+    name: string;
     subscribers: number;
-    total_videos_published: number;
-    weekly_uploaded: number;
-    total_comments: number;
-    total_likes: number;
-    failed_jobs: number;
-    stock_shorts: number;
-    stock_long: number;
+    total_views: number;
+    published_videos: number;
+    ready_shorts_stock: number;
+    ready_long_stock: number;
   };
   workers: WorkerItem[];
-  alerts: AlertItem[];
   videos: VideoItem[];
+  alerts: AlertItem[];
 }
 
-export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb: () => void }) {
-  const [report, setReport] = useState<StatusReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'genel' | 'videolar' | 'isciler' | 'uyarilar'>('genel');
-  const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
-  const [paused, setPaused] = useState(false);
-  const [actionMsg, setActionMsg] = useState('');
-  const [busy, setBusy] = useState(false);
+interface CustomConnection {
+  id: string;
+  platform: string;
+  account: string;
+  endpoint: string;
+  status: "Hazır" | "Beklemede";
+  addedAt: string;
+}
 
-  async function loadStatus() {
-    setLoading(true);
-    setError('');
+function getShortCleanTitle(rawTitle: string): { shortTitle: string; fullClean: string; hashtags: string[] } {
+  if (!rawTitle) return { shortTitle: "Başlıksız Video", fullClean: "", hashtags: [] };
+  const hashtags = rawTitle.match(/#[\wçğıöşüÇĞİÖŞÜ]+/g) || [];
+  // Remove hashtags and emojis
+  const withoutTags = rawTitle
+    .replace(/#[\wçğıöşüÇĞİÖŞÜ]+/g, "")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = withoutTags.split(" ").filter(Boolean);
+  const shortTitle = words.slice(0, 5).join(" ") + (words.length > 5 ? "…" : "");
+  return {
+    shortTitle: shortTitle || rawTitle.slice(0, 28),
+    fullClean: withoutTags || rawTitle,
+    hashtags,
+  };
+}
+
+function isWorkerTimestampStale(ts: string): boolean {
+  if (!ts) return true;
+  // Normalize "2026.10.23 - 21:24" or "2026-10-23 21:24"
+  const m = ts.match(/(\d{4})[.-](\d{2})[.-](\d{2})\s*-?\s*(\d{2}):(\d{2})/);
+  if (!m) return false;
+  const parsed = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00+03:00`);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const diffHours = (Date.now() - parsed.getTime()) / (1000 * 3600);
+  // If worker hasn't updated in more than 12 hours, mark as stale
+  return diffHours > 12;
+}
+
+export default function KartalTaskManager({
+  onSwitchToVoice,
+}: {
+  onSwitchToVoice?: () => void;
+}) {
+  const [report, setReport] = useState<StatusReport | null>(null);
+  const [lastTelegramTime, setLastTelegramTime] = useState<string>("21:24");
+  const [activeTab, setActiveTab] = useState<"workers" | "videos" | "connections" | "alerts">("workers");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState<string>("");
+  const [expandedVideoNo, setExpandedVideoNo] = useState<number | null>(null);
+
+  // Manuel Bağlantı Ekleme Zemini
+  const [customConnections, setCustomConnections] = useState<CustomConnection[]>([
+    {
+      id: "conn-tiktok",
+      platform: "TikTok",
+      account: "@bilgidozuofficial",
+      endpoint: "TikTok Content Posting API / Manuel Bağlantı Zemini Hazır",
+      status: "Beklemede",
+      addedAt: "2026.10.24",
+    },
+    {
+      id: "conn-ig",
+      platform: "Instagram Reels",
+      account: "@bilgidozuofficial",
+      endpoint: "Instagram Graph API / Reels Otomatik Paylaşım Zemini Hazır",
+      status: "Beklemede",
+      addedAt: "2026.10.24",
+    },
+  ]);
+  const [newPlatform, setNewPlatform] = useState<string>("TikTok");
+  const [newAccount, setNewAccount] = useState<string>("");
+  const [newEndpoint, setNewEndpoint] = useState<string>("");
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
     try {
-      const res = await fetch('/api/kartal/status', { cache: 'no-store' });
+      const res = await fetch(`/api/kartal/status?t=${Date.now()}`, { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || 'Veri çekilemedi');
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Durum verisi alınamadı");
       }
-      setReport(data.report as StatusReport);
+      setReport(data.report);
+      if (data.last_telegram_time) {
+        setLastTelegramTime(data.last_telegram_time);
+      }
+      const now = new Date();
+      setLastRefreshedAt(
+        now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Bağlantı hatası');
+      setError(e instanceof Error ? e.message : "Bağlantı hatası");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     let active = true;
-    fetch('/api/kartal/status', { cache: 'no-store' })
+    fetch(`/api/kartal/status?t=${Date.now()}`, { cache: "no-store" })
       .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
       .then(({ ok, data }) => {
         if (!active) return;
-        if (!ok || !data?.ok) {
-          setError(data?.error || 'Veri çekilemedi');
+        if (!ok || !data.ok) {
+          setError(data.error || "Durum verisi alınamadı");
         } else {
-          setReport(data.report as StatusReport);
-          setError('');
+          setReport(data.report);
+          if (data.last_telegram_time) {
+            setLastTelegramTime(data.last_telegram_time);
+          }
+          const now = new Date();
+          setLastRefreshedAt(
+            now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+          );
         }
         setLoading(false);
       })
       .catch((e) => {
         if (!active) return;
-        setError(e instanceof Error ? e.message : 'Bağlantı hatası');
+        setError(e instanceof Error ? e.message : "Bağlantı hatası");
         setLoading(false);
       });
     return () => {
@@ -103,406 +183,782 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb: ()
     };
   }, []);
 
-  function toggleRow(key: string) {
-    setOpenRows((prev) => ({ ...prev, [key]: !prev[key] }));
-  }
+  const handleAddConnection = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAccount.trim() && !newEndpoint.trim()) return;
+    const item: CustomConnection = {
+      id: `conn-${Date.now()}`,
+      platform: newPlatform,
+      account: newAccount.trim() || "@bilgidozuofficial",
+      endpoint: newEndpoint.trim() || "Manuel API / Webhook bağlantısı tanımlandı",
+      status: "Hazır",
+      addedAt: new Date().toLocaleDateString("tr-TR"),
+    };
+    setCustomConnections((prev) => [item, ...prev]);
+    setNewAccount("");
+    setNewEndpoint("");
+  };
 
-  async function handleRetryOrRun() {
-    if (busy) return;
-    setBusy(true);
-    setActionMsg('');
-    try {
-      const res = await fetch('/api/automation/yt-bridge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'dispatch' }),
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok && data?.ok) {
-        setActionMsg('Yükleyici iş akışı tetiklendi. Sonuç birkaç dakika içinde tabloya yansır.');
-      } else {
-        setActionMsg(data?.error || 'Şu anda hatalı iş bulunmuyor; tüm işçiler normal çalışıyor.');
-      }
-      await loadStatus();
-    } catch {
-      setActionMsg('İşlem isteği gönderilemedi.');
-    } finally {
-      setBusy(false);
-    }
-  }
+  // Dürüst Üst Başlık Hesabı: Herhangi bir işçide Dikkat/Sorun varsa VEYA kayıt eskiyse "Dikkat gerek" göster
+  const hasStaleWorker =
+    report?.workers?.some((w) => isWorkerTimestampStale(w.updated_at)) ?? false;
+  const hasWarningWorker =
+    report?.workers?.some((w) => w.status !== "Çalışıyor") ?? false;
+  const hasWarningAlert =
+    report?.alerts?.some((a) => a.level === "Dikkat gerek" || a.level === "Sorun var") ?? false;
 
-  function handlePauseAll() {
-    const confirmed = window.confirm(
-      'Tüm işçileri duraklatmak istediğinize emin misiniz? Yanlışlıkla dokunduysanız İptal seçeneğine basın.'
-    );
-    if (confirmed) {
-      setPaused((p) => !p);
-      setActionMsg(paused ? 'İşçiler yeniden etkinleştirildi.' : 'Tüm zamanlanmış işçiler geçici olarak duraklatıldı.');
-    }
-  }
+  const honestOverallStatus =
+    !report
+      ? "Kontrol ediliyor"
+      : hasWarningWorker || hasWarningAlert || hasStaleWorker
+      ? "Dikkat gerek"
+      : "Her şey çalışıyor";
 
-  const fmt = (n: number | undefined) => Number(n || 0).toLocaleString('tr-TR');
-
-  const renderBadge = (status: 'ok' | 'warn' | 'err', text: string) => {
-    const styles =
-      status === 'err'
-        ? 'bg-[#FEF2F2] text-[#991B1B]'
-        : status === 'warn'
-          ? 'bg-[#FFFBEB] text-[#92400E]'
-          : 'bg-[#ECFDF5] text-[#065F46]';
-    const dot =
-      status === 'err' ? 'bg-[#EF4444]' : status === 'warn' ? 'bg-[#F59E0B]' : 'bg-[#10B981]';
+  const statusBadge = (status: string, isStale = false) => {
+    const effectiveStatus = isStale && status === "Çalışıyor" ? "Dikkat gerek" : status;
+    const isOk = effectiveStatus === "Çalışıyor" || effectiveStatus === "Her şey çalışıyor" || effectiveStatus === "Yüklendi" || effectiveStatus === "Hazır";
+    const isWarn = effectiveStatus === "Dikkat gerek" || effectiveStatus === "Beklemede";
+    const bg = isOk ? "#ecfdf5" : isWarn ? "#fffbeb" : "#fef2f2";
+    const text = isOk ? "#047857" : isWarn ? "#b45309" : "#b91c1c";
+    const dot = isOk ? "#10b981" : isWarn ? "#f59e0b" : "#ef4444";
     return (
-      <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-semibold shrink-0 ${styles}`}>
-        <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
-        <span>{text}</span>
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "6px",
+          padding: "4px 10px",
+          borderRadius: "9999px",
+          fontSize: "12px",
+          fontWeight: 600,
+          backgroundColor: bg,
+          color: text,
+          border: `1px solid ${dot}33`,
+          whiteSpace: "nowrap",
+        }}
+      >
+        <span
+          style={{
+            width: "7px",
+            height: "7px",
+            borderRadius: "9999px",
+            backgroundColor: dot,
+          }}
+        />
+        {isStale && status === "Çalışıyor" ? "Dikkat gerek (Eski kayıt)" : status}
       </span>
     );
   };
 
-  const overallStatus: 'ok' | 'warn' | 'err' = paused
-    ? 'warn'
-    : error
-      ? 'err'
-      : report?.overall_status || 'ok';
-  const overallText = paused
-    ? 'Duraklatıldı'
-    : error
-      ? 'Hata var'
-      : report?.overall_label || 'Her şey çalışıyor';
+  const filteredVideos =
+    report?.videos.filter(
+      (v) =>
+        v.title.toLowerCase().includes(search.toLowerCase()) ||
+        v.file.toLowerCase().includes(search.toLowerCase())
+    ) || [];
 
   return (
-    <div className="min-h-[100dvh] w-full bg-[#F8F9FA] text-[#111827] font-sans text-sm antialiased">
-      {/* En üstte her zaman görünen özet şeridi */}
-      <header className="sticky top-0 z-30 border-b border-[#E5E7EB] bg-white px-4 py-2.5">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5">
-            <span className="text-[15px] font-semibold text-[#111827]">Kartal AI · Görev Yöneticisi</span>
-            {renderBadge(overallStatus, overallText)}
-          </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs text-[#6B7280]">
-            <span>
-              Stok: {report?.summary.stock_shorts ?? 58} Shorts · {report?.summary.stock_long ?? 10} Uzun
+    <div
+      style={{
+        minHeight: "100vh",
+        backgroundColor: "#f8fafc",
+        color: "#0f172a",
+        fontFamily:
+          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+      }}
+    >
+      {/* ÜST BAŞLIK ÇUBUĞU */}
+      <header
+        style={{
+          backgroundColor: "#ffffff",
+          borderBottom: "1px solid #e2e8f0",
+          padding: "14px 24px",
+          position: "sticky",
+          top: 0,
+          zIndex: 20,
+        }}
+      >
+        <div
+          style={{
+            maxWidth: "1080px",
+            margin: "0 auto",
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "19px", fontWeight: 800, letterSpacing: "-0.02em", color: "#0f172a" }}>
+              KartaL AI
             </span>
-            <span>·</span>
-            <span>Son güncelleme: {report?.updated_at || 'az önce'}</span>
+            {report && statusBadge(honestOverallStatus)}
+            <span style={{ fontSize: "12px", color: "#475569", fontWeight: 500 }}>
+              Telegram&apos;a son bildirim: <strong>{lastTelegramTime}</strong>
+              {lastRefreshedAt ? ` · Panel yenileme: ${lastRefreshedAt}` : ""}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            {/* BELİRGİN YENİLE DÜĞMESİ */}
             <button
-              type="button"
-              onClick={onSwitchToOrb}
-              className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 text-xs font-medium text-[#111827] hover:bg-[#F3F4F6]"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              style={{
+                padding: "8px 16px",
+                fontSize: "13px",
+                fontWeight: 700,
+                borderRadius: "8px",
+                border: "2px solid #0f172a",
+                backgroundColor: refreshing ? "#e2e8f0" : "#ffffff",
+                color: "#0f172a",
+                cursor: refreshing ? "wait" : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                boxShadow: "0 1px 2px rgba(15, 23, 42, 0.08)",
+              }}
             >
-              Sesli Asistan
+              <span style={{ fontSize: "15px", lineHeight: 1 }}>↻</span>
+              {refreshing ? "Yenileniyor…" : "Yenile"}
             </button>
+
+            {onSwitchToVoice ? (
+              <button
+                onClick={onSwitchToVoice}
+                style={{
+                  padding: "8px 14px",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                  backgroundColor: "#0f172a",
+                  color: "#ffffff",
+                  cursor: "pointer",
+                }}
+              >
+                🎙️ Sesli Asistan
+              </button>
+            ) : (
+              <a
+                href="/?voice=1"
+                style={{
+                  padding: "8px 14px",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                  backgroundColor: "#0f172a",
+                  color: "#ffffff",
+                  textDecoration: "none",
+                }}
+              >
+                🎙️ Sesli Asistan
+              </a>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Üst sekmeler ve düğmeler */}
-      <nav className="border-b border-[#E5E7EB] bg-white px-4">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
-          <div className="flex gap-1 overflow-x-auto">
-            {([
-              ['genel', 'Genel'],
-              ['videolar', 'Videolar'],
-              ['isciler', 'İşçiler'],
-              ['uyarilar', 'Uyarılar'],
-            ] as const).map(([key, label]) => (
+      {/* ANA İÇERİK */}
+      <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "20px 24px 48px" }}>
+        {/* KANAL ÖZET ŞERİDİ */}
+        {report && (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+              gap: "12px",
+              marginBottom: "20px",
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: "10px",
+                padding: "12px 16px",
+              }}
+            >
+              <div style={{ fontSize: "12px", color: "#64748b" }}>Yayındaki Video</div>
+              <div style={{ fontSize: "20px", fontWeight: 700, marginTop: "2px" }}>
+                {report.channel.published_videos}
+              </div>
+            </div>
+            <div
+              style={{
+                backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: "10px",
+                padding: "12px 16px",
+              }}
+            >
+              <div style={{ fontSize: "12px", color: "#64748b" }}>Toplam İzlenme</div>
+              <div style={{ fontSize: "20px", fontWeight: 700, marginTop: "2px" }}>
+                {report.channel.total_views.toLocaleString("tr-TR")}
+              </div>
+            </div>
+            <div
+              style={{
+                backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: "10px",
+                padding: "12px 16px",
+              }}
+            >
+              <div style={{ fontSize: "12px", color: "#64748b" }}>Kalan Shorts Stoku</div>
+              <div style={{ fontSize: "20px", fontWeight: 700, marginTop: "2px" }}>
+                {report.channel.ready_shorts_stock}
+              </div>
+            </div>
+            <div
+              style={{
+                backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: "10px",
+                padding: "12px 16px",
+              }}
+            >
+              <div style={{ fontSize: "12px", color: "#64748b" }}>Kalan Uzun Video</div>
+              <div style={{ fontSize: "20px", fontWeight: 700, marginTop: "2px" }}>
+                {report.channel.ready_long_stock}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SEKMELER: İŞÇİLER · VİDEOLAR · BAĞLANTILAR · UYARILAR */}
+        <div
+          style={{
+            display: "flex",
+            gap: "8px",
+            borderBottom: "1px solid #e2e8f0",
+            marginBottom: "16px",
+            flexWrap: "wrap",
+          }}
+        >
+          {[
+            { id: "workers", label: `İşçiler (${report?.workers.length ?? 5})` },
+            { id: "videos", label: `Videolar (${report?.videos.length ?? 0})` },
+            { id: "connections", label: `Bağlantılar (${3 + customConnections.length})` },
+            { id: "alerts", label: `Uyarılar (${report?.alerts.length ?? 0})` },
+          ].map((tab) => {
+            const active = activeTab === tab.id;
+            return (
               <button
-                key={key}
-                type="button"
-                onClick={() => setActiveTab(key)}
-                className={`border-b-2 px-3 py-2.5 text-[13px] whitespace-nowrap ${
-                  activeTab === key
-                    ? 'border-[#111827] font-semibold text-[#111827]'
-                    : 'border-transparent font-medium text-[#6B7280] hover:text-[#111827]'
-                }`}
+                key={tab.id}
+                onClick={() =>
+                  setActiveTab(tab.id as "workers" | "videos" | "connections" | "alerts")
+                }
+                style={{
+                  padding: "10px 16px",
+                  fontSize: "14px",
+                  fontWeight: active ? 700 : 500,
+                  color: active ? "#0f172a" : "#64748b",
+                  backgroundColor: "transparent",
+                  border: "none",
+                  borderBottom: active ? "2px solid #0f172a" : "2px solid transparent",
+                  cursor: "pointer",
+                }}
               >
-                {label}
+                {tab.label}
               </button>
+            );
+          })}
+        </div>
+
+        {loading && !report && (
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              border: "1px solid #e2e8f0",
+              borderRadius: "10px",
+              padding: "24px",
+              fontSize: "14px",
+              color: "#64748b",
+            }}
+          >
+            Yükleniyor…
+          </div>
+        )}
+
+        {error && (
+          <div
+            style={{
+              backgroundColor: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: "10px",
+              padding: "16px",
+              fontSize: "14px",
+              color: "#b91c1c",
+              marginBottom: "16px",
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {/* 1. SEKME: İŞÇİLER */}
+        {report && activeTab === "workers" && (
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              border: "1px solid #e2e8f0",
+              borderRadius: "10px",
+              overflow: "hidden",
+            }}
+          >
+            {report.workers.map((w, idx) => {
+              const stale = isWorkerTimestampStale(w.updated_at);
+              return (
+                <div
+                  key={w.id}
+                  style={{
+                    padding: "16px 18px",
+                    borderBottom:
+                      idx < report.workers.length - 1 ? "1px solid #f1f5f9" : "none",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: "8px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a" }}>
+                        {w.name}
+                      </span>
+                      <span style={{ fontSize: "13px", color: "#64748b" }}>— {w.role}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "12px", color: "#334155", fontWeight: 500 }}>
+                        Son güncelleme: <strong>{w.updated_at}</strong>
+                        {(w.id === "uploader" || w.id === "telegram") && (
+                          <> · Telegram&apos;a son bildirim: <strong>{w.telegram_last || lastTelegramTime}</strong></>
+                        )}
+                      </span>
+                      {statusBadge(w.status, stale)}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: "13px", color: "#334155", lineHeight: 1.5 }}>
+                    {w.last_action}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* 2. SEKME: VİDEOLAR (SADE BAŞLIK + TIKLAYINCA TAM METİN) */}
+        {report && activeTab === "videos" && (
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              border: "1px solid #e2e8f0",
+              borderRadius: "10px",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                padding: "12px 16px",
+                borderBottom: "1px solid #e2e8f0",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "12px",
+                flexWrap: "wrap",
+              }}
+            >
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Video adı veya dosya ara (örn. video_33)…"
+                style={{
+                  flex: "1 1 260px",
+                  padding: "8px 12px",
+                  fontSize: "13px",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "6px",
+                  outline: "none",
+                }}
+              />
+              <span style={{ fontSize: "12px", color: "#64748b" }}>
+                💡 Tam başlığı ve etiketleri görmek için video satırına dokunun.
+              </span>
+            </div>
+
+            <div style={{ overflowX: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: "13px",
+                  textAlign: "left",
+                }}
+              >
+                <thead>
+                  <tr
+                    style={{
+                      backgroundColor: "#f8fafc",
+                      borderBottom: "1px solid #e2e8f0",
+                      color: "#475569",
+                    }}
+                  >
+                    <th style={{ padding: "10px 14px", fontWeight: 600 }}>Video (Kısa Başlık)</th>
+                    <th style={{ padding: "10px 14px", fontWeight: 600 }}>Durum</th>
+                    <th style={{ padding: "10px 14px", fontWeight: 600 }}>Tarih</th>
+                    <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>
+                      İzlenme
+                    </th>
+                    <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>
+                      Yorum
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredVideos.map((v) => {
+                    const { shortTitle, fullClean, hashtags } = getShortCleanTitle(v.title);
+                    const isExpanded = expandedVideoNo === v.no;
+                    return (
+                      <React.Fragment key={v.no}>
+                        <tr
+                          onClick={() => setExpandedVideoNo(isExpanded ? null : v.no)}
+                          style={{
+                            borderBottom: isExpanded ? "none" : "1px solid #f1f5f9",
+                            cursor: "pointer",
+                            backgroundColor: isExpanded ? "#f8fafc" : "#ffffff",
+                          }}
+                        >
+                          <td style={{ padding: "12px 14px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <span style={{ fontSize: "11px", color: "#64748b" }}>
+                                {isExpanded ? "▾" : "▸"}
+                              </span>
+                              <div>
+                                <span style={{ fontWeight: 600, color: "#0f172a" }}>
+                                  {shortTitle}
+                                </span>
+                                <span
+                                  style={{
+                                    marginLeft: "8px",
+                                    fontSize: "11px",
+                                    color: "#64748b",
+                                    backgroundColor: "#f1f5f9",
+                                    padding: "2px 6px",
+                                    borderRadius: "4px",
+                                  }}
+                                >
+                                  {v.file}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ padding: "12px 14px" }}>{statusBadge(v.status)}</td>
+                          <td style={{ padding: "12px 14px", color: "#475569", whiteSpace: "nowrap" }}>
+                            {v.published_at}
+                          </td>
+                          <td
+                            style={{
+                              padding: "12px 14px",
+                              textAlign: "right",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {v.views.toLocaleString("tr-TR")}
+                          </td>
+                          <td style={{ padding: "12px 14px", textAlign: "right", color: "#475569" }}>
+                            {v.comments}
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr
+                            style={{
+                              backgroundColor: "#f8fafc",
+                              borderBottom: "1px solid #e2e8f0",
+                            }}
+                          >
+                            <td colSpan={5} style={{ padding: "10px 18px 14px 34px" }}>
+                              <div style={{ fontSize: "13px", color: "#0f172a", fontWeight: 600, marginBottom: "4px" }}>
+                                Tam Başlık: <span style={{ fontWeight: 500 }}>{fullClean}</span>
+                              </div>
+                              {hashtags.length > 0 && (
+                                <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "8px" }}>
+                                  Etiketler: {hashtags.join(" ")}
+                                </div>
+                              )}
+                              <div style={{ display: "flex", alignItems: "center", gap: "14px", fontSize: "12px" }}>
+                                <a
+                                  href={v.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{
+                                    color: "#2563eb",
+                                    fontWeight: 600,
+                                    textDecoration: "none",
+                                  }}
+                                >
+                                  ▶️ YouTube&apos;da Aç ({v.url})
+                                </a>
+                                <span style={{ color: "#64748b" }}>
+                                  Beğeni: <strong>{v.likes}</strong> · Yorum: <strong>{v.comments}</strong>
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* 3. SEKME: BAĞLANTILAR (YOUTUBE, TELEGRAM, DRIVE + TIKTOK/INSTAGRAM & MANUEL EKLEME ZEMİNİ) */}
+        {activeTab === "connections" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div
+              style={{
+                backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: "10px",
+                padding: "16px 18px",
+              }}
+            >
+              <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "12px" }}>
+                Aktif ve Hazır Platform Bağlantıları
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "12px",
+                    border: "1px solid #f1f5f9",
+                    borderRadius: "8px",
+                    flexWrap: "wrap",
+                    gap: "8px",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "14px" }}>
+                      YouTube Data API v3 — @bilgidozuofficial
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#64748b" }}>
+                      Otomatik video yükleme, özel kapak ve ilk sabit yorum (youtube.force-ssl)
+                    </div>
+                  </div>
+                  {statusBadge("Çalışıyor")}
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "12px",
+                    border: "1px solid #f1f5f9",
+                    borderRadius: "8px",
+                    flexWrap: "wrap",
+                    gap: "8px",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "14px" }}>
+                      Telegram Bot — Asistan-Mira_bot
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#64748b" }}>
+                      Yükleme sonrası tek tıkla kopyalanabilir sabit yorum ve kalan stok bildirimi (Son: {lastTelegramTime})
+                    </div>
+                  </div>
+                  {statusBadge("Çalışıyor")}
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "12px",
+                    border: "1px solid #f1f5f9",
+                    borderRadius: "8px",
+                    flexWrap: "wrap",
+                    gap: "8px",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "14px" }}>
+                      Google Drive & E-Tablo Stoku
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#64748b" }}>
+                      bilgidozu_yukleme_tablosu.xlsx · 57 Shorts ve 10 Uzun Video hazır
+                    </div>
+                  </div>
+                  {statusBadge("Çalışıyor")}
+                </div>
+
+                {customConnections.map((c) => (
+                  <div
+                    key={c.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "12px",
+                      border: "1px solid #f1f5f9",
+                      borderRadius: "8px",
+                      flexWrap: "wrap",
+                      gap: "8px",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: "14px" }}>
+                        {c.platform} — {c.account}
+                      </div>
+                      <div style={{ fontSize: "12px", color: "#64748b" }}>
+                        {c.endpoint} · Eklenme: {c.addedAt}
+                      </div>
+                    </div>
+                    {statusBadge(c.status)}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* MANUEL BAĞLANTI EKLEME FORMU */}
+            <form
+              onSubmit={handleAddConnection}
+              style={{
+                backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: "10px",
+                padding: "16px 18px",
+              }}
+            >
+              <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "4px" }}>
+                + Yeni Kanal / Manuel Bağlantı Ekle
+              </div>
+              <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "14px" }}>
+                TikTok, Instagram Reels veya özel Webhook bağlantı bilgilerini buradan sisteme tanımlayabilirsiniz.
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                  gap: "10px",
+                  marginBottom: "12px",
+                }}
+              >
+                <select
+                  value={newPlatform}
+                  onChange={(e) => setNewPlatform(e.target.value)}
+                  style={{
+                    padding: "9px 12px",
+                    fontSize: "13px",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: "6px",
+                    backgroundColor: "#ffffff",
+                  }}
+                >
+                  <option value="TikTok">TikTok</option>
+                  <option value="Instagram Reels">Instagram Reels</option>
+                  <option value="YouTube Yedek Kanal">YouTube Yedek Kanal</option>
+                  <option value="Özel Webhook / API">Özel Webhook / API</option>
+                </select>
+                <input
+                  type="text"
+                  value={newAccount}
+                  onChange={(e) => setNewAccount(e.target.value)}
+                  placeholder="Hesap adı (örn. @bilgidozuofficial)"
+                  style={{
+                    padding: "9px 12px",
+                    fontSize: "13px",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: "6px",
+                  }}
+                />
+                <input
+                  type="text"
+                  value={newEndpoint}
+                  onChange={(e) => setNewEndpoint(e.target.value)}
+                  placeholder="API Anahtarı / Webhook URL / Not"
+                  style={{
+                    padding: "9px 12px",
+                    fontSize: "13px",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: "6px",
+                  }}
+                />
+              </div>
+              <button
+                type="submit"
+                style={{
+                  padding: "8px 16px",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  borderRadius: "8px",
+                  border: "none",
+                  backgroundColor: "#0f172a",
+                  color: "#ffffff",
+                  cursor: "pointer",
+                }}
+              >
+                Bağlantıyı Kaydet
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* 4. SEKME: UYARILAR */}
+        {report && activeTab === "alerts" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {report.alerts.map((a) => (
+              <div
+                key={a.id}
+                style={{
+                  backgroundColor: "#ffffff",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "10px",
+                  padding: "16px 18px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "8px",
+                    marginBottom: "6px",
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: "14px" }}>{a.title}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ fontSize: "12px", color: "#64748b" }}>{a.time}</span>
+                    {statusBadge(a.level)}
+                  </div>
+                </div>
+                <div style={{ fontSize: "13px", color: "#334155", marginBottom: "6px" }}>
+                  {a.detail}
+                </div>
+                <div style={{ fontSize: "12px", color: "#0f172a", fontWeight: 600 }}>
+                  Öneri: {a.action}
+                </div>
+              </div>
             ))}
           </div>
-          <div className="flex items-center gap-2 py-1.5">
-            <button
-              type="button"
-              onClick={() => void handleRetryOrRun()}
-              disabled={busy}
-              className="rounded border border-[#111827] bg-[#111827] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-            >
-              {busy ? 'Çalıştırılıyor…' : 'Hatalıları yeniden dene'}
-            </button>
-            <button
-              type="button"
-              onClick={handlePauseAll}
-              className="rounded border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-medium text-[#111827] hover:bg-[#F3F4F6]"
-            >
-              {paused ? 'Devam ettir' : 'Tümünü duraklat'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void loadStatus()}
-              disabled={loading}
-              className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-xs font-medium text-[#6B7280] hover:text-[#111827]"
-            >
-              Yenile
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      <main className="mx-auto max-w-6xl px-4 py-4">
-        {actionMsg && (
-          <div className="mb-3 rounded border border-[#E5E7EB] bg-white px-3 py-2 text-xs text-[#111827]">
-            {actionMsg}
-          </div>
         )}
-        {error && (
-          <div className="mb-3 rounded border border-[#EF4444] bg-[#FEF2F2] px-3 py-2 text-xs text-[#991B1B]">
-            Veri okuma hatası: {error}
-          </div>
-        )}
-
-        {/* Üst kartlar */}
-        <section className="mb-4 grid grid-cols-2 gap-2.5 md:grid-cols-4">
-          <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
-            <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary.total_views)}</div>
-            <div className="mt-0.5 text-xs text-[#6B7280]">toplam görüntülenme (YouTube API)</div>
-          </div>
-          <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
-            <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary.weekly_uploaded)}</div>
-            <div className="mt-0.5 text-xs text-[#6B7280]">bu hafta yüklenen video</div>
-          </div>
-          <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
-            <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary.total_comments)}</div>
-            <div className="mt-0.5 text-xs text-[#6B7280]">toplam yorum</div>
-          </div>
-          <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
-            <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary.failed_jobs)}</div>
-            <div className="mt-0.5 text-xs text-[#6B7280]">başarısız işler</div>
-          </div>
-        </section>
-
-        {/* Genel Sekmesi: Tablette solda işçiler, sağda videolar */}
-        {activeTab === 'genel' && (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-            <div className="space-y-4 lg:col-span-5">
-              <section className="rounded-md border border-[#E5E7EB] bg-white">
-                <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-                  <span className="text-sm font-semibold text-[#111827]">İşçi durumları</span>
-                  <span className="text-xs text-[#6B7280]">Ayrıntı için satıra dokun</span>
-                </div>
-                <div className="divide-y divide-[#E5E7EB]">
-                  {(report?.workers || []).map((w) => {
-                    const key = `w-${w.id}`;
-                    const isOpen = !!openRows[key];
-                    return (
-                      <div
-                        key={w.id}
-                        onClick={() => toggleRow(key)}
-                        className="cursor-pointer px-3.5 py-2.5 hover:bg-[#F3F4F6]"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="text-[13px] font-medium text-[#111827]">{w.name}</span>
-                          {renderBadge(w.status, w.status_text)}
-                        </div>
-                        <div className="mt-1 flex flex-wrap gap-2 text-xs text-[#6B7280]">
-                          <span>Son güncelleme: {w.updated_at}</span>
-                          <span>·</span>
-                          <span>{w.jobs_done} iş yaptı</span>
-                        </div>
-                        {isOpen && (
-                          <div className="mt-2 rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2 text-xs text-[#111827]">
-                            {w.error_message ? (
-                              <>
-                                <div>
-                                  <strong>Son hata:</strong> {w.error_message}
-                                </div>
-                                <div className="mt-1">
-                                  <strong>Son işlem:</strong> {w.last_action}
-                                </div>
-                              </>
-                            ) : (
-                              <div>
-                                <strong>Son işlem:</strong> {w.last_action}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-
-              <section className="rounded-md border border-[#E5E7EB] bg-white">
-                <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-                  <span className="text-sm font-semibold text-[#111827]">Uyarılar</span>
-                  <span className="text-xs text-[#6B7280]">Kota ve bağlantı kontrolleri</span>
-                </div>
-                <div className="divide-y divide-[#E5E7EB]">
-                  {(report?.alerts || []).map((a) => {
-                    const key = `a-${a.id}`;
-                    const isOpen = !!openRows[key];
-                    return (
-                      <div
-                        key={a.id}
-                        onClick={() => toggleRow(key)}
-                        className="cursor-pointer px-3.5 py-2.5 hover:bg-[#F3F4F6]"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="text-[13px] font-medium text-[#111827]">{a.title}</span>
-                          {renderBadge(a.status, a.status_text)}
-                        </div>
-                        <div className="mt-1 text-xs text-[#6B7280]">Son kontrol: {a.updated_at}</div>
-                        {isOpen && (
-                          <div className="mt-2 rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2 text-xs text-[#111827]">
-                            {a.detail}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            </div>
-
-            <section className="rounded-md border border-[#E5E7EB] bg-white lg:col-span-7">
-              <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-                <span className="text-sm font-semibold text-[#111827]">Son videolar</span>
-                <span className="text-xs text-[#6B7280]">Görüntülemeler birkaç saat gecikmeli güncellenir</span>
-              </div>
-              <div className="max-h-[560px] divide-y divide-[#E5E7EB] overflow-y-auto">
-                {(report?.videos || []).map((v) => {
-                  const key = `v-${v.id}`;
-                  const isOpen = !!openRows[key];
-                  return (
-                    <div
-                      key={v.id}
-                      onClick={() => toggleRow(key)}
-                      className="cursor-pointer px-3.5 py-2.5 hover:bg-[#F3F4F6]"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-[13px] font-medium text-[#111827]">{v.title}</span>
-                        {renderBadge('ok', 'Yayında')}
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-2 text-xs text-[#6B7280]">
-                        <span>{fmt(v.views)} görüntüleme</span>
-                        <span>·</span>
-                        <span>{fmt(v.comments)} yorum</span>
-                        <span>·</span>
-                        <span>{(v.publishedAt || '').slice(0, 16).replace('T', ' ')}</span>
-                      </div>
-                      {isOpen && (
-                        <div className="mt-2 rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2 text-xs text-[#111827]">
-                          Video ID: {v.id} · Beğeni: {fmt(v.likes)} ·{' '}
-                          <a
-                            href={v.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="font-semibold underline"
-                          >
-                            YouTube&apos;da aç ↗
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
-        )}
-
-        {/* Sadece Videolar Sekmesi */}
-        {activeTab === 'videolar' && (
-          <section className="rounded-md border border-[#E5E7EB] bg-white">
-            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-              <span className="text-sm font-semibold text-[#111827]">Tüm yayınlanan videolar</span>
-              <span className="text-xs text-[#6B7280]">Gerçek YouTube Data API v3 verisi</span>
-            </div>
-            <div className="divide-y divide-[#E5E7EB]">
-              {(report?.videos || []).map((v) => (
-                <div key={v.id} className="px-3.5 py-2.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <a
-                      href={v.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[13px] font-medium text-[#111827] hover:underline"
-                    >
-                      {v.title}
-                    </a>
-                    {renderBadge('ok', 'Yayında')}
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-2 text-xs text-[#6B7280]">
-                    <span>{fmt(v.views)} görüntüleme</span>
-                    <span>·</span>
-                    <span>{fmt(v.comments)} yorum</span>
-                    <span>·</span>
-                    <span>{fmt(v.likes)} beğeni</span>
-                    <span>·</span>
-                    <span>{(v.publishedAt || '').slice(0, 16).replace('T', ' ')}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Sadece İşçiler Sekmesi */}
-        {activeTab === 'isciler' && (
-          <section className="rounded-md border border-[#E5E7EB] bg-white">
-            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-              <span className="text-sm font-semibold text-[#111827]">İşçi durumları</span>
-              <span className="text-xs text-[#6B7280]">Durum, zaman ve hata kayıtları</span>
-            </div>
-            <div className="divide-y divide-[#E5E7EB]">
-              {(report?.workers || []).map((w) => (
-                <div key={w.id} className="px-3.5 py-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-[13px] font-medium text-[#111827]">{w.name}</span>
-                    {renderBadge(w.status, w.status_text)}
-                  </div>
-                  <div className="mt-1 text-xs text-[#6B7280]">
-                    Son güncelleme: {w.updated_at} · Toplam iş: {w.jobs_done}
-                  </div>
-                  <div className="mt-1 text-xs text-[#111827]">{w.last_action}</div>
-                  {w.error_message && (
-                    <div className="mt-1.5 rounded border border-[#EF4444] bg-[#FEF2F2] p-2 text-xs text-[#991B1B]">
-                      Son hata: {w.error_message}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Sadece Uyarılar Sekmesi */}
-        {activeTab === 'uyarilar' && (
-          <section className="rounded-md border border-[#E5E7EB] bg-white">
-            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-              <span className="text-sm font-semibold text-[#111827]">Sistem uyarıları</span>
-              <span className="text-xs text-[#6B7280]">YouTube API kotası, Drive/Sheets ve yorum işçisi</span>
-            </div>
-            <div className="divide-y divide-[#E5E7EB]">
-              {(report?.alerts || []).map((a) => (
-                <div key={a.id} className="px-3.5 py-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-[13px] font-medium text-[#111827]">{a.title}</span>
-                    {renderBadge(a.status, a.status_text)}
-                  </div>
-                  <div className="mt-1 text-xs text-[#6B7280]">Son kontrol: {a.updated_at}</div>
-                  <div className="mt-1 text-xs text-[#111827]">{a.detail}</div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        <p className="mt-4 text-xs text-[#6B7280]">
-          Not: Tüm veriler gerçek YouTube Data API v3 ve Google Sheets kayıtlarından alınmaktadır. Görüntüleme sayıları YouTube tarafında birkaç saatlik gecikmeyle güncellenir.
-        </p>
       </main>
     </div>
   );
