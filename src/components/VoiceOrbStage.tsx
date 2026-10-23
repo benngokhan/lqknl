@@ -7,6 +7,7 @@ import { useWakeWord } from "./useWakeWord";
 
 type Stock = { shorts: number; long: number; days?: number };
 type ChatResponse = {
+  reply?: unknown;
   assistant?: { content?: unknown };
   error?: unknown;
 };
@@ -193,11 +194,14 @@ export default function VoiceOrbStage({
   const [thinking, setThinking] = useState(false);
   const thinkingRef = useRef(false);
   const [liveStock, setLiveStock] = useState<Required<Stock>>(DEFAULT_STOCK);
+  const [lastReply, setLastReply] = useState<string>("Selam patron, 'Hey Mira' diyerek veya küreye dokunarak konuşabilirsin.");
+  const [lastHeard, setLastHeard] = useState<string>("");
 
   const sendCommand = useCallback(async (command: string) => {
     if (thinkingRef.current) return;
     thinkingRef.current = true;
     setThinking(true);
+    setLastHeard(command);
     stop();
 
     try {
@@ -214,10 +218,11 @@ export default function VoiceOrbStage({
         if (!response.ok) {
           throw new Error(typeof data.error === "string" ? data.error : `/api/chat ${response.status}`);
         }
-        answer = typeof data.assistant?.content === "string" ? data.assistant.content : "";
+        answer = typeof data.reply === "string" ? data.reply : typeof data.assistant?.content === "string" ? data.assistant.content : "";
       }
 
       if (typeof answer === "string" && answer.trim()) {
+        setLastReply(answer.trim());
         void speak(answer.trim(), { solMode: "close", emotion: "happy" });
       }
     } catch (reason) {
@@ -261,23 +266,41 @@ export default function VoiceOrbStage({
 
     const refreshStock = async () => {
       try {
-        const response = await fetch("/api/drive/catalog", { cache: "no-store" });
-        if (!response.ok) return;
-        const data = await response.json() as {
-          videos?: { shorts?: unknown[]; longVideos?: unknown[] };
-        };
-        const shorts = data.videos?.shorts?.length;
-        const long = data.videos?.longVideos?.length;
-        if (
-          cancelled ||
-          typeof shorts !== "number" ||
-          typeof long !== "number" ||
-          !Number.isFinite(shorts) ||
-          !Number.isFinite(long)
-        ) return;
-        setLiveStock({ shorts, long, days: (shorts + long) / 3 });
+        const invRes = await fetch("/api/chat?view=inventory", { cache: "no-store" });
+        if (invRes.ok) {
+          const inv = await invRes.json() as {
+            ok?: boolean;
+            shortsRemaining?: number;
+            longsRemaining?: number;
+            daysRemaining?: number;
+          };
+          if (!cancelled && inv?.ok && typeof inv.shortsRemaining === "number" && typeof inv.longsRemaining === "number") {
+            setLiveStock({
+              shorts: inv.shortsRemaining,
+              long: inv.longsRemaining,
+              days: typeof inv.daysRemaining === "number" ? inv.daysRemaining : (inv.shortsRemaining + inv.longsRemaining) / 3,
+            });
+            return;
+          }
+        }
+        const bridgeRes = await fetch("/api/automation/yt-bridge", { cache: "no-store" });
+        if (bridgeRes.ok) {
+          const b = await bridgeRes.json() as {
+            remainingShortsCount?: number;
+            remainingLongsCount?: number;
+            estimatedDaysRemaining?: number;
+          };
+          if (!cancelled && typeof b?.remainingShortsCount === "number" && typeof b?.remainingLongsCount === "number") {
+            setLiveStock({
+              shorts: b.remainingShortsCount,
+              long: b.remainingLongsCount,
+              days: typeof b.estimatedDaysRemaining === "number" ? b.estimatedDaysRemaining : (b.remainingShortsCount + b.remainingLongsCount) / 3,
+            });
+            return;
+          }
+        }
       } catch {
-        // The approved stock figures remain visible when Drive is not configured.
+        // Keep last known stock figures on transient network error.
       }
     };
 
@@ -378,15 +401,27 @@ export default function VoiceOrbStage({
         </button>
       </div>
 
-      <p
-        className="mira-orb-status"
-        data-speaking={speaking}
-        data-active={active}
-        aria-live="polite"
-        role="status"
-      >
-        {statusText}
-      </p>
+      <div style={{ zIndex: 5, alignSelf: "end", display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", maxWidth: "min(92vw, 720px)", margin: "0 auto" }}>
+        {(interim || lastHeard) && (
+          <div style={{ padding: "6px 14px", borderRadius: "999px", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)", fontSize: "13px", color: "rgba(225,198,255,0.92)" }}>
+            🎙️ {interim || lastHeard}
+          </div>
+        )}
+        {lastReply && (
+          <div style={{ padding: "12px 18px", borderRadius: "18px", background: "rgba(10,14,32,0.72)", border: "1px solid rgba(153,228,255,0.22)", fontSize: "clamp(13px, 2.8vw, 16px)", lineHeight: 1.5, color: "#f5f3ff", textAlign: "center", backdropFilter: "blur(12px)" }}>
+            {lastReply}
+          </div>
+        )}
+        <p
+          className="mira-orb-status"
+          data-speaking={speaking}
+          data-active={active}
+          aria-live="polite"
+          role="status"
+        >
+          {statusText}
+        </p>
+      </div>
     </section>
   );
 }
