@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useSpeaker } from '@/components/useSpeaker';
 import VoiceOrbStage from '@/components/VoiceOrbStage';
+import KartalTaskManager from '@/components/KartalTaskManager';
 
 type IntegrationStatus = { status: "online" | "offline" | "unknown"; detail: string };
 interface IntegrationHealth { checkedAt: string; drive: IntegrationStatus; youtube: IntegrationStatus }
@@ -1186,14 +1187,18 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setUiMode('classic')}
-            className="rounded-full px-3.5 py-1.5 font-medium text-white/75 transition hover:bg-white/10 hover:text-white"
+            className="rounded-full px-3.5 py-1.5 font-medium text-white/85 transition hover:bg-white/10 hover:text-white"
           >
-            💬 Klasik Panel
+            📊 Görev Yöneticisi
           </button>
         </div>
         <VoiceOrbStage />
       </div>
     );
+  }
+
+  if (uiMode === 'classic') {
+    return <KartalTaskManager onSwitchToOrb={() => setUiMode('orb')} />;
   }
 
   return (
