@@ -162,35 +162,35 @@ export function resolveConversationalProsody(opts?: NarrationOptions): {
   const mode: MiraSolMode = opts?.solMode ?? "flirty";
 
   const emotionRateDelta: Record<MiraTtsEmotion, number> = {
-    happy: 5,
-    playful: 7,
-    surprised: 8,
-    focused: 3, // Jarvis operational clarity: brisk and confident
-    sad: -5,
+    happy: 11,
+    playful: 12,
+    surprised: 13,
+    focused: 10, // Warm, natural human conversational pace (never slow/robotic)
+    sad: 2,
   };
 
   const modeRateDelta: Record<MiraSolMode, number> = {
     sweet: 0,
     flirty: 1,
-    close: -2,
-    serious: 0,
-    excited: 4,
+    close: 0,
+    serious: -1,
+    excited: 3,
   };
 
   const emotionPitchHz: Record<MiraTtsEmotion, number> = {
-    happy: 2,
-    playful: 4,
-    surprised: 5,
-    focused: 1,
-    sad: -3,
+    happy: -3,
+    playful: -2,
+    surprised: -1,
+    focused: -3,
+    sad: -5,
   };
 
   const modePitchHz: Record<MiraSolMode, number> = {
-    sweet: 1,
-    flirty: 2,
-    close: 0,
-    serious: -1,
-    excited: 2,
+    sweet: 0,
+    flirty: 0,
+    close: -1,
+    serious: -2,
+    excited: 0,
   };
 
   const explicitRateOffset = typeof opts?.rate === "number" && Number.isFinite(opts.rate)
@@ -453,6 +453,105 @@ export async function generateWithGoogleTts(
  *   2. Google Translate Turkish TTS (`gtx` / `dict-chrome-ex` / `tw-ob`) keyless fallback
  * Paid ElevenLabs (`MIRA_ALLOW_PAID_TTS=false`) is permanently disabled.
  */
+
+function pcm16ToWavBuffer(pcm: Buffer, sampleRate = 24000, numChannels = 1): Buffer {
+  const byteRate = sampleRate * numChannels * 2;
+  const blockAlign = numChannels * 2;
+  const dataSize = pcm.length;
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(dataSize, 40);
+  return Buffer.concat([header, pcm]);
+}
+
+export async function generateWithGeminiFreeTts(
+  text: string,
+  _opts?: NarrationOptions,
+): Promise<NarrationResult> {
+  const apiKey = (
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
+    ""
+  ).trim();
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY tanımlı değil");
+  }
+  const spokenText = prepareTextForTurkishSpeech(text);
+  if (!spokenText) {
+    throw new Error("Metin boş");
+  }
+  const voiceName = (process.env.GEMINI_TTS_VOICE || "Aoede").trim();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 14000);
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `Sıcak, samimi, doğal bir Türkçe kadın asistan tonuyla oku: ${spokenText}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName,
+                },
+              },
+            },
+          },
+        }),
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) {
+      throw new Error(`Gemini Free TTS HTTP ${res.status}`);
+    }
+    const data = (await res.json()) as {
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }>;
+        };
+      }>;
+    };
+    const b64 = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!b64) {
+      throw new Error("Gemini Free TTS ses verisi döndürmedi");
+    }
+    const pcm = Buffer.from(b64, "base64");
+    const wav = pcm16ToWavBuffer(pcm, 24000, 1);
+    const est = buildEstimatedCaptions(spokenText);
+    return {
+      audio: wav,
+      provider: "gemini-free-tts",
+      captions: est.captions,
+      durationSeconds: Number((pcm.length / (24000 * 2)).toFixed(2)) || est.durationSeconds,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function generateNarration(
   text: string,
   opts?: NarrationOptions
@@ -481,7 +580,19 @@ export async function generateNarration(
   const errors: string[] = [];
 
   // Paid TTS is strictly locked off (`MIRA_ALLOW_PAID_TTS === false`).
-  // Step 1: 100% Free Microsoft Edge Neural TTS (Turkish female voice)
+  // Step 0: If free GEMINI_API_KEY is present, try Gemini 2.5 Flash Native Audio TTS (Aoede human voice, $0 free tier)
+  if ((process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || "").trim()) {
+    try {
+      const geminiResult = await generateWithGeminiFreeTts(spokenText, opts);
+      cacheSet(cacheKey, geminiResult);
+      return geminiResult;
+    } catch (geminiErr) {
+      const gMsg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
+      errors.push(`GeminiFreeTTS: ${gMsg}`);
+    }
+  }
+
+  // Step 1: 100% Free Microsoft Edge Neural TTS (Turkish female voice with warm studio prosody)
   try {
     const edgeResult = await generateWithEdgeTts(prepared, opts);
     if (cacheKey) {

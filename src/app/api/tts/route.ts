@@ -10,7 +10,7 @@ function audioResponse(audio: Uint8Array, provider: string) {
   return new NextResponse(body as BodyInit, {
     status: 200,
     headers: {
-      "Content-Type": "audio/mpeg",
+      "Content-Type": provider === "gemini-free-tts" ? "audio/wav" : "audio/mpeg",
       "Content-Length": String(audio.length),
       "Cache-Control": "no-store",
       "X-Mira-TTS-Provider": provider,

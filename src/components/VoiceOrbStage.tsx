@@ -255,7 +255,7 @@ export default function VoiceOrbStage({
   onCommand,
   stock: providedStock,
 }: VoiceOrbStageProps) {
-  const { speak, stop, speaking, ampRef } = useSpeaker();
+  const { speak, stop, unlock, speaking, ampRef } = useSpeaker();
   const [listening, setListening] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [supported, setSupported] = useState(true);
@@ -339,6 +339,7 @@ export default function VoiceOrbStage({
   // BAS-KONUŞ (Tap-to-Talk): Sadece kullanıcı küreye dokunduğunda tek seferlik açılır!
   // Kendi kendine döngüsel aç-kapa yapmadığı için Android'de "dıgıdık" sistem sesi çıkarmaz.
   const togglePushToTalk = useCallback(() => {
+    unlock();
     if (speaking) {
       stop();
       return;
@@ -423,7 +424,7 @@ export default function VoiceOrbStage({
       setListening(false);
       setError("Mikrofon başlatılamadı, küreye tekrar dokunun.");
     }
-  }, [listening, sendCommand, speaking, stop]);
+  }, [listening, sendCommand, speaking, stop, unlock]);
 
   const stock: Required<Stock> = providedStock
     ? {

@@ -29,6 +29,37 @@ export function useSpeaker() {
     ampRef.current = 0;
   }, []);
 
+  /**
+   * Mobil (Android Chrome / iOS Safari) tarayıcılarda kullanıcı küreye dokunduğu
+   * saniye (await fetch öncesinde) AudioContext kilidini senkron olarak açar.
+   * Böylece /api/chat yanıtı 1-2 sn sonra geldiğinde tarayıcı sesi bloklamaz
+   * ve telefonun robotik yerleşik speechSynthesis sesine asla düşmez.
+   */
+  const unlock = useCallback(() => {
+    try {
+      if (typeof window === "undefined") return;
+      const Ctx =
+        window.AudioContext ??
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return;
+      if (!audioContextRef.current) {
+        audioContextRef.current = new Ctx();
+      }
+      const ctx = audioContextRef.current;
+      if (ctx.state === "suspended") {
+        void ctx.resume();
+      }
+      // 1-sample sessiz buffer ile ses kanalını sıcak tut
+      const silent = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = silent;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const stop = useCallback(() => {
     try {
       audioSourceRef.current?.stop();
@@ -67,12 +98,7 @@ export function useSpeaker() {
       setSpeaking(true);
       setWordIndex(words.length ? 0 : -1);
 
-      let stage:
-        | "audiocontext"
-        | "fetch"
-        | "content-type"
-        | "decode"
-        | "play" = "audiocontext";
+      let stage: "audiocontext" | "fetch" | "content-type" | "decode" | "play" = "audiocontext";
 
       try {
         if (typeof window === "undefined") {
@@ -130,12 +156,41 @@ export function useSpeaker() {
         const source = ctx.createBufferSource();
         source.buffer = buffer;
 
+        // Stüdyo İnsanlaştırma Zinciri (Warm Vocal EQ + De-Harshing + Soft Compressor):
+        // Neural TTS'in metalik 3.2 kHz tizliğini yumuşatır, 210 Hz alt-orta gövde sıcaklığı ekler.
+        const warmLow = ctx.createBiquadFilter();
+        warmLow.type = "lowshelf";
+        warmLow.frequency.value = 215;
+        warmLow.gain.value = 3.2;
+
+        const deHarsh = ctx.createBiquadFilter();
+        deHarsh.type = "peaking";
+        deHarsh.frequency.value = 3250;
+        deHarsh.Q.value = 1.35;
+        deHarsh.gain.value = -3.6;
+
+        const airHigh = ctx.createBiquadFilter();
+        airHigh.type = "highshelf";
+        airHigh.frequency.value = 7800;
+        airHigh.gain.value = 1.4;
+
+        const compressor = ctx.createDynamicsCompressor();
+        compressor.threshold.value = -18;
+        compressor.knee.value = 18;
+        compressor.ratio.value = 2.4;
+        compressor.attack.value = 0.012;
+        compressor.release.value = 0.18;
+
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 256;
         analyser.smoothingTimeConstant = 0.72;
 
         const data = new Uint8Array(analyser.fftSize);
-        source.connect(analyser);
+        source.connect(warmLow);
+        warmLow.connect(deHarsh);
+        deHarsh.connect(airHigh);
+        airHigh.connect(compressor);
+        compressor.connect(analyser);
         analyser.connect(ctx.destination);
 
         analyserRef.current = analyser;
@@ -192,64 +247,12 @@ export function useSpeaker() {
         rafRef.current = requestAnimationFrame(syncAudio);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        console.warn(`Mira sunucu TTS kullanılamadı; tarayıcı sesi deneniyor [${stage}]:`, message);
+        console.warn(`Mira sunucu TTS kullanılamadı [${stage}]:`, message);
         stopLoop();
-
-        // Keep Mira audible when the server TTS endpoint is not configured.
-        // This fallback uses the device's Turkish speech voice, not a cloned voice.
-        if (typeof window !== "undefined" && "speechSynthesis" in window) {
-          const utterance = new SpeechSynthesisUtterance(cleanText);
-          utterance.lang = "tr-TR";
-          const emotion = opts.emotion ?? "happy";
-          const rateFactor: Record<NonNullable<SpeakerOptions["emotion"]>, number> = {
-            happy: 1.02,
-            surprised: 1.08,
-            sad: 0.9,
-            playful: 1.04,
-            focused: 0.96,
-          };
-          const pitchDelta: Record<NonNullable<SpeakerOptions["emotion"]>, number> = {
-            happy: 0.03,
-            surprised: 0.12,
-            sad: -0.12,
-            playful: 0.08,
-            focused: -0.08,
-          };
-          utterance.rate = Math.min(2, Math.max(0.5, (opts.rate ?? 1) * rateFactor[emotion]));
-          utterance.pitch = Math.min(2, Math.max(0.5, (opts.pitch ?? 1.1) + pitchDelta[emotion]));
-          const voices = window.speechSynthesis.getVoices();
-          const turkishVoice = voices.find((voice) => voice.lang.toLowerCase().startsWith("tr"));
-          if (turkishVoice) utterance.voice = turkishVoice;
-
-          utterance.onstart = () => {
-            setVoiceError(null);
-            setSpeaking(true);
-            setWordIndex(0);
-          };
-          utterance.onboundary = (event) => {
-            if (event.name === "word" && words.length) {
-              const spoken = cleanText.slice(0, event.charIndex).trim().split(/\\s+/).filter(Boolean).length;
-              setWordIndex(Math.min(words.length - 1, Math.max(0, spoken)));
-            }
-          };
-          utterance.onend = () => {
-            setSpeaking(false);
-            setWordIndex(-1);
-            opts.onEnd?.();
-          };
-          utterance.onerror = () => {
-            setVoiceError("Cihazın Türkçe konuşma sesi de kullanılamıyor.");
-            setSpeaking(false);
-            setWordIndex(-1);
-          };
-          window.speechSynthesis.cancel();
-          window.speechSynthesis.speak(utterance);
-          return;
-        }
-
-        setVoiceError("Sunucu sesi ayarlanmamış ve bu cihazda tarayıcı konuşma desteği yok.");
+        setVoiceError("Ses çalınırken geçici bir sorun oluştu, küreye tekrar dokunun.");
         setSpeaking(false);
         setWordIndex(-1);
+        opts.onEnd?.();
       }
     },
     [stop, stopLoop],
@@ -258,6 +261,7 @@ export function useSpeaker() {
   return {
     speak,
     stop,
+    unlock,
     speaking,
     wordIndex,
     ampRef,
