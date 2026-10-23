@@ -275,11 +275,6 @@ export default function VoiceOrbStage({
   const eqRefs = useRef<Array<HTMLSpanElement | null>>([]);
 
   useEffect(() => {
-    const w = window as unknown as {
-      SpeechRecognition?: new () => SpeechRec;
-      webkitSpeechRecognition?: new () => SpeechRec;
-    };
-    setSupported(Boolean(w.SpeechRecognition || w.webkitSpeechRecognition));
     return () => {
       try {
         recRef.current?.abort();
