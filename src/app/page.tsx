@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useSpeaker } from '@/components/useSpeaker';
 import VoiceOrbStage from '@/components/VoiceOrbStage';
-import Assistant from '@/components/Assistant';
 
 type IntegrationStatus = { status: "online" | "offline" | "unknown"; detail: string };
 interface IntegrationHealth { checkedAt: string; drive: IntegrationStatus; youtube: IntegrationStatus }
@@ -212,7 +211,7 @@ function renderAnalysisReport(report: string | null | undefined): ReactNode[] {
 
 export default function Home() {
   const [entered, setEntered] = useState(false);
-  const [uiMode, setUiMode] = useState<'orb' | 'avatar' | 'classic'>('orb');
+  const [uiMode, setUiMode] = useState<'orb' | 'classic'>('orb');
   const [integrationHealth, setIntegrationHealth] = useState<IntegrationHealth | null>(null);
   const [integrationHealthError, setIntegrationHealthError] = useState(false);
   const [latestPublication, setLatestPublication] = useState<LatestPublicationData | null>(null);
@@ -1173,41 +1172,26 @@ export default function Home() {
     );
   }
 
-  if (uiMode === 'orb' || uiMode === 'avatar') {
+  if (uiMode === 'orb') {
     return (
       <div className="relative min-h-[100dvh] w-full overflow-hidden bg-[#03030c] text-white">
         <div className="fixed right-3 top-3 z-50 flex items-center gap-1.5 rounded-full border border-white/15 bg-black/65 p-1 text-xs backdrop-blur-xl shadow-lg">
           <button
             type="button"
             onClick={() => setUiMode('orb')}
-            className={`rounded-full px-3 py-1.5 font-medium transition ${
-              uiMode === 'orb'
-                ? 'bg-fuchsia-600 text-white shadow-[0_0_16px_rgba(217,70,239,0.55)]'
-                : 'text-white/75 hover:bg-white/10 hover:text-white'
-            }`}
+            className="rounded-full bg-fuchsia-600 px-3.5 py-1.5 font-medium text-white shadow-[0_0_16px_rgba(217,70,239,0.55)] transition"
           >
-            🎙️ Hey Mira (Orb)
-          </button>
-          <button
-            type="button"
-            onClick={() => setUiMode('avatar')}
-            className={`rounded-full px-3 py-1.5 font-medium transition ${
-              uiMode === 'avatar'
-                ? 'bg-violet-600 text-white shadow-[0_0_16px_rgba(124,58,237,0.55)]'
-                : 'text-white/75 hover:bg-white/10 hover:text-white'
-            }`}
-          >
-            👩🏻‍💼 Avatar & Stüdyo
+            🎙️ Bas-Konuş (Orb)
           </button>
           <button
             type="button"
             onClick={() => setUiMode('classic')}
-            className="rounded-full px-3 py-1.5 font-medium text-white/70 transition hover:bg-white/10 hover:text-white"
+            className="rounded-full px-3.5 py-1.5 font-medium text-white/75 transition hover:bg-white/10 hover:text-white"
           >
             💬 Klasik Panel
           </button>
         </div>
-        {uiMode === 'orb' ? <VoiceOrbStage autoStart /> : <Assistant />}
+        <VoiceOrbStage />
       </div>
     );
   }
@@ -1220,14 +1204,7 @@ export default function Home() {
           onClick={() => setUiMode('orb')}
           className="rounded-full border border-fuchsia-400/50 bg-fuchsia-600/20 px-3.5 py-1 text-xs font-medium text-fuchsia-200 hover:bg-fuchsia-600/40"
         >
-          🎙️ Hey Mira (Ses / Orb Moduna Dön)
-        </button>
-        <button
-          type="button"
-          onClick={() => setUiMode('avatar')}
-          className="rounded-full border border-violet-400/50 bg-violet-600/20 px-3.5 py-1 text-xs font-medium text-violet-200 hover:bg-violet-600/40"
-        >
-          👩🏻‍💼 Avatar Sahnesi
+          🎙️ Bas-Konuş (Orb Moduna Dön)
         </button>
       </div>
       <header className="shrink-0 py-3 sm:py-4 border-b border-slate-700 flex justify-between items-center gap-2">
