@@ -540,7 +540,7 @@ export async function generateWithGeminiFreeTts(
     }
     const pcm = Buffer.from(b64, "base64");
     const wav = pcm16ToWavBuffer(pcm, 24000, 1);
-    const est = buildEstimatedCaptions(spokenText);
+    const est = estimateCaptionsAndDuration(spokenText, wav.length);
     return {
       audio: wav,
       provider: "gemini-free-tts",
@@ -583,8 +583,20 @@ export async function generateNarration(
   // Step 0: If free GEMINI_API_KEY is present, try Gemini 2.5 Flash Native Audio TTS (Aoede human voice, $0 free tier)
   if ((process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || "").trim()) {
     try {
-      const geminiResult = await generateWithGeminiFreeTts(spokenText, opts);
-      cacheSet(cacheKey, geminiResult);
+      const geminiResult = await generateWithGeminiFreeTts(prepared, opts);
+      if (cacheKey) {
+        if (SHORT_SPEECH_CACHE.size >= MAX_CACHE_ENTRIES) {
+          const oldestKey = SHORT_SPEECH_CACHE.keys().next().value;
+          if (oldestKey) SHORT_SPEECH_CACHE.delete(oldestKey);
+        }
+        SHORT_SPEECH_CACHE.set(cacheKey, {
+          audio: Buffer.from(geminiResult.audio),
+          provider: "edge",
+          captions: geminiResult.captions,
+          durationSeconds: geminiResult.durationSeconds ?? 1,
+          createdAt: Date.now(),
+        });
+      }
       return geminiResult;
     } catch (geminiErr) {
       const gMsg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
