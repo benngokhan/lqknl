@@ -270,16 +270,13 @@ async function triggerVoiceYouTubeUpload(kind: VoicePublishKind, mode: "immediat
   }
 
   try {
-    const directBridge = await triggerYoutubeAutoUpload({
-      videoType: kind === "long" ? "long" : "short",
-      requestedBy: "Mira Sesli Komut",
-    });
+    const directBridge = await triggerYoutubeAutoUpload(kind === "long" ? "long" : "short");
     if (directBridge.ok) {
       return {
         channel: "yt-bridge",
         accepted: true,
         httpStatus: 200,
-        fileName: directBridge.targetVideo?.fileName,
+        fileName: directBridge.queuedVideo?.fileName,
         note: directBridge.message,
         raw: directBridge,
       };

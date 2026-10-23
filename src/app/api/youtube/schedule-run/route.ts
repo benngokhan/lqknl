@@ -105,8 +105,15 @@ export async function POST(req: Request) {
     }
     date = today;
     publishAt = localDateTime(date, slotTime(slot, date));
+    // GitHub Actions cron gecikmesi (15-45 dk) yüzünden slot atlanmasın:
+    // Eğer planlanan saat geçtiyse ama 2 saatlik pencere içindeysek, hemen yayınla (immediate fallback).
     if (publishAt.getTime() <= now.getTime() + 60_000) {
-      return NextResponse.json({ ok: true, skipped: true, reason: "Bu yayın saati geçti veya çok yakın; yinelenen/geçmiş zamanlı yükleme yapılmadı.", slot, date, publishAt: publishAt.toISOString() });
+      const delayMs = now.getTime() - publishAt.getTime();
+      if (delayMs <= 2 * 3600_000) {
+        publishAt = new Date(now.getTime() + 2 * 60_000);
+      } else {
+        return NextResponse.json({ ok: true, skipped: true, reason: "Bu yayın saati geçti veya çok yakın; yinelenen/geçmiş zamanlı yükleme yapılmadı.", slot, date, publishAt: publishAt.toISOString() });
+      }
     }
   }
 
@@ -142,7 +149,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const minimumIndex = slot === "long" ? 3 : (forceNextImmediate ? 12 : 11);
+  const minimumIndex = slot === "long" ? 3 : 20;
   const candidates = videoFiles.filter((item) => {
     const index = filenameIndex(item.name, slot === "long" ? "long" : "short");
     if (requestedFileName && item.name.toLowerCase() !== requestedFileName.toLowerCase()) return false;
