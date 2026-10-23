@@ -129,6 +129,18 @@ const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: "settings", label: "Ayarlar", icon: "⚙️" },
 ];
 
+// MODÜL 4 — canlı stok rozetinin veri şekli (GET /api/chat?view=inventory).
+type InventorySnapshot = {
+  ok: boolean;
+  shortsRemaining?: number;
+  longsRemaining?: number;
+  daysRemaining?: number;
+  nextShorts?: { fileName: string; title: string } | null;
+  nextLong?: { fileName: string; title: string } | null;
+  channelTitlesChecked?: boolean;
+  unavailableReason?: string;
+};
+
 export default function Assistant() {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [settings, setSettings] = useState<Settings>({
@@ -151,6 +163,10 @@ export default function Assistant() {
   const [subtitle, setSubtitle] = useState("");
   const [muted, setMuted] = useState(false);
   const [voiceReady, setVoiceReady] = useState<boolean | null>(null);
+  // MODÜL 4 — canlı stok rozeti + tek tıkla "Hey Mira" orb modu.
+  const [inventory, setInventory] = useState<InventorySnapshot | null>(null);
+  const [orbMode, setOrbMode] = useState(false);
+  const orbModeRef = useRef(false);
   const { speak, stop, speaking, wordIndex, ampRef, voiceError } = useSpeaker();
 
   const faceRef = useRef<HTMLDivElement>(null);
@@ -164,6 +180,29 @@ export default function Assistant() {
   const welcomeSpokenRef = useRef(false);
   const startListeningRef = useRef<(() => boolean) | null>(null);
   const didMountRef = useRef<HTMLDivElement>(null);
+
+  // MODÜL 4 — canlı stok okuması: sesli yanıtla birebir aynı sayım
+  // fonksiyonundan (buildVoiceInventory) beslenir; rozet ile Mira'nın
+  // söylediği rakamlar asla ayrışamaz. 90 sn'de bir + sekme her görünürlükte
+  // tazelenir.
+  const refreshInventory = useCallback(() => {
+    fetch("/api/chat?view=inventory", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setInventory(d && typeof d === "object" ? (d as InventorySnapshot) : null))
+      .catch(() => setInventory(null));
+  }, []);
+  useEffect(() => {
+    refreshInventory();
+    const timer = window.setInterval(refreshInventory, 90_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshInventory();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refreshInventory]);
 
   // D-ID live avatar embed. The client key is intentionally frontend-safe
   // and restricted by D-ID to the allowed Railway domain.
@@ -354,10 +393,27 @@ export default function Assistant() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: text }),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error);
-        setMsgs((m) => [...m.filter((x) => x.id !== temp.id), data.user, data.assistant]);
-        say(data.assistant.content, isEmotion(data.assistant.emotion) ? data.assistant.emotion : "happy");
+        const data = (await res.json().catch(() => null)) as
+          | { user?: Msg; assistant?: Msg; reply?: string; emotion?: string; error?: string }
+          | null;
+        if (!res.ok || !data) throw new Error(data?.error || "istek başarısız");
+        // Backend bazen {user, assistant} mesaj çifti, bazen (kısa devreler,
+        // Modül 4 sesli komutlar) düz {reply, emotion} döner — ikisini de ye.
+        const assistantMsg: Msg = data.assistant?.content
+          ? data.assistant
+          : {
+              id: Date.now(),
+              role: "assistant",
+              content: (data.reply ?? "").trim() || "Emir alındı, patron.",
+              emotion: isEmotion(data.emotion) ? (data.emotion as Emotion) : "happy",
+              createdAt: new Date().toISOString(),
+            };
+        setMsgs((m) => [
+          ...m.filter((x) => x.id !== temp.id),
+          data.user ?? { ...temp, id: Date.now() - 1 },
+          assistantMsg,
+        ]);
+        say(assistantMsg.content, isEmotion(assistantMsg.emotion) ? assistantMsg.emotion : "happy");
       } catch {
         const errorText = "Bir bağlantı sorunu oldu, tekrar dener misin?";
         showEmotion("sad", 3000);
@@ -368,9 +424,10 @@ export default function Assistant() {
         say(errorText, "sad");
       } finally {
         setThinking(false);
+        refreshInventory();
       }
     },
-    [input, thinking, stop, showEmotion, say],
+    [input, thinking, stop, showEmotion, say, refreshInventory],
   );
 
   const startListening = useCallback(() => {
@@ -396,7 +453,34 @@ export default function Assistant() {
     };
     rec.onend = () => {
       setListening(false);
-      if (finalText.trim()) send(finalText);
+      const raw = finalText.trim();
+      if (!raw) return;
+      if (orbModeRef.current) {
+        // MODÜL 4 — orb modu: emir "Mira" hitabıyla başlar; hitapsız kısa
+        // uğultuları sohbete göndermeyip dinlemeye geri döneriz.
+        const wake = /\b(?:hey\s+)?mira\b[!.:,:]?\s*/iu.exec(raw);
+        if (wake && wake.index !== undefined) {
+          const rest = raw.slice(wake.index + wake[0].length).trim();
+          if (rest) {
+            send(rest);
+            return;
+          }
+          setSubtitle("Buyur patron, dinliyorum…");
+          window.setTimeout(() => startListeningRef.current?.(), 300);
+          return;
+        }
+        const normalized = raw.toLocaleLowerCase("tr-TR").replace(/[ıi]/g, "i");
+        const meaningful =
+          normalized.length > 12 ||
+          /(?:stok|durum|yayinla|yukle|gonder|kac|kaldi|siradaki|gunaydin|tunaydin|video|long|uzun)/.test(normalized);
+        if (meaningful) {
+          send(raw);
+          return;
+        }
+        window.setTimeout(() => startListeningRef.current?.(), 250);
+        return;
+      }
+      if (raw) send(raw);
     };
     rec.onerror = () => setListening(false);
     recRef.current = rec;
@@ -424,6 +508,20 @@ export default function Assistant() {
       say("Mikrofonu başlatamadım. iPhone'da bir kez mikrofon izni vermen gerekebilir.", "sad");
     }
   }, [listening, startListening, say]);
+
+  // MODÜL 4 — tek tıkla orb modu: paneli gizler, dev orb dinlemeye başlar;
+  // Mira konuştuktan sonra autoListen zinciri dinlemeyi kendiliğinden sürdürür.
+  const toggleOrbMode = useCallback(() => {
+    const next = !orbModeRef.current;
+    orbModeRef.current = next;
+    setOrbMode(next);
+    if (next) {
+      autoListenRef.current = true;
+      window.setTimeout(() => startListeningRef.current?.(), 200);
+    } else {
+      recRef.current?.stop();
+    }
+  }, []);
 
   useEffect(() => {
     // Best-effort hands-free start. Safari/iOS can block microphone access
@@ -573,6 +671,36 @@ export default function Assistant() {
             </div>
           </div>
 
+          {/* MODÜL 4 — canlı stok + tek tıkla "Hey Mira" orb modu (üst bar) */}
+          <div className="glass absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-2 rounded-2xl px-3 py-1.5 text-[11px] shadow-lg shadow-black/30 md:top-5 md:text-xs">
+            <span
+              className="whitespace-nowrap"
+              title={
+                inventory && !inventory.ok && inventory.unavailableReason
+                  ? inventory.unavailableReason
+                  : "Canlı Drive stok sayımı — 90 sn'de bir tazelenir"
+              }
+            >
+              📦 Kalan Stok:{" "}
+              {!inventory
+                ? "ölçülüyor…"
+                : inventory.ok
+                  ? `${inventory.shortsRemaining ?? 0} Shorts · ${inventory.longsRemaining ?? 0} Uzun (~${Number(inventory.daysRemaining ?? 0).toFixed(1).replace(".", ",")} Gün)`
+                  : "canlı veri yok"}
+            </span>
+            <button
+              onClick={toggleOrbMode}
+              className={`whitespace-nowrap rounded-full border px-2.5 py-0.5 font-medium transition ${
+                orbMode
+                  ? "border-fuchsia-300/70 bg-fuchsia-500/70 text-white shadow-[0_0_18px_rgba(217,70,239,0.45)]"
+                  : "border-white/25 bg-white/10 hover:bg-white/20"
+              }`}
+              title="Tek tık: yan paneli gizle, sadece sesle Mira orb'ını kullan. Komutlar 'Mira' hitabıyla başlar."
+            >
+              🎙️ Hey Mira {orbMode ? "(Açık)" : "(Sadece Ses / Orb Modu)"}
+            </button>
+          </div>
+
           {/* Subtitle */}
           {subtitle && (
             <div className="pointer-events-none absolute inset-x-3 bottom-[44%] z-20 text-center md:bottom-28">
@@ -584,6 +712,34 @@ export default function Assistant() {
                   </span>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* MODÜL 4 — orb modu: D-ID/panel yerine tek nefes alan orb */}
+          {orbMode && (
+            <div className="pointer-events-none absolute inset-0 z-[25] flex flex-col items-center justify-center bg-[#0b0718]/50 backdrop-blur-[2px] transition-opacity duration-500">
+              <div
+                className={`h-40 w-40 rounded-full transition-transform duration-700 md:h-52 md:w-52 ${
+                  speaking || listening ? "animate-pulse" : ""
+                } ${speaking ? "scale-110" : ""} ${listening ? "pulse-ring" : ""}`}
+                style={{
+                  background:
+                    "radial-gradient(circle at 35% 30%, rgba(240,171,252,0.92), rgba(147,51,234,0.55) 45%, rgba(11,7,24,0) 72%)",
+                  boxShadow: "0 0 110px 26px rgba(168,85,247,0.35)",
+                }}
+              />
+              <div className="mt-4 rounded-full bg-black/60 px-4 py-1.5 text-xs text-white/85">
+                {speaking
+                  ? "Konuşuyorum, bitince dinlemeye geçiyorum…"
+                  : listening
+                    ? "Dinliyorum — 'Mira' dedikten sonra emrini söyle"
+                    : "Orb modu açık · dokunmatik mikrofon alttan hazır"}
+              </div>
+              {inventory?.ok && inventory.nextShorts ? (
+                <div className="mt-2 max-w-md truncate rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/70">
+                  Sıradaki Shorts: {inventory.nextShorts.title}
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -613,8 +769,8 @@ export default function Assistant() {
           </div>
         </div>
 
-        {/* Emotion strip (like reference) */}
-        <div className="no-scrollbar mt-2 hidden gap-2 overflow-x-auto md:flex">
+        {/* Emotion strip (like reference) — orb modunda gizlenir, ekran sadece sesin */}
+        <div className={`no-scrollbar mt-2 gap-2 overflow-x-auto ${orbMode ? "hidden" : "hidden md:flex"}`}>
           {(Object.keys(EMOTIONS) as Emotion[]).map((e) => (
             <button
               key={e}
@@ -633,7 +789,7 @@ export default function Assistant() {
       </main>
 
       {/* ===== Side panel ===== */}
-      <aside className="glass absolute inset-x-2 bottom-2 z-40 flex h-[30dvh] min-h-0 flex-col rounded-[28px] border-white/15 bg-[#0b0718]/55 shadow-2xl shadow-black/50 backdrop-blur-xl md:relative md:inset-auto md:bottom-auto md:z-10 md:m-4 md:ml-0 md:h-auto md:flex-1 md:w-[400px] md:flex-none">
+      <aside className={`glass ${orbMode ? "hidden" : ""} absolute inset-x-2 bottom-2 z-40 flex h-[30dvh] min-h-0 flex-col rounded-[28px] border-white/15 bg-[#0b0718]/55 shadow-2xl shadow-black/50 backdrop-blur-xl md:relative md:inset-auto md:bottom-auto md:z-10 md:m-4 md:ml-0 md:h-auto md:flex-1 md:w-[400px] md:flex-none`}>
         <div className="flex gap-1 border-b border-white/10 bg-black/10 p-1.5">
           {NAV.map((n) => (
             <button

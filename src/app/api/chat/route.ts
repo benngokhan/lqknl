@@ -1,9 +1,10 @@
+import { getLiveAutomationStock, triggerYoutubeAutoUpload } from "@/lib/yt-auto-bridge";
 import { think } from '../../../lib/brain';
 import { logEvent } from "@/lib/logger";
 import { selfOrigin } from "@/lib/self-url";
 import { db } from '@/db';
-import { contentAssets, contentItems, messages, memories, operations, tasks } from '@/db/schema';
-import { desc, eq, ilike, sql } from 'drizzle-orm';
+import { contentAssets, contentItems, messages, memories, operations, tasks, youtubeUploadJobs } from '@/db/schema';
+import { and, desc, eq, ilike, sql } from 'drizzle-orm';
 import { formatMemoriesForContext, getRelevantMemories, generateForgetApprovalMessage, generateSaveApprovalMessage, parseConfirmationResponse, parseMemoryCommand } from '@/lib/memory-chat';
 import { remember } from '@/lib/memory';
 import { NextResponse } from 'next/server';
@@ -13,6 +14,8 @@ import { isYoutubeScheduleCancellation, isYoutubeScheduleConfirmation } from "@/
 import { readDriveVideoMetadata } from "@/lib/drive-video-metadata";
 import { isMiraSessionCookie } from "@/lib/mira-auth";
 import { requestedScheduleSlots } from "@/lib/youtube-schedule-slots";
+import { downloadDriveFile, listDriveFolderFiles } from "@/lib/google-drive";
+import { readDriveSpreadsheetCatalog, type DriveSpreadsheetVideoMetadata } from "@/lib/drive-video-xlsx";
 
 const PRIVATE_MODE_COOKIE = 'mira_private_mode';
 
@@ -32,6 +35,325 @@ async function fetchWithTimeoutMs(input: RequestInfo | URL, init: RequestInit = 
     clearTimeout(timer);
   }
 }
+
+// ---------------------------------------------------------------------------
+// MODÜL 4 — Sesli YouTube & Telegram otomasyon kontrolü (SOHBET-5 / 7. Hafta)
+// Stok, sıradaki video ve yayın tetikleme tamamen canlı Drive + PostgreSQL
+// verisinden hesaplanır. Veri okunamadığında Mira rakam uydurmaz; bunu net
+// söyler. (MIRA_AUDIT gerçeklik kuralı: DB'de doğrulanmayan sonuç iddia edilmez.)
+// ---------------------------------------------------------------------------
+const VOICE_PUBLISH_KINDS = ["shorts", "long"] as const;
+type VoicePublishKind = (typeof VOICE_PUBLISH_KINDS)[number];
+
+/** Her gün 3 yayın (normal gün 3 Shorts; uzun-video günü 2 Shorts + 1 uzun). */
+const VOICE_DAILY_SLOTS = 3;
+
+function normTr(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("tr-TR")
+    .replace(/[ıi]/g, "i")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** drive-upload'daki title normalizasyonuyla birebir aynı — kanal eşleşmesi için. */
+function normalizedVoiceTitle(value: string) {
+  return value.normalize("NFKC").toLocaleLowerCase("tr-TR").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+const VOICE_GREETING_RE = /^(?:hey\s+)?(?:mira\s*[,.]?\s*)?gunaydin(?:\s+mira)?[.!…\s]*$/u;
+const VOICE_INVENTORY_RE = /(?:\bstok\b[\s\S]{0,24}?(?:durum|ne\b|kac|kactir|sayi|neler|var|kaldi)|kac\s+(?:tane\s+)?(?:hazir\s+)?video(?:muz)?\s*(?:kaldi|var|hazir)|kalan\s+video(?:muz)?|siradaki\s+(?:shorts\s+)?video(?:muz)?\s*(?:hangisi|ne\b|hangi\s+videomuz|sirada)|hangi\s+video\s+sirada|(?:hazir|depoda)\s+kaç\s+tane)/u;
+const VOICE_PUBLISH_RE = /(?:(?:siradaki|bir\s+sonraki|next)\b[^.!?]*?\b(?:at|yolla|gonder|yukle|yayinla|baslat|publich)\b|(?:(?:lutfen\s+)?(?:hemen\s+)?(?:simdi\s+)?(?:at|yolla|gonder|yukle|yayinla|baslat)\b[^.!?]*?\b(?:siradaki|bir\s+sonraki)\b))/u;
+const VOICE_NEGATION_GUARD_RE = /(?:iptal|vazgec|yapma|etme|durma|istemiyorum|sakin\s*ol|asla)\b/u;
+
+function isVoicePublishConfirmation(normalized: string) {
+  return /^(?:(?:evet|eyvallah|tamam|tmm|olur|had[ii]|ok|hemen|at|gonder|yolla|yukle|yayinla|basla|baslat)(?:[,\s]+(?:at|gonder|yolla|yukle|yayinla|basla|baslat|hemen|mira|simdi)?)*[.!…\s]*)$/u.test(normalized);
+}
+
+function isVoicePublishRejection(normalized: string) {
+  return /^(?:(?:hay[ii]r|iptal|vazgec|dur|bekle|asla|yok)(?:[,\s]+(?:atma|gonderme|yukleme|yayinlama|mira|simdi|simdi))?[.!…\s]*)$/u.test(normalized);
+}
+
+type VoiceInventory = {
+  ok: boolean;
+  unavailableReason?: string;
+  shortsRemaining: number;
+  longsRemaining: number;
+  dailySlots: number;
+  daysRemaining: number;
+  nextShorts: { fileName: string; title: string } | null;
+  nextLong: { fileName: string; title: string } | null;
+  channelTitlesChecked: boolean;
+  countedAt: string;
+};
+
+function filenameIndex(name: string, kind: "short" | "long") {
+  const match = name.match(kind === "short" ? /^video_(\d+)\.mp4$/i : /^uzun_video_(\d+)\.mp4$/i);
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * Canlı stok anlık görüntüsü: Drive klasörü + baslik.xlsx başlıkları +
+ * youtube_upload_jobs tüketimi + (varsa) YouTube kanal listesi başlık
+ * elemeyle birleştirilir. Bir kaynak çökerse kısmi sonuç dürüstçe işaretlenir.
+ */
+async function buildVoiceInventory(): Promise<VoiceInventory> {
+  try {
+    const live = await getLiveAutomationStock();
+    if (live && live.ok) {
+      return {
+        ok: true,
+        shortsRemaining: live.remainingShortsCount,
+        longsRemaining: live.remainingLongsCount,
+        dailySlots: live.dailyUploadRate || VOICE_DAILY_SLOTS,
+        daysRemaining: live.estimatedDaysRemaining,
+        nextShorts: live.nextShort ? { fileName: live.nextShort.fileName, title: live.nextShort.title } : null,
+        nextLong: live.nextLong ? { fileName: live.nextLong.fileName, title: live.nextLong.title } : null,
+        channelTitlesChecked: true,
+        countedAt: live.fetchedAt,
+      };
+    }
+  } catch (bridgeErr) {
+    console.warn("[Module4] yt-auto-bridge fallback to Drive:", bridgeErr);
+  }
+
+  const empty: VoiceInventory = {
+    ok: false,
+    shortsRemaining: 0,
+    longsRemaining: 0,
+    dailySlots: VOICE_DAILY_SLOTS,
+    daysRemaining: 0,
+    nextShorts: null,
+    nextLong: null,
+    channelTitlesChecked: false,
+    countedAt: new Date().toISOString(),
+  };
+
+  let files: Awaited<ReturnType<typeof listDriveFolderFiles>>;
+  try {
+    files = await listDriveFolderFiles();
+  } catch (error) {
+    return { ...empty, unavailableReason: `Google Drive listesi alınamadı (${String(error instanceof Error ? error.message : error).slice(0, 180)})` };
+  }
+
+  const videoFiles = files.filter((file) => file.mimeType === "video/mp4");
+  const shortsFiles = videoFiles
+    .filter((file) => /^video_\d+\.mp4$/i.test(file.name))
+    .sort((a, b) => filenameIndex(a.name, "short") - filenameIndex(b.name, "short"));
+  const longFiles = videoFiles
+    .filter((file) => /^uzun_video_\d+\.mp4$/i.test(file.name))
+    .sort((a, b) => filenameIndex(a.name, "long") - filenameIndex(b.name, "long"));
+
+  // baslik.xlsx satırları (Dosya Adı → Video Başlık). Okunamazsa başlık = dosya adı.
+  const metadataByFile = new Map<string, DriveSpreadsheetVideoMetadata>();
+  const metadataFiles = files.filter((item) => item.name.toLocaleLowerCase("tr-TR") === "baslik.xlsx");
+  if (metadataFiles.length === 1) {
+    try {
+      const downloaded = await downloadDriveFile(metadataFiles[0].id);
+      for (const row of readDriveSpreadsheetCatalog(downloaded.data)) {
+        metadataByFile.set(row.fileName.toLocaleLowerCase("tr-TR"), row);
+      }
+    } catch (catalogError) {
+      console.error("[Module4] baslik.xlsx kataloğu okunamadı:", catalogError);
+    }
+  }
+
+  // Kuyrukta tüketilmiş dosyalar: aktif/tamamlanmış/incelemedeki işler ve
+  // resume oturyonu olanlar asla "kalan stok" sayılmaz (schedule-run ile aynı kural).
+  const consumedDriveIds = new Set<string>();
+  try {
+    const jobs = await db.select().from(youtubeUploadJobs);
+    for (const job of jobs) {
+      if (["pending", "uploading", "completed", "needs_review", "scheduled", "leased"].includes(job.status) || Boolean(job.uploadSessionUrl)) {
+        consumedDriveIds.add(job.driveFileId);
+      }
+    }
+  } catch (jobsError) {
+    console.error("[Module4] youtube_upload_jobs okunamadı:", jobsError);
+  }
+
+  // Kanal canlı listesi (en-boyutlu eleme; YouTube bağlı değilse atlanır).
+  let channelTitles: Set<string> | null = null;
+  try {
+    const { listMyChannelVideos } = await import("@/lib/youtube");
+    const channel = await listMyChannelVideos(500);
+    channelTitles = new Set(channel.videos.map((video) => normalizedVoiceTitle(video.title)).filter(Boolean));
+  } catch (channelError) {
+    console.error("[Module4] YouTube kanal listesi alınamadı (stok yalnızca Drive+DB ile sayıldı):", channelError);
+  }
+
+  const remainingOf = (list: typeof shortsFiles) => {
+    const out: Array<{ fileName: string; title: string }> = [];
+    for (const file of list) {
+      if (consumedDriveIds.has(file.id)) continue;
+      const row = metadataByFile.get(file.name.toLocaleLowerCase("tr-TR"));
+      const title = row?.title?.trim() || file.name;
+      if (channelTitles && channelTitles.has(normalizedVoiceTitle(title))) continue;
+      out.push({ fileName: file.name, title });
+    }
+    return out;
+  };
+
+  const shortsRemaining = remainingOf(shortsFiles);
+  const longsRemaining = remainingOf(longFiles);
+  const total = shortsRemaining.length + longsRemaining.length;
+
+  return {
+    ok: true,
+    shortsRemaining: shortsRemaining.length,
+    longsRemaining: longsRemaining.length,
+    dailySlots: VOICE_DAILY_SLOTS,
+    daysRemaining: Math.round((total / VOICE_DAILY_SLOTS) * 10) / 10,
+    nextShorts: shortsRemaining[0] || null,
+    nextLong: longsRemaining[0] || null,
+    channelTitlesChecked: Boolean(channelTitles),
+    countedAt: new Date().toISOString(),
+  };
+}
+
+function formatVoiceStockLine(inventory: VoiceInventory, wantsLong: boolean): string {
+  const days = inventory.daysRemaining.toFixed(1).replace(".", ",");
+  const next = wantsLong ? inventory.nextLong : inventory.nextShorts;
+  const nextLabel = wantsLong ? "Sıradaki uzun videomuz" : "Sıradaki Shorts videomuz";
+  const proposal = wantsLong
+    ? "Hemen YouTube'a yüklememi ister misin?"
+    : "Hemen YouTube'a atmamı ister misin?";
+  const head = `Patron, su an depoda ${inventory.shortsRemaining} Shorts ve ${inventory.longsRemaining} uzun videomuz hazır, yaklaşık ${days} gunluk stogumuz var.`;
+  const nextPart = next ? ` ${nextLabel}: ${next.title}. ${proposal}` : " Depoda şu an sırada bekleyen uygun video görünmüyor.";
+  const caveat = inventory.channelTitlesChecked
+    ? ""
+    : " Not: YouTube kanalı canlı doğrulanamadı; sayım Drive ve yükleme kuyruğu verisiyle yapıldı.";
+  return head + nextPart + caveat;
+}
+
+type VoiceTriggerOutcome = {
+  channel: string;
+  accepted: boolean;
+  httpStatus?: number;
+  error?: string;
+  fileName?: string;
+  note?: string;
+  raw?: unknown;
+};
+
+/**
+ * yt_auto_uploader tetikleme zinciri (öncelik sırasıyla):
+ * 1) MIRA_YT_BRIDGE_URL (harici köprü), 2) /api/automation/yt-bridge (uygulama içi),
+ * 3) GitHub Actions workflow_dispatch, 4) /api/youtube/schedule-run — GitHub
+ * workflow'unun zaten vurduğu uç; "sıradaki videoyu seç → drive-upload'a ver →
+ * sabit yorum + Telegram kartı" akışını yürüten çekirdek.
+ */
+async function triggerVoiceYouTubeUpload(kind: VoicePublishKind, mode: "immediate" | "scheduled"): Promise<VoiceTriggerOutcome> {
+  const origin = selfOrigin();
+  const secret = process.env.MIRA_AUTOMATION_SECRET || process.env.MIRA_N8N_SECRET || "";
+  const slot = kind === "long" ? "long" : "shorts-noon";
+  const payload = JSON.stringify({ source: "mira-voice", kind, slot, mode, requestedAt: new Date().toISOString() });
+
+  const bridgeUrl = process.env.MIRA_YT_BRIDGE_URL?.trim();
+  if (bridgeUrl) {
+    try {
+      const response = await fetchWithTimeoutMs(
+        bridgeUrl,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(secret ? { "x-mira-key": secret } : {}) },
+          body: payload,
+        },
+        20_000,
+      );
+      const data = await response.json().catch(() => null);
+      return { channel: "yt-bridge", accepted: response.ok, httpStatus: response.status, raw: data };
+    } catch (error) {
+      return { channel: "yt-bridge", accepted: false, error: String(error instanceof Error ? error.message : error).slice(0, 200) };
+    }
+  }
+
+  try {
+    const directBridge = await triggerYoutubeAutoUpload({
+      videoType: kind === "long" ? "long" : "short",
+      requestedBy: "Mira Sesli Komut",
+    });
+    if (directBridge.ok) {
+      return {
+        channel: "yt-bridge",
+        accepted: true,
+        httpStatus: 200,
+        fileName: directBridge.targetVideo?.fileName,
+        note: directBridge.message,
+        raw: directBridge,
+      };
+    }
+  } catch {
+    // yt-bridge doğrudan tetiklenemedi -> sonraki kanala geç.
+  }
+
+  const ghToken = process.env.MIRA_GITHUB_TOKEN?.trim();
+  if (ghToken) {
+    const owner = process.env.MIRA_GITHUB_OWNER?.trim() || "benngokhan";
+    const repo = process.env.MIRA_GITHUB_REPO?.trim() || "lqknl";
+    const workflow = process.env.MIRA_GITHUB_WORKFLOW?.trim() || "mira-youtube-drive-schedule.yml";
+    const ref = process.env.MIRA_GITHUB_REF?.trim() || "main";
+    try {
+      const response = await fetchWithTimeoutMs(
+        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,
+        {
+          method: "POST",
+          headers: {
+            accept: "application/vnd.github+json",
+            authorization: `Bearer ${ghToken}`,
+            "user-agent": "Mira-BilgiDozu-Voice",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ ref, inputs: { slot, mode: "immediate" } }),
+          cache: "no-store",
+        },
+        20_000,
+      );
+      if (response.status === 204) {
+        return {
+          channel: "github-workflow_dispatch",
+          accepted: true,
+          httpStatus: 204,
+          note: `GitHub Actions kuyruğuna ${owner}/${repo} · ${workflow} (slot=${slot}, mode=immediate) olarak alındı; yükleme ayrıntısı iş bitince Telegram'a düşecek.`,
+        };
+      }
+      const bodyText = await response.text().catch(() => "");
+      return { channel: "github-workflow_dispatch", accepted: false, httpStatus: response.status, error: bodyText.slice(0, 180) || `HTTP ${response.status}` };
+    } catch (error) {
+      return { channel: "github-workflow_dispatch", accepted: false, error: String(error instanceof Error ? error.message : error).slice(0, 200) };
+    }
+  }
+
+  try {
+    const response = await fetchWithTimeoutMs(
+      `${origin}/api/youtube/schedule-run`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-mira-key": secret },
+        body: JSON.stringify({ confirm: true, slot, mode }),
+        cache: "no-store",
+      },
+      VIDEO_TIMEOUT_MS,
+    );
+    const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    const ok = Boolean(data?.ok) && data?.exhausted !== true;
+    const fileName = typeof data?.selectedFileName === "string"
+      ? data.selectedFileName
+      : typeof data?.fileName === "string"
+        ? data.fileName
+        : undefined;
+    let note: string | undefined;
+    if (data?.skipped === true) note = typeof data.reason === "string" ? data.reason : "Zamanlayıcı bu slotu güvenlik nedeniyle atladı.";
+    else if (data?.exhausted === true) note = "Depoda bu modda yüklenebilecek yeni dosya kalmadı.";
+    else if (ok) note = "Scheduler dosyayı seçip yükleme akışına verdi.";
+    else if (typeof data?.error === "string") note = data.error;
+    return { channel: "schedule-run", accepted: ok, httpStatus: response.status, fileName, note, raw: data };
+  } catch (error) {
+    return { channel: "schedule-run", accepted: false, error: String(error instanceof Error ? error.message : error).slice(0, 200) };
+  }
+}
+
 
 export async function POST(req: Request) {
   try {
@@ -53,6 +375,147 @@ export async function POST(req: Request) {
     if (/^mira[!.… ]*$/iu.test(message.trim())) {
       return NextResponse.json({ reply: 'Buradayım, söyle.', emotion: 'happy' });
     }
+
+    // ===== MODÜL 4 — sesli stok sorgusu + yayınlatma kontrolü (voice-first) =====
+    {
+      const voiceText = normTr(message);
+      const asksGreeting = VOICE_GREETING_RE.test(voiceText);
+      const asksInventory = !asksGreeting && VOICE_INVENTORY_RE.test(voiceText);
+      const wantsPublishNow = VOICE_PUBLISH_RE.test(voiceText) && !VOICE_NEGATION_GUARD_RE.test(voiceText);
+
+      // Bekleyen sesli yayın önerisi (stok sorusundan sonra gelen "evet at" için).
+      let voicePendingOp: typeof operations.$inferSelect | undefined;
+      try {
+        const pendingVoice = await db.select().from(operations)
+          .where(and(eq(operations.action, "voice_publish_pending"), eq(operations.status, "pending")))
+          .orderBy(desc(operations.id)).limit(1);
+        voicePendingOp = pendingVoice[0];
+      } catch (voiceOpError) {
+        console.error("[Module4] Bekleyen sesli yayın kaydı okunamadı:", voiceOpError);
+        voicePendingOp = undefined;
+      }
+      if (voicePendingOp && Date.now() - new Date(voicePendingOp.createdAt).getTime() > 10 * 60_000) {
+        await db.update(operations).set({
+          status: "cancelled",
+          summary: "Sesli yayın önerisi zaman aşımına uğradı; hiçbir video yüklenmedi.",
+        }).where(eq(operations.id, voicePendingOp.id)).catch(() => {});
+        voicePendingOp = undefined;
+      }
+
+      const voicePendingMeta = voicePendingOp?.metadata && typeof voicePendingOp.metadata === "object"
+        ? voicePendingOp.metadata as { kind?: unknown; fileName?: unknown }
+        : {};
+      const pendingKind: VoicePublishKind = voicePendingMeta.kind === "long" ? "long" : "shorts";
+
+      const executeVoicePublish = async (kind: VoicePublishKind, source: "voice-confirm" | "voice-command") => {
+        const result = await triggerVoiceYouTubeUpload(kind, "immediate");
+        const kindLabel = kind === "long" ? "uzun video" : "Shorts";
+
+        if (voicePendingOp) {
+          await db.update(operations).set({
+            status: result.accepted ? "success" : "failed",
+            summary: `Sesli yayın emri (${source}, ${kind}): ${result.channel} üzerinden ${result.accepted ? "tetiklendi" : "tetiklenemedi"}${result.fileName ? ` · ${result.fileName}` : ""}${result.note ? ` · ${result.note}` : result.error ? ` · ${result.error}` : ""}`,
+            metadata: { kind, source, triggeredAt: new Date().toISOString(), result },
+          }).where(eq(operations.id, voicePendingOp.id)).catch(() => {});
+        } else {
+          await db.insert(operations).values({
+            action: "voice_publish_trigger",
+            status: result.accepted ? "success" : "failed",
+            summary: `Sesli yayın emri (${source}, ${kind}): ${result.channel} · ${result.accepted ? "tetiklendi" : "başarısız"}`,
+            platform: "youtube",
+            metadata: { kind, source, triggeredAt: new Date().toISOString(), result },
+          }).catch(() => {});
+        }
+
+        const telegramText = [
+          "🚀 Mira sesli emir — YouTube yükleme otomasyonu",
+          `Tür: ${kindLabel} · Mod: anında (immediate) · Kanal: ${result.channel}`,
+          result.fileName ? `Kaynak: ${result.fileName}` : "Kaynak: sıradaki uygun Drive dosyası (seçimi scheduler raporlayacak)",
+          result.accepted
+            ? "Durum: otomasyon tetiklendi. Yükleme tamamlandığında sabit yorum + gönderi kartı ayrı bir Telegram bildirimi olarak düşecek."
+            : `Durum: TETİKLENEMEDİ — ${result.note || result.error || `HTTP ${result.httpStatus ?? "?"}`}`,
+          `Zaman: ${new Date().toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}`,
+        ].join("\n");
+        const telegram = await sendTelegramMessage(telegramText).catch((error) => {
+          console.error("[Module4] Telegram bildirimi hatası:", error);
+          return null;
+        });
+
+        void logEvent({
+          level: result.accepted ? "info" : "error",
+          source: "chat/voice-control",
+          message: `Modül 4 sesli yayın emri ${result.accepted ? "tetiklendi" : "başarısız"} (${result.channel}, ${kind})`,
+          meta: { fileName: result.fileName || null, telegramSent: telegram?.sent ?? false },
+        });
+
+        if (!result.accepted) {
+          return NextResponse.json({
+            reply: `Patron, ${kindLabel} yüklemesini başlatamadım: ${result.note || result.error || "otomasyon kanalı doğrulanmış yanıt vermedi"}. Otomasyon kanalı: ${result.channel}. Hiçbir video yüklenmedi; Telegram'a da hata bildirimi düştü.`,
+            emotion: "focused",
+          }, { status: 502 });
+        }
+
+        const spoken = result.channel === "github-workflow_dispatch"
+          ? `Emredersin patron! Sıradaki ${kindLabel} videosunu GitHub Actions otomasyonuna şimdi ben emrettim; iş biter bitmez link, sabit yorum ve gönderi kartı Telegram'ına düşecek.`
+          : result.channel === "schedule-run" && result.fileName
+            ? `Emredersin patron! Sıradaki ${kindLabel} videosunu (${result.fileName}) şimdi YouTube'a gönderiyorum, yüklendiği saniye Telegram'ına sabit yorum ve gönderi kartını da atacağım!`
+            : `Emredersin patron! Sıradaki ${kindLabel} videosunu şimdi YouTube'a gönderiyorum, yüklendiği saniye Telegram'ına sabit yorum ve gönderi kartını da atacağım!`;
+        const telegramNote = telegram?.sent
+          ? "\n\nTelegram bildirimi gönderildi."
+          : "\n\nNot: Telegram bildirimi şu an gönderilemedi; sesli yanıt ve kayıt yine de doğrulandı.";
+        return NextResponse.json({ reply: spoken + telegramNote, emotion: "happy" });
+      }
+
+      // Önceki stok sorusunun "Hemen atayım mı?" önerisine sesli onay/red.
+      if (voicePendingOp && !wantsPublishNow && isVoicePublishRejection(voiceText)) {
+        await db.update(operations).set({
+          status: "cancelled",
+          summary: "Sesli yayın önerisi kullanıcı tarafından reddedildi; hiçbir video yüklenmedi.",
+        }).where(eq(operations.id, voicePendingOp.id)).catch(() => {});
+        return NextResponse.json({ reply: `Tamam patron, iptal ettim; ${pendingKind === "long" ? "uzun video" : "Shorts"} yüklemesi başlatılmadı. Stok yerinde duruyor.`, emotion: "focused" });
+      }
+      if (voicePendingOp && (isVoicePublishConfirmation(voiceText) || wantsPublishNow)) {
+        return await executeVoicePublish(pendingKind, "voice-confirm");
+      }
+      if (wantsPublishNow) {
+        const kind: VoicePublishKind = /uzun|long/.test(voiceText) ? "long" : "shorts";
+        return await executeVoicePublish(kind, "voice-command");
+      }
+
+      // Canlı stok / sıradaki video / günaydın raporları — daima gerçek veriyle.
+      if (asksInventory || asksGreeting) {
+        const inventory = await buildVoiceInventory();
+        const wantsLong = asksInventory && /uzun|long/.test(voiceText);
+        let reply: string;
+        if (!inventory.ok) {
+          reply = `Patron, canlı stok verisini şu an okuyamadım: ${inventory.unavailableReason || "Drive erişimi kapalı"}. Rakam uydurmayacağım; bağlantı düzelince net sayıyı ve sıradaki videoyu raporlarım.`;
+        } else {
+          const stockLine = formatVoiceStockLine(inventory, wantsLong);
+          const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/Istanbul" }).format(new Date()));
+          const salutation = hour < 6 ? "İyi geceler patron" : hour < 11 ? "Günaydın patron" : hour < 18 ? "Tünaydın patron" : "İyi akşamlar patron";
+          reply = asksGreeting
+            ? `${salutation}! ${stockLine.replace(/^Patron, /, "Bugünkü tablo şöyle: ")}`
+            : stockLine;
+        }
+
+        // Öneri sunulabildiyse 10 dakikalık onay kuyruğuna al ("evet at" ile tetiklenir).
+        const offered = inventory.ok && (wantsLong ? inventory.nextLong : inventory.nextShorts);
+        if (offered) {
+          await db.insert(operations).values({
+            action: "voice_publish_pending",
+            status: "pending",
+            summary: `Sesli yayın önerisi bekliyor: ${inventory.nextShorts?.fileName || ""}`,
+            platform: "youtube",
+            metadata: { kind: wantsLong ? "long" : "shorts", fileName: offered.fileName, source: asksGreeting ? "greeting" : "inventory" },
+          }).catch(() => {});
+        }
+
+        const response = NextResponse.json({ reply, emotion: asksGreeting ? "happy" : "focused" });
+        return response;
+      }
+    }
+    // ===== /MODÜL 4 =====
+
 
     // Yardım ve sistem komutları
     const command = message.trim().split(/\s+/)[0].toLocaleLowerCase('tr-TR');
@@ -1650,5 +2113,41 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Sunucu hatası' }, { status: 500 });
+  }
+}
+
+/**
+ * MODÜL 4 — Assistant üst barının canlı "Kalan Stok" rozeti bu uçtan beslenir.
+ * GET /api/chat?view=inventory → { ok, shortsRemaining, longsRemaining,
+ * daysRemaining, nextShorts, nextLong, channelTitlesChecked, countedAt }.
+ * Salt okunur; hiçbir yükleme/planlama yapmaz. Veri kaynağı chat'teki stok
+ * raporuyla birebir aynıdır (buildVoiceInventory) — rozet ile sesli yanıt
+ * asla farklı sayı gösteremez.
+ */
+export async function GET(req: Request) {
+  const cookieHeader = req.headers.get('cookie') ?? '';
+  if (!isMiraSessionCookie(cookieHeader)) {
+    return NextResponse.json({ error: 'Mira oturumu doğrulanmadı.' }, { status: 401 });
+  }
+  const url = new URL(req.url);
+  if (url.searchParams.get('view') !== 'inventory') {
+    try {
+      const history = await db.select().from(messages).orderBy(desc(messages.id)).limit(60);
+      return NextResponse.json(history.reverse(), { headers: { 'cache-control': 'no-store' } });
+    } catch {
+      return NextResponse.json([], { headers: { 'cache-control': 'no-store' } });
+    }
+  }
+  try {
+    const inventory = await buildVoiceInventory();
+    return NextResponse.json(inventory, {
+      headers: { 'cache-control': 'no-store' },
+    });
+  } catch (error) {
+    console.error('[Module4] inventory badge failed:', error);
+    return NextResponse.json(
+      { ok: false, unavailableReason: 'Stok sayımı sunucu tarafında başarısız oldu.', shortsRemaining: 0, longsRemaining: 0, daysRemaining: 0, nextShorts: null, nextLong: null, channelTitlesChecked: false, countedAt: new Date().toISOString() },
+      { status: 502 },
+    );
   }
 }
