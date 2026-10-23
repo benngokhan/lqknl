@@ -22,9 +22,9 @@ export type NarrationOptions = {
 
 export type NarrationResult = {
   audio: Buffer;
-  provider: "elevenlabs" | "edge" | "google";
+  provider: string;
   captions: CaptionGroup[];
-  durationSeconds: number;
+  durationSeconds: number | null;
 };
 
 /**

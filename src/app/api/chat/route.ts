@@ -276,7 +276,7 @@ async function triggerVoiceYouTubeUpload(kind: VoicePublishKind, mode: "immediat
         channel: "yt-bridge",
         accepted: true,
         httpStatus: 200,
-        fileName: directBridge.queuedVideo?.fileName,
+        fileName: directBridge.targetPreview?.fileName,
         note: directBridge.message,
         raw: directBridge,
       };
