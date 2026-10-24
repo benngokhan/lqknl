@@ -105,7 +105,7 @@ function getShortCleanTitle(rawTitle: string): { shortTitle: string; fullClean: 
 
 export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: () => void }) {
   void onSwitchToOrb;
-  const { speak, stop, unlock, speaking } = useSpeaker();
+  const { speak, stop, unlock, speaking, wordIndex, ampRef } = useSpeaker();
 
   const [report, setReport] = useState<StatusReport | null>(null);
   const [lastTelegramTime, setLastTelegramTime] = useState<string>('21:24');
@@ -123,10 +123,11 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceThinking, setVoiceThinking] = useState(false);
   const [voiceInterim, setVoiceInterim] = useState('');
-  const [voiceInput, setVoiceInput] = useState('');
-  const [voiceReply, setVoiceReply] = useState(
-    "Günaydın patron! Ben KartaL. Bilgi Dozu (@bilgidozuofficial) kanalında dün gece 21:24'te video_33.mp4 yayına girdi. Şu an 57 Shorts ve 10 Uzun Video stokta hazır, sırada video_34.mp4 var."
-  );
+  const [voiceReply, setVoiceReply] = useState('');
+  const [subtitleVisible, setSubtitleVisible] = useState(false);
+  const [subtitleSpeaker, setSubtitleSpeaker] = useState<'user' | 'kartal'>('kartal');
+  const [waveTick, setWaveTick] = useState(0);
+  const subtitleFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recRef = useRef<SpeechRec | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finalTranscriptRef = useRef<string>('');
@@ -301,11 +302,43 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Canlı ses dalgası (waveform) animasyon döngüsü
+  useEffect(() => {
+    if (!voiceOpen) return;
+    let raf = 0;
+    let mounted = true;
+    const loop = () => {
+      if (!mounted) return;
+      setWaveTick((t) => (t + 1) % 10000);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => {
+      mounted = false;
+      cancelAnimationFrame(raf);
+    };
+  }, [voiceOpen]);
+
+  function scheduleSubtitleDissolve(delayMs = 1900) {
+    if (subtitleFadeTimerRef.current) {
+      clearTimeout(subtitleFadeTimerRef.current);
+    }
+    subtitleFadeTimerRef.current = setTimeout(() => {
+      setSubtitleVisible(false);
+    }, delayMs);
+  }
+
   async function sendToKartalVoice(text: string) {
     const cleaned = text.trim();
     if (!cleaned || voiceThinking) return;
     unlock();
     stop();
+    if (subtitleFadeTimerRef.current) {
+      clearTimeout(subtitleFadeTimerRef.current);
+    }
+    setSubtitleSpeaker('user');
+    setVoiceInterim(cleaned);
+    setSubtitleVisible(true);
     setVoiceThinking(true);
     try {
       const res = await fetch('/api/chat', {
@@ -317,13 +350,31 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       const replyText =
         typeof data?.reply === 'string' && data.reply.trim()
           ? data.reply.trim()
-          : `Bilgi Dozu (@bilgidozuofficial) komuta merkezindeyim patron. Şu an ${report?.summary?.stock_shorts ?? 57} Shorts ve ${report?.summary?.stock_long ?? 10} Uzun Video stokta hazır, Telegram'a son bildirim ${lastTelegramTime}'te iletildi.`;
+          : `Bilgi Dozu komuta merkezindeyim patron. Şu an ${report?.summary?.stock_shorts ?? 57} Shorts ve ${report?.summary?.stock_long ?? 10} Uzun Video stokta hazır.`;
+      setVoiceInterim('');
       setVoiceReply(replyText);
-      void speak(replyText, { solMode: 'close', emotion: 'happy' });
+      setSubtitleSpeaker('kartal');
+      setSubtitleVisible(true);
+      void speak(replyText, {
+        solMode: 'close',
+        emotion: 'happy',
+        onEnd: () => {
+          scheduleSubtitleDissolve(1800);
+        },
+      });
     } catch {
-      const fallback = `Bilgi Dozu (@bilgidozuofficial) kanalımızda ${report?.summary?.total_videos_published ?? 58} video yayında, ${report?.summary?.stock_shorts ?? 57} Shorts stokta hazır patron.`;
+      const fallback = `Bilgi Dozu kanalımızda ${report?.summary?.total_videos_published ?? 58} video yayında, ${report?.summary?.stock_shorts ?? 57} Shorts stokta hazır patron.`;
+      setVoiceInterim('');
       setVoiceReply(fallback);
-      void speak(fallback, { solMode: 'close', emotion: 'happy' });
+      setSubtitleSpeaker('kartal');
+      setSubtitleVisible(true);
+      void speak(fallback, {
+        solMode: 'close',
+        emotion: 'happy',
+        onEnd: () => {
+          scheduleSubtitleDissolve(1800);
+        },
+      });
     } finally {
       setVoiceThinking(false);
     }
@@ -333,18 +384,31 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
     unlock();
     if (voiceOpen) {
       stop();
+      if (subtitleFadeTimerRef.current) {
+        clearTimeout(subtitleFadeTimerRef.current);
+      }
       try {
         recRef.current?.abort();
       } catch {
         // ignore
       }
       setVoiceListening(false);
+      setSubtitleVisible(false);
       setVoiceOpen(false);
     } else {
+      // İlk açılışta otomatik mikrofon izni istemez; Kartal alt-ortaya süzülür ve karşılama özetini sesli + canlı altyazılı söyler
       setVoiceOpen(true);
-      const greeting = `Günaydın patron! Bilgi Dozu kanalında dün gece ${lastTelegramTime}'te video 33 yayına girdi. Şu an ${report?.summary?.stock_shorts ?? 57} Shorts ve ${report?.summary?.stock_long ?? 10} Uzun Video stokta hazır, sırada video 34 var.`;
+      const greeting = `Ben KartaL patron! Dün gece ${lastTelegramTime}'te video 33 yayına girdi. Şu an ${report?.summary?.stock_shorts ?? 57} Shorts ve ${report?.summary?.stock_long ?? 10} Uzun Video stokta hazır, sırada video 34 var.`;
       setVoiceReply(greeting);
-      void speak(greeting, { solMode: 'close', emotion: 'happy' });
+      setSubtitleSpeaker('kartal');
+      setSubtitleVisible(true);
+      void speak(greeting, {
+        solMode: 'close',
+        emotion: 'happy',
+        onEnd: () => {
+          scheduleSubtitleDissolve(1800);
+        },
+      });
     }
   }
 
@@ -425,7 +489,12 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       }
       interimTranscriptRef.current = interim;
       const preview = (finalTranscriptRef.current + ' ' + interim).replace(/\s+/g, ' ').trim();
-      setVoiceInterim(preview);
+      if (preview) {
+        if (subtitleFadeTimerRef.current) clearTimeout(subtitleFadeTimerRef.current);
+        setSubtitleSpeaker('user');
+        setVoiceInterim(preview);
+        setSubtitleVisible(true);
+      }
       resetSilenceTimer();
     };
     rec.onerror = () => {
@@ -1003,106 +1072,269 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
         )}
       </main>
 
-      {/* SAYFA İÇİNDE AÇILAN KÜÇÜK SESLİ ASİSTAN KARTAL PENCERESİ (POPOVER) */}
-      {voiceOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            right: '20px',
-            bottom: '20px',
-            width: '340px',
-            maxWidth: 'calc(100vw - 32px)',
-            backgroundColor: 'rgba(15, 23, 42, 0.96)',
-            border: '1px solid rgba(96, 165, 250, 0.35)',
-            borderRadius: '20px',
-            padding: '18px',
-            color: '#F8FAFC',
-            boxShadow: '0 20px 50px rgba(15, 23, 42, 0.45), 0 0 30px rgba(37, 99, 235, 0.2)',
-            backdropFilter: 'blur(14px)',
-            zIndex: 60,
-          }}
-        >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold tracking-wider uppercase text-blue-300">
-              🦅 KartaL AI · Sesli Asistan
-            </span>
-            <button
-              type="button"
-              onClick={handleToggleVoiceWidget}
-              className="h-6 w-6 rounded-full bg-white/10 text-slate-300 hover:bg-white/20 text-xs flex items-center justify-center"
-              title="Kapat"
-            >
-              ✕
-            </button>
-          </div>
+      {/* SAYFANIN EN ALT-ORTA BÖLÜMÜNDE SÜZÜLEN YAPAY ZEKA KARTAL + SES DALGASI + AKIŞKAN ALTYAZI HUD */}
+      {voiceOpen && (() => {
+        const rawAmp = speaking ? Math.min(1, Math.max(0.18, ampRef.current * 2.4)) : voiceListening ? 0.45 : voiceThinking ? 0.3 : 0.08;
+        const wingLift = Math.sin(waveTick * 0.08) * (speaking || voiceListening ? 6 : 2.5);
+        const coreScale = 1 + rawAmp * 0.28;
 
-          <div className="flex flex-col items-center py-2.5">
-            <button
-              type="button"
-              onClick={handleTapOrb}
-              style={{
-                width: '74px',
-                height: '74px',
-                borderRadius: '9999px',
-                background: voiceListening
-                  ? 'radial-gradient(circle at 35% 30%, #34d399, #059669 60%, #064e3b)'
-                  : speaking
-                    ? 'radial-gradient(circle at 35% 30%, #e879f9, #9333ea 60%, #1e1b4b)'
-                    : 'radial-gradient(circle at 35% 30%, #60a5fa, #1d4ed8 60%, #0f172a)',
-                boxShadow: voiceListening
-                  ? '0 0 34px rgba(16, 185, 129, 0.75)'
-                  : speaking
-                    ? '0 0 38px rgba(217, 70, 239, 0.8)'
-                    : '0 0 28px rgba(59, 130, 246, 0.55)',
-              }}
-              className="flex items-center justify-center text-2xl transition-transform active:scale-95"
-            >
-              🎙️
-            </button>
-            <span className="mt-2 text-[11px] text-slate-400 text-center px-2">
-              {voiceListening
-                ? voiceInterim
-                  ? `🎙️ "${voiceInterim}" (Bitirmek için küreye dokun veya 5 sn bekle)`
-                  : 'Dinliyorum patron, rahatça konuş (5.5 sn nefes payı açık)…'
-                : voiceThinking
-                  ? 'KartaL düşünüyor…'
-                  : speaking
-                    ? 'KartaL sesli yanıt veriyor (Susturmak için dokun)'
-                    : 'Bas-Konuş için küreye dokun veya aşağıya yaz'}
-            </span>
-          </div>
+        // Sese duyarlı aktif cümle / kelime penceresi (cümle bitince akışkan silinir)
+        const words = voiceReply ? voiceReply.split(/\s+/).filter(Boolean) : [];
+        let activeChunkWords: string[] = [];
+        let activeLocalIdx = -1;
+        if (subtitleSpeaker === 'kartal' && words.length > 0) {
+          const chunkSize = 11;
+          const safeWordIdx = wordIndex >= 0 ? Math.min(wordIndex, words.length - 1) : 0;
+          const chunkStart = Math.floor(safeWordIdx / chunkSize) * chunkSize;
+          activeChunkWords = words.slice(chunkStart, chunkStart + chunkSize);
+          activeLocalIdx = wordIndex >= 0 ? safeWordIdx - chunkStart : -1;
+        }
 
-          <div className="my-2.5 max-h-36 overflow-y-auto rounded-xl border border-slate-700/70 bg-slate-900/90 p-2.5 text-xs leading-relaxed text-slate-200">
-            {voiceReply}
-          </div>
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!voiceInput.trim()) return;
-              const q = voiceInput;
-              setVoiceInput('');
-              void sendToKartalVoice(q);
-            }}
-            className="flex gap-1.5"
+        return (
+          <div
+            className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center pointer-events-none select-none w-full max-w-xl px-4"
+            aria-live="polite"
           >
-            <input
-              type="text"
-              value={voiceInput}
-              onChange={(e) => setVoiceInput(e.target.value)}
-              placeholder="KartaL'a yaz veya sor..."
-              className="flex-1 rounded-lg border border-slate-700 bg-slate-950/90 px-2.5 py-1.5 text-xs text-white placeholder:text-slate-500 outline-none focus:border-blue-400"
-            />
-            <button
-              type="submit"
-              disabled={voiceThinking}
-              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
+            {/* 1. ÜST KATMAN: YAPAY ZEKA + KARTAL BİRLEŞİMİ CANLI ANİMASYON */}
+            <div className="relative flex flex-col items-center pointer-events-auto">
+              {/* Kapatma düğmesi */}
+              <button
+                type="button"
+                onClick={handleToggleVoiceWidget}
+                title="KartaL Sesli Asistanı Kapat"
+                className="absolute -right-7 -top-1 z-20 flex h-6 w-6 items-center justify-center rounded-full border border-cyan-400/30 bg-slate-950/80 text-[11px] text-slate-300 shadow-lg backdrop-blur-md transition hover:scale-110 hover:border-cyan-300 hover:text-white"
+              >
+                ✕
+              </button>
+
+              {/* Siber-Kartal Dokunmatik Hologram */}
+              <button
+                type="button"
+                onClick={handleTapOrb}
+                title={
+                  speaking
+                    ? 'KartaL konuşuyor (Susturmak için dokun)'
+                    : voiceListening
+                      ? 'Dinliyor (Göndermek için dokun)'
+                      : 'KartaL ile konuşmak için dokun'
+                }
+                className="group relative flex flex-col items-center justify-center focus:outline-none transition-transform active:scale-95"
+              >
+                {/* Arka plan siber enerji halesi */}
+                <div
+                  style={{
+                    transform: `scale(${coreScale})`,
+                    opacity: speaking || voiceListening ? 0.85 : 0.45,
+                  }}
+                  className={`absolute h-24 w-24 rounded-full blur-xl transition-all duration-150 ${
+                    voiceListening
+                      ? 'bg-emerald-500/40'
+                      : speaking
+                        ? 'bg-cyan-400/50'
+                        : voiceThinking
+                          ? 'bg-amber-400/40'
+                          : 'bg-blue-500/30'
+                  }`}
+                />
+
+                {/* Yapay Zeka Siber-Kartal Vektör Animasyonu */}
+                <svg
+                  viewBox="0 0 220 120"
+                  className="relative z-10 h-24 w-44 drop-shadow-[0_0_18px_rgba(56,189,248,0.65)]"
+                >
+                  <defs>
+                    <linearGradient id="kartalWingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor={voiceListening ? '#34d399' : '#38bdf8'} />
+                      <stop offset="50%" stopColor={voiceListening ? '#10b981' : '#2563eb'} />
+                      <stop offset="100%" stopColor="#1e1b4b" />
+                    </linearGradient>
+                    <linearGradient id="kartalCoreGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stopColor="#e0f2fe" />
+                      <stop offset="100%" stopColor={voiceListening ? '#10b981' : '#0284c7'} />
+                    </linearGradient>
+                  </defs>
+
+                  {/* Dış Siber Halka */}
+                  <circle
+                    cx="110"
+                    cy="64"
+                    r={34 + rawAmp * 8}
+                    fill="none"
+                    stroke={voiceListening ? '#34d399' : '#38bdf8'}
+                    strokeWidth="1.2"
+                    strokeDasharray="6 4"
+                    opacity="0.55"
+                    style={{
+                      transformOrigin: '110px 64px',
+                      transform: `rotate(${(waveTick * 1.5) % 360}deg)`,
+                    }}
+                  />
+
+                  {/* SOL KANAT (Sese ve nefese duyarlı hareketli) */}
+                  <g
+                    style={{
+                      transformOrigin: '95px 62px',
+                      transform: `rotate(${wingLift}deg)`,
+                    }}
+                  >
+                    <path
+                      d="M95,62 L12,24 L28,44 L10,48 L36,62 L20,70 L52,76 L72,82 Z"
+                      fill="url(#kartalWingGrad)"
+                      stroke="#7dd3fc"
+                      strokeWidth="1.2"
+                      opacity="0.92"
+                    />
+                    {/* Sol kanat nöral devre hatları */}
+                    <path
+                      d="M88,58 L32,36 M84,65 L40,56 M78,72 L50,70"
+                      stroke="#e0f2fe"
+                      strokeWidth="1.1"
+                      strokeLinecap="round"
+                      opacity={0.45 + rawAmp * 0.5}
+                    />
+                    <circle cx="32" cy="36" r="2" fill="#e0f2fe" />
+                    <circle cx="40" cy="56" r="1.8" fill="#e0f2fe" />
+                  </g>
+
+                  {/* SAĞ KANAT (Sese ve nefese duyarlı hareketli) */}
+                  <g
+                    style={{
+                      transformOrigin: '125px 62px',
+                      transform: `rotate(${-wingLift}deg)`,
+                    }}
+                  >
+                    <path
+                      d="M125,62 L208,24 L192,44 L210,48 L184,62 L200,70 L168,76 L148,82 Z"
+                      fill="url(#kartalWingGrad)"
+                      stroke="#7dd3fc"
+                      strokeWidth="1.2"
+                      opacity="0.92"
+                    />
+                    {/* Sağ kanat nöral devre hatları */}
+                    <path
+                      d="M132,58 L188,36 M136,65 L180,56 M142,72 L170,70"
+                      stroke="#e0f2fe"
+                      strokeWidth="1.1"
+                      strokeLinecap="round"
+                      opacity={0.45 + rawAmp * 0.5}
+                    />
+                    <circle cx="188" cy="36" r="2" fill="#e0f2fe" />
+                    <circle cx="180" cy="56" r="1.8" fill="#e0f2fe" />
+                  </g>
+
+                  {/* KARTAL BAŞI, ZIRHLI GÖĞÜS VE NÖRAL ÇEKİRDEK */}
+                  <path
+                    d="M110,16 L92,34 L86,58 L110,104 L134,58 L128,34 Z"
+                    fill="#0f172a"
+                    stroke="#38bdf8"
+                    strokeWidth="1.8"
+                  />
+                  {/* Kartal Теpe Tacı & Keskin Gaga */}
+                  <path
+                    d="M110,12 L98,28 L110,24 L122,28 Z"
+                    fill="url(#kartalCoreGrad)"
+                  />
+                  <path
+                    d="M104,48 L116,48 L110,64 Z"
+                    fill="#38bdf8"
+                  />
+
+                  {/* PARLAYAN SİBER GÖZLER */}
+                  <polygon
+                    points="95,39 105,43 97,45"
+                    fill={voiceListening ? '#34d399' : speaking ? '#f0abfc' : '#38bdf8'}
+                  />
+                  <polygon
+                    points="125,39 115,43 123,45"
+                    fill={voiceListening ? '#34d399' : speaking ? '#f0abfc' : '#38bdf8'}
+                  />
+
+                  {/* Sese Duyarlı Göğüs Yapay Zeka Çekirdeği */}
+                  <circle
+                    cx="110"
+                    cy="78"
+                    r={6 + rawAmp * 5}
+                    fill="url(#kartalCoreGrad)"
+                    opacity="0.95"
+                  />
+                </svg>
+
+                {/* Küçük durum etiketi */}
+                <span className=" -mt-1 rounded-full bg-slate-950/80 border border-white/10 px-2.5 py-0.5 text-[10px] font-semibold tracking-wider uppercase text-cyan-300 backdrop-blur-md shadow">
+                  {voiceListening
+                    ? '🟢 Dinliyorum (Göndermek için dokun)'
+                    : voiceThinking
+                      ? '⚡ KartaL Düşünüyor…'
+                      : speaking
+                        ? '🦅 KartaL Konuşuyor'
+                        : '🎙️ Konuşmak İçin KartaL’a Dokun'}
+                </span>
+              </button>
+            </div>
+
+            {/* 2. ORTA KATMAN: KARTAL'IN HEMEN ALTINDA SESE DUYARLI CANLI SES DALGASI (WAVEFORM) */}
+            <div className="mt-1.5 flex h-7 items-center justify-center gap-[3px] rounded-full bg-slate-950/70 border border-cyan-400/20 px-4 py-1 backdrop-blur-md shadow-lg">
+              {Array.from({ length: 24 }).map((_, idx) => {
+                const centerDist = Math.abs(idx - 11.5) / 11.5;
+                const active = speaking || voiceListening || voiceThinking;
+                const wave = Math.sin(waveTick * 0.22 + idx * 0.55) * 0.5 + 0.5;
+                const heightPx = active
+                  ? Math.max(4, Math.round((1 - centerDist * 0.55) * (6 + wave * 18 * (rawAmp + 0.35))))
+                  : 4;
+                return (
+                  <span
+                    key={idx}
+                    style={{ height: `${heightPx}px` }}
+                    className={`w-[3px] rounded-full transition-all duration-75 ${
+                      voiceListening
+                        ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
+                        : speaking
+                          ? 'bg-cyan-300 shadow-[0_0_8px_rgba(103,232,249,0.85)]'
+                          : voiceThinking
+                            ? 'bg-amber-300'
+                            : 'bg-slate-600/70'
+                    }`}
+                  />
+                );
+              })}
+            </div>
+
+            {/* 3. ALT KATMAN: SESE DUYARLI AKIŞKAN ALTYAZI (CÜMLE BİTİNCE ERİYEREK SİLİNİR) */}
+            <div
+              className={`mt-2 min-h-[38px] max-w-lg text-center transition-all duration-700 ease-out ${
+                subtitleVisible && (voiceInterim || activeChunkWords.length > 0)
+                  ? 'opacity-100 translate-y-0 blur-0 scale-100'
+                  : 'opacity-0 -translate-y-2 blur-[3px] scale-95 pointer-events-none'
+              }`}
             >
-              Sor
-            </button>
-          </form>
-        </div>
-      )}
+              {subtitleSpeaker === 'user' && voiceInterim ? (
+                <div className="inline-block rounded-2xl border border-emerald-400/30 bg-slate-950/80 px-4 py-1.5 text-xs font-medium text-emerald-200 shadow-2xl backdrop-blur-md">
+                  <span className="mr-1.5 font-bold text-emerald-400">Sen:</span>
+                  {voiceInterim}
+                </div>
+              ) : activeChunkWords.length > 0 ? (
+                <div className="inline-block rounded-2xl border border-cyan-400/30 bg-slate-950/82 px-4 py-1.5 text-xs font-medium leading-relaxed text-slate-100 shadow-2xl backdrop-blur-md">
+                  <span className="mr-1.5 font-extrabold text-cyan-300">KartaL:</span>
+                  {activeChunkWords.map((w, i) => (
+                    <span
+                      key={i}
+                      className={`mr-1 transition-colors duration-150 ${
+                        i === activeLocalIdx
+                          ? 'text-cyan-300 font-bold drop-shadow-[0_0_6px_rgba(56,189,248,0.9)]'
+                          : i < activeLocalIdx
+                            ? 'text-white'
+                            : 'text-slate-300/85'
+                      }`}
+                    >
+                      {w}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* EKRANIN SOL TARAFINDA SAYDAM YOUTUBE BEĞENİ / ETKİLEŞİM POPUP'I (2.8 SN GÖRÜNÜP KAYBOLUR) */}
       {livePopup && (
