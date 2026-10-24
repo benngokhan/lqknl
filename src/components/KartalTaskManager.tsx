@@ -127,6 +127,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   const [subtitleVisible, setSubtitleVisible] = useState(false);
   const [subtitleSpeaker, setSubtitleSpeaker] = useState<'user' | 'kartal'>('kartal');
   const [waveTick, setWaveTick] = useState(0);
+  const [waveAmp, setWaveAmp] = useState(0.1);
   const subtitleFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recRef = useRef<SpeechRec | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -310,6 +311,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
     const loop = () => {
       if (!mounted) return;
       setWaveTick((t) => (t + 1) % 10000);
+      setWaveAmp(ampRef.current);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -317,7 +319,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       mounted = false;
       cancelAnimationFrame(raf);
     };
-  }, [voiceOpen]);
+  }, [voiceOpen, ampRef]);
 
   function scheduleSubtitleDissolve(delayMs = 1900) {
     if (subtitleFadeTimerRef.current) {
@@ -1074,7 +1076,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
 
       {/* SAYFANIN EN ALT-ORTA BÖLÜMÜNDE SÜZÜLEN YAPAY ZEKA KARTAL + SES DALGASI + AKIŞKAN ALTYAZI HUD */}
       {voiceOpen && (() => {
-        const rawAmp = speaking ? Math.min(1, Math.max(0.18, ampRef.current * 2.4)) : voiceListening ? 0.45 : voiceThinking ? 0.3 : 0.08;
+        const rawAmp = speaking ? Math.min(1, Math.max(0.18, waveAmp * 2.4)) : voiceListening ? 0.45 : voiceThinking ? 0.3 : 0.08;
         const wingLift = Math.sin(waveTick * 0.08) * (speaking || voiceListening ? 6 : 2.5);
         const coreScale = 1 + rawAmp * 0.28;
 
