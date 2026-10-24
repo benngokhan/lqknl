@@ -28,24 +28,36 @@ let cachedLiveStats: { ts: number; map: Record<string, LiveVidStat> } = {
 
 async function fetchSingleVideoLiveStat(videoId: string): Promise<LiveVidStat | null> {
   try {
-    const res = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=tr`, {
+    const res = await fetch("https://www.youtube.com/youtubei/v1/next?prettyPrint=false", {
+      method: "POST",
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       },
+      body: JSON.stringify({
+        context: {
+          client: {
+            hl: "tr",
+            gl: "TR",
+            clientName: "WEB",
+            clientVersion: "2.20240726.00.00",
+          },
+        },
+        videoId,
+      }),
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
-    const html = await res.text();
-    const viewsM = html.match(/"viewCount":"(\d+)"/);
+    const txt = await res.text();
+    const viewsM =
+      txt.match(/"viewCount":\{"simpleText":"([\d\.]+)\s*görüntüleme"/) ||
+      txt.match(/"views":\{"simpleText":"([\d\.]+)/);
     const likesM =
-      html.match(/"likeCount":"(\d+)"/) ||
-      html.match(/"likeCountIfIndifferentNumber":"(\d+)"/) ||
-      html.match(/"likeCount":(\d+)/);
-    const views = viewsM ? Number.parseInt(viewsM[1], 10) : 0;
-    const likes = likesM ? Number.parseInt(likesM[1], 10) : 0;
+      txt.match(/"iconName":"LIKE".*?"title":"([\d\.]+)"/) ||
+      txt.match(/"defaultText":\{"accessibility":\{"accessibilityData":\{"label":"([\d\.]+)\s*beğeni/);
+    const views = viewsM ? Number.parseInt(viewsM[1].replace(/\./g, ""), 10) : 0;
+    const likes = likesM ? Number.parseInt(likesM[1].replace(/\./g, ""), 10) : 0;
     return { views, likes };
   } catch {
     return null;
