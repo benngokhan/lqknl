@@ -755,58 +755,58 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
           </div>
         </section>
 
-        {/* Günlük Yayın Saatleri & Sıradaki Paylaşım Takvimi */}
-        <section className="mb-4 rounded-md border border-[#E5E7EB] bg-white">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E5E7EB] px-3.5 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-[#111827]">⏰ Günlük Yayın Saatleri & Sıradaki Paylaşım (TR Saati)</span>
-              <span className="rounded bg-[#ECFDF5] px-2 py-0.5 text-[11px] font-semibold text-[#065F46]">
-                Otomatik Zamanlayıcı Aktif
-              </span>
-            </div>
-            <div className="text-xs text-[#4B5563]">
-              Son Yayınlanan: <strong className="text-[#065F46]">video_35.mp4 (YÜKLENDİ)</strong> · Sıradaki:{' '}
-              <strong className="text-[#92400E]">video_36.mp4</strong>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-2.5 p-3 sm:grid-cols-3">
-            {([
-              {
-                time: '14:15',
-                slot: 'Öğle Kuşağı · 1. Shorts',
-                desc: 'Okul/öğle molası Prime-Time (+15 dk algoritma penceresi)',
-                target: 'Shorts (video_XX.mp4)',
-              },
-              {
-                time: '18:15',
-                slot: 'Akşamüstü · 2. Shorts',
-                desc: 'İş/okul çıkışı yüksek etkileşim kuşağı',
-                target: 'Shorts (video_XX.mp4)',
-              },
-              {
-                time: '21:15',
-                slot: 'Ana Prime-Time · 3. Yayın',
-                desc: 'Tek günler Shorts · Çift günler 16:9 Uzun Video',
-                target: 'video_36.mp4 / uzun_video_8.mp4',
-              },
-            ] as const).map((s) => (
-              <div
-                key={s.time}
-                className="flex flex-col justify-between rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2.5"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-base font-bold text-[#111827]">{s.time}</span>
-                  <span className="rounded bg-[#FFFBEB] px-2 py-0.5 text-[11px] font-semibold text-[#92400E]">
-                    {s.slot}
+        {/* Günlük Yayın Saatleri — Kayan Şerit (Yer Kaplamaz) */}
+        <section className="mb-4 overflow-hidden rounded-md border border-[#E5E7EB] bg-white">
+          <style>{`
+            @keyframes kartalMarquee {
+              from { transform: translateX(0); }
+              to { transform: translateX(-50%); }
+            }
+          `}</style>
+          <div className="relative overflow-hidden bg-[#0B0F1A] py-2">
+            <div
+              className="flex w-max items-center whitespace-nowrap hover:[animation-play-state:paused]"
+              style={{ animation: 'kartalMarquee 34s linear infinite' }}
+            >
+              {[0, 1].map((copy) => (
+                <div key={copy} className="flex items-center gap-10 pr-10 text-xs" aria-hidden={copy === 1}>
+                  <span className="flex items-center gap-1.5 text-[#9CA3AF]">
+                    <span aria-hidden>⏰</span>
+                    <strong className="text-sm font-bold text-[#FACC15]">14:15</strong>
+                    {"Öğle Kuşağı · 1. Shorts"}
                   </span>
+                  <span className="text-[#374151]">•</span>
+                  <span className="flex items-center gap-1.5 text-[#9CA3AF]">
+                    <span aria-hidden>🌆</span>
+                    <strong className="text-sm font-bold text-[#FACC15]">18:15</strong>
+                    {"Akşamüstü · 2. Shorts"}
+                  </span>
+                  <span className="text-[#374151]">•</span>
+                  <span className="flex items-center gap-1.5 text-[#9CA3AF]">
+                    <span aria-hidden>🌙</span>
+                    <strong className="text-sm font-bold text-[#FACC15]">21:15</strong>
+                    {"Ana Prime-Time · Tek gün Shorts / Çift gün Uzun Video"}
+                  </span>
+                  <span className="text-[#374151]">•</span>
+                  <span className="flex items-center gap-1.5 text-[#9CA3AF]">
+                    🟢 {"Son:"} <strong className="text-[#34D399]">video_35.mp4 (YÜKLENDİ)</strong>
+                  </span>
+                  <span className="text-[#374151]">•</span>
+                  <span className="flex items-center gap-1.5 text-[#9CA3AF]">
+                    🟡 {"Sıradaki:"} <strong className="text-[#FBBF24]">video_36.mp4</strong>
+                  </span>
+                  <span className="text-[#374151]">•</span>
+                  <span className="flex items-center gap-1.5 text-[#9CA3AF]">
+                    🛋️ {"Lobi'de kontrol bekleyen:"} <strong className="text-[#67E8F9]">21 video</strong>
+                  </span>
+                  <span className="text-[#374151]">•</span>
+                  <span className="rounded bg-[#064E3B] px-2 py-0.5 text-[11px] font-semibold text-[#6EE7B7]">
+                    {"Otomatik Zamanlayıcı Aktif · TR Saati"}
+                  </span>
+                  <span className="text-[#374151]">•</span>
                 </div>
-                <div className="mt-1.5 text-xs text-[#4B5563]">{s.desc}</div>
-                <div className="mt-2 flex items-center justify-between border-t border-[#E5E7EB] pt-1.5 text-[11px]">
-                  <span className="text-[#6B7280]">Kuyruk:</span>
-                  <strong className="text-[#111827]">{s.target}</strong>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
           {/* Lobi & Klasör Hızlı Köprüleri + TikTok/Reels Kurulum Kiti */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#E5E7EB] bg-[#F8F9FA] px-3.5 py-2 text-xs">
