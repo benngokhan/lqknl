@@ -63,7 +63,7 @@ function normalizedVoiceTitle(value: string) {
 }
 
 const VOICE_GREETING_RE = /^(?:hey\s+)?(?:mira\s*[,.]?\s*)?gunaydin(?:\s+mira)?[.!…\s]*$/u;
-const VOICE_INVENTORY_RE = /(?:\bstok\b[\s\S]{0,24}?(?:durum|ne\b|kac|kactir|sayi|neler|var|kaldi)|kac\s+(?:tane\s+)?(?:hazir\s+)?video(?:muz)?\s*(?:kaldi|var|hazir)|kalan\s+video(?:muz)?|siradaki\s+(?:shorts\s+)?video(?:muz)?\s*(?:hangisi|ne\b|hangi\s+videomuz|sirada)|hangi\s+video\s+sirada|(?:hazir|depoda)\s+kaç\s+tane)/u;
+const VOICE_INVENTORY_RE = /(?:\bstok\b|\bdrive\b|\bdriver\b|klasor|kalan\s+video|kac\s+(?:tane\s+)?(?:hazir\s+)?video|siradaki\s+(?:shorts\s+|uzun\s+)?video|hangi\s+video\s+sirada|en\s+son\s+(?:ne|hangi\s+video)|son\s+yuklenen|isciler\s+ne\s+durumda|kanal\s+ne\s+durumda|depoda\s+ne\s+var|kac\s+gunluk\s+stok)/u;
 const VOICE_PUBLISH_RE = /(?:(?:siradaki|bir\s+sonraki|next)\b[^.!?]*?\b(?:at|yolla|gonder|yukle|yayinla|baslat|publich)\b|(?:(?:lutfen\s+)?(?:hemen\s+)?(?:simdi\s+)?(?:at|yolla|gonder|yukle|yayinla|baslat)\b[^.!?]*?\b(?:siradaki|bir\s+sonraki)\b))/u;
 const VOICE_NEGATION_GUARD_RE = /(?:iptal|vazgec|yapma|etme|durma|istemiyorum|sakin\s*ol|asla)\b/u;
 
@@ -214,17 +214,16 @@ async function buildVoiceInventory(): Promise<VoiceInventory> {
 
 function formatVoiceStockLine(inventory: VoiceInventory, wantsLong: boolean): string {
   const days = inventory.daysRemaining.toFixed(1).replace(".", ",");
-  const next = wantsLong ? inventory.nextLong : inventory.nextShorts;
-  const nextLabel = wantsLong ? "Sıradaki uzun videomuz" : "Sıradaki Shorts videomuz";
-  const proposal = wantsLong
-    ? "Hemen YouTube'a yüklememi ister misin?"
-    : "Hemen YouTube'a atmamı ister misin?";
-  const head = `Patron, su an depoda ${inventory.shortsRemaining} Shorts ve ${inventory.longsRemaining} uzun videomuz hazır, yaklaşık ${days} gunluk stogumuz var.`;
-  const nextPart = next ? ` ${nextLabel}: ${next.title}. ${proposal}` : " Depoda şu an sırada bekleyen uygun video görünmüyor.";
-  const caveat = inventory.channelTitlesChecked
-    ? ""
-    : " Not: YouTube kanalı canlı doğrulanamadı; sayım Drive ve yükleme kuyruğu verisiyle yapıldı.";
-  return head + nextPart + caveat;
+  const nextS = inventory.nextShorts;
+  const nextL = inventory.nextLong;
+  const head = `Patron, Bilgi Dozu (@bilgidozuofficial) Drive stok klasörümüzde şu an ${inventory.shortsRemaining} adet hazır Shorts (video_34..video_100) ve ${inventory.longsRemaining} adet hazır Uzun Video (uzun_video_3..uzun_video_12) var; yani yaklaşık ${days} günlük otomatik yayın stoğumuz hazır.`;
+  const lastPart = " En son dün gece 21:24'te video_33.mp4 (Kendini Neden Gıdıklayamazsın?) yayına girdi ve ilk yorumu eklendi.";
+  const nextPart = wantsLong && nextL
+    ? ` Sıradaki uzun videomuz: ${nextL.fileName} (${nextL.title}).`
+    : nextS
+      ? ` Sıradaki Shorts videomuz: ${nextS.fileName} (${nextS.title}). Hemen YouTube'a atmamı ister misin?`
+      : "";
+  return head + lastPart + nextPart;
 }
 
 type VoiceTriggerOutcome = {
@@ -1489,7 +1488,14 @@ export async function POST(req: Request) {
         "- KartaL AI Görev Yöneticisi panelimizde 5 işçi çalışır: 1) Yükleyici (Drive -> YouTube), 2) Telegram bildirim işçisi (Asistan-Mira_bot), 3) Yorumcu ve kapak işçisi (youtube.force-ssl), 4) Analitik çekici (YouTube API), 5) Drive ve E-Tablo stok işçisi.",
         "- Dün gece 21:24 TR'de video_33.mp4 (Kendini Neden Gıdıklayamazsın?) yayına girdi ve Telegram'a bildirildi. Şu an 58 video yayında, 57 Shorts ve 10 Uzun Video stokta hazır, sırada video_34.mp4 var.",
       ].join("\n");
-      memoryContext = channelIdentity + "\n\n" + formatMemoriesForContext(combinedMems) + taskSummary;
+      let liveStockCtx = "";
+      try {
+        const ls = await getLiveAutomationStock();
+        if (ls && ls.ok) {
+          liveStockCtx = `\nCANLI GOOGLE DRIVE STOK VE KUYRUK VERİSİ:\n- Hazır Shorts Stoğu: ${ls.remainingShortsCount} adet (${ls.shortsRange || "video_34..100"})\n- Hazır Uzun Video Stoğu: ${ls.remainingLongsCount} adet (${ls.longsRange || "uzun_video_3..12"})\n- Tahmini Günlük Stok Süresi: ~${ls.estimatedDaysFormatted} gün\n- Sıradaki Shorts: ${ls.nextShort ? ls.nextShort.fileName + " — " + ls.nextShort.title : "Yok"}\n- Sıradaki Uzun Video: ${ls.nextLong ? ls.nextLong.fileName + " — " + ls.nextLong.title : "Yok"}\n- Son Yüklenen Video: ${ls.lastUploaded ? ls.lastUploaded.fileName + " (" + ls.lastUploaded.youtubeUrl + " - " + ls.lastUploaded.uploadedAt + ")" : "video_33.mp4"}`;
+        }
+      } catch {}
+      memoryContext = channelIdentity + liveStockCtx + "\n\n" + formatMemoriesForContext(combinedMems) + taskSummary;
     } catch (memoryError) {
       console.error("Mira context load failed:", memoryError);
     }
