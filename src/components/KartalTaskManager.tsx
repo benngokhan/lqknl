@@ -800,6 +800,24 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                     🛋️ {"Lobi'de kontrol bekleyen:"} <strong className="text-[#67E8F9]">21 video</strong>
                   </span>
                   <span className="text-[#374151]">•</span>
+                  <a
+                    href="https://www.instagram.com/bilgidozuofficial"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-semibold text-[#F472B6] hover:text-[#F9A8D4]"
+                  >
+                    📸 Instagram
+                  </a>
+                  <span className="text-[#374151]">•</span>
+                  <a
+                    href="https://www.tiktok.com/@bilgidozuofficial"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-semibold text-[#67E8F9] hover:text-[#A5F3FC]"
+                  >
+                    🎵 TikTok
+                  </a>
+                  <span className="text-[#374151]">•</span>
                   <span className="rounded bg-[#064E3B] px-2 py-0.5 text-[11px] font-semibold text-[#6EE7B7]">
                     {"Otomatik Zamanlayıcı Aktif · TR Saati"}
                   </span>
