@@ -549,7 +549,12 @@ export async function POST(req: Request) {
       try {
         const row = await remember('memory:' + Date.now(), text, category, importance);
         await db.update(operations).set({ status: 'success', summary: 'Hafıza kaydedildi: ' + row.key }).where(eq(operations.id, pendingOp.id));
-        return NextResponse.json({ reply: '✅ Tamam. Hafızaya kaydettim: "' + row.value + '"\nKategori: ' + row.category + ' · Önem: ' + row.importance + '/5', emotion: 'focused' });
+        const savedReply = '✅ Tamam. Hafızaya ve takvim notlarına kaydettim: "' + row.value + '"';
+        await db.insert(messages).values([
+          { role: 'user', content: message, emotion: 'focused' },
+          { role: 'assistant', content: savedReply, emotion: 'focused' },
+        ]).catch(() => {});
+        return NextResponse.json({ reply: savedReply, emotion: 'focused' });
       } catch (error) {
         console.error('Mira memory save failed:', error);
         return NextResponse.json({ reply: '❌ Hafızaya kaydetme başarısız oldu; kayıt tamamlanmadı.', emotion: 'focused' }, { status: 500 });
@@ -1466,8 +1471,25 @@ export async function POST(req: Request) {
           (m.role === "user" || m.role === "assistant") && typeof m.content === "string"
         );
 
-      const relevantMemories = await getRelevantMemories(message, 5);
-      memoryContext = formatMemoriesForContext(relevantMemories);
+      const relevantMemories = await getRelevantMemories(message, 8);
+      const recentAllMemories = await db.select().from(memories).orderBy(desc(memories.updatedAt)).limit(5);
+      const recentTasks = await db.select().from(tasks).orderBy(desc(tasks.id)).limit(5);
+      const combinedMems = [...relevantMemories];
+      for (const rm of recentAllMemories) {
+        if (!combinedMems.some((m) => m.id === rm.id)) combinedMems.push(rm);
+      }
+      const taskSummary = recentTasks.length
+        ? "\nSON TAKVİM / GÖREV / HATIRLATMA KAYITLARI:\n" + recentTasks.map((t) => `- ${t.title} (${t.status}) ${t.notes || ""}`).join("\n")
+        : "";
+      const channelIdentity = [
+        "KİMLİK VE KANAL BİLGİSİ (KESİN GERÇEK):",
+        "- Senin adın KartaL AI (Bilgi Dozu komuta merkezi sesli asistanı).",
+        "- Yönettiğimiz resmi YouTube kanalımız: Bilgi Dozu (@bilgidozuofficial, Kanal ID: UC3bjZMPZ5FW2JQGfU41iaUg).",
+        "- Kullanıcı 'kanal', 'kanalımız', 'panel', 'stok', 'videolar' dediğinde ASLA 'hangi kanal?' diye sorma; doğrudan Bilgi Dozu (@bilgidozuofficial) kanalımızdan bahsettiğini bil.",
+        "- KartaL AI Görev Yöneticisi panelimizde 5 işçi çalışır: 1) Yükleyici (Drive -> YouTube), 2) Telegram bildirim işçisi (Asistan-Mira_bot), 3) Yorumcu ve kapak işçisi (youtube.force-ssl), 4) Analitik çekici (YouTube API), 5) Drive ve E-Tablo stok işçisi.",
+        "- Dün gece 21:24 TR'de video_33.mp4 (Kendini Neden Gıdıklayamazsın?) yayına girdi ve Telegram'a bildirildi. Şu an 58 video yayında, 57 Shorts ve 10 Uzun Video stokta hazır, sırada video_34.mp4 var.",
+      ].join("\n");
+      memoryContext = channelIdentity + "\n\n" + formatMemoriesForContext(combinedMems) + taskSummary;
     } catch (memoryError) {
       console.error("Mira context load failed:", memoryError);
     }

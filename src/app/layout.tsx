@@ -8,9 +8,9 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Mira",
+    title: "KartaL AI",
   },
-  title: "Bilgi Dozu • Dijital Asistan",
+  title: "KartaL AI • Görev Yöneticisi",
   description: "Konuşan, duygularını yüzüne yansıtan kişisel dijital asistan.",
 };
 
