@@ -665,8 +665,8 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
 
         {/* Genel Sekmesi */}
         {activeTab === 'genel' && (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-            <div className="space-y-4 lg:col-span-5">
+          <div className="space-y-4">
+            <div className="space-y-4">
               <section className="rounded-md border border-[#E5E7EB] bg-white">
                 <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
                   <span className="text-sm font-semibold text-[#111827]">İşçi durumları</span>
