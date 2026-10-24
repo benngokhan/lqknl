@@ -127,7 +127,7 @@ export async function GET(req: NextRequest) {
       views: number;
       likes: number;
       comments: number;
-    }> = Array.isArray(report.recent_videos) ? report.recent_videos : [];
+    }> = Array.isArray(report.videos) ? report.videos : [];
 
     const liveMap = await getLiveYoutubeStatsForVideos(
       recentVideos.map((v) => v.id),
@@ -146,7 +146,7 @@ export async function GET(req: NextRequest) {
       deltaViews: number;
     }> = [];
 
-    report.recent_videos = recentVideos.map((v) => {
+    report.videos = recentVideos.map((v) => {
       const live = liveMap[v.id];
       if (!live) return v;
       const newViews = Math.max(v.views || 0, live.views);

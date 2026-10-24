@@ -190,7 +190,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   }
 
   function evaluatePopupFromReport(rep: StatusReport, isManualOrInitial: boolean) {
-    const vids = Array.isArray(rep?.recent_videos) ? rep.recent_videos : [];
+    const vids: VideoItem[] = Array.isArray(rep?.videos) ? rep.videos : [];
     const prevMap = prevStatsRef.current;
     const hadPrev = Object.keys(prevMap).length > 0;
     let shown = false;
@@ -200,7 +200,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       if (prev && v.likes > prev.likes) {
         triggerLeftPopup(
           `❤️ +${v.likes - prev.likes} Yeni Beğeni!`,
-          firstFiveWords(v.title),
+          getShortCleanTitle(v.title).shortTitle,
           `Toplam ${v.likes} beğeni · ${v.views.toLocaleString('tr-TR')} izlenme`
         );
         shown = true;
@@ -209,7 +209,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       if (prev && v.views > prev.views) {
         triggerLeftPopup(
           `👁️ +${v.views - prev.views} Yeni İzlenme!`,
-          firstFiveWords(v.title),
+          getShortCleanTitle(v.title).shortTitle,
           `Canlı: ${v.views.toLocaleString('tr-TR')} izlenme · ❤️ ${v.likes} beğeni`
         );
         shown = true;
@@ -222,7 +222,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       if (topLiked) {
         triggerLeftPopup(
           `❤️ YouTube Canlı Beğeni Bildirimi`,
-          firstFiveWords(topLiked.title),
+          getShortCleanTitle(topLiked.title).shortTitle,
           `👍 ${topLiked.likes} Beğeni · 👁️ ${topLiked.views.toLocaleString('tr-TR')} İzlenme`
         );
       }
