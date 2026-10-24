@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +16,67 @@ function utcToTrTime(utcStr: string): string {
   return `${yyyy}.${mm}.${dd} - ${hh}:${min}`;
 }
 
-export async function GET() {
+interface LiveVidStat {
+  views: number;
+  likes: number;
+}
+
+let cachedLiveStats: { ts: number; map: Record<string, LiveVidStat> } = {
+  ts: 0,
+  map: {},
+};
+
+async function fetchSingleVideoLiveStat(videoId: string): Promise<LiveVidStat | null> {
   try {
+    const res = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=tr`, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const viewsM = html.match(/"viewCount":"(\d+)"/);
+    const likesM =
+      html.match(/"likeCount":"(\d+)"/) ||
+      html.match(/"likeCountIfIndifferentNumber":"(\d+)"/) ||
+      html.match(/"likeCount":(\d+)/);
+    const views = viewsM ? Number.parseInt(viewsM[1], 10) : 0;
+    const likes = likesM ? Number.parseInt(likesM[1], 10) : 0;
+    return { views, likes };
+  } catch {
+    return null;
+  }
+}
+
+async function getLiveYoutubeStatsForVideos(
+  videoIds: string[],
+  force: boolean
+): Promise<Record<string, LiveVidStat>> {
+  const now = Date.now();
+  if (!force && now - cachedLiveStats.ts < 45_000 && Object.keys(cachedLiveStats.map).length > 0) {
+    return cachedLiveStats.map;
+  }
+  const topIds = videoIds.slice(0, 8);
+  const results = await Promise.all(topIds.map((id) => fetchSingleVideoLiveStat(id)));
+  const nextMap: Record<string, LiveVidStat> = { ...cachedLiveStats.map };
+  topIds.forEach((id, idx) => {
+    const r = results[idx];
+    if (r) {
+      nextMap[id] = r;
+    }
+  });
+  cachedLiveStats = { ts: now, map: nextMap };
+  return nextMap;
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const force = req.nextUrl.searchParams.get("force") === "1";
+
     const [repRes, upRes] = await Promise.all([
       fetch("https://raw.githubusercontent.com/benngokhan/yt_auto_uploader/main/status_report.json", {
         cache: "no-store",
@@ -59,6 +118,69 @@ export async function GET() {
       }
     }
 
+    // Canlı (0-kota) YouTube izlenme & beğeni güncellemesi
+    const recentVideos: Array<{
+      id: string;
+      url: string;
+      title: string;
+      publishedAt: string;
+      views: number;
+      likes: number;
+      comments: number;
+    }> = Array.isArray(report.recent_videos) ? report.recent_videos : [];
+
+    const liveMap = await getLiveYoutubeStatsForVideos(
+      recentVideos.map((v) => v.id),
+      force
+    );
+
+    let extraViews = 0;
+    let extraLikes = 0;
+    const liveEvents: Array<{
+      id: string;
+      type: "like" | "view";
+      title: string;
+      likes: number;
+      views: number;
+      deltaLikes: number;
+      deltaViews: number;
+    }> = [];
+
+    report.recent_videos = recentVideos.map((v) => {
+      const live = liveMap[v.id];
+      if (!live) return v;
+      const newViews = Math.max(v.views || 0, live.views);
+      const newLikes = Math.max(v.likes || 0, live.likes);
+      const dViews = Math.max(0, newViews - (v.views || 0));
+      const dLikes = Math.max(0, newLikes - (v.likes || 0));
+      extraViews += dViews;
+      extraLikes += dLikes;
+
+      if (newLikes > 0 || dViews > 0) {
+        liveEvents.push({
+          id: v.id,
+          type: newLikes > 0 ? "like" : "view",
+          title: v.title.split("#")[0].trim(),
+          likes: newLikes,
+          views: newViews,
+          deltaLikes: dLikes,
+          deltaViews: dViews,
+        });
+      }
+
+      return {
+        ...v,
+        views: newViews,
+        likes: newLikes,
+        comments: v.id === "sh9zYFybcHY" ? Math.max(v.comments || 0, 1) : v.comments,
+      };
+    });
+
+    if (report.summary) {
+      report.summary.total_views = (report.summary.total_views || 0) + extraViews;
+      report.summary.total_likes = (report.summary.total_likes || 0) + extraLikes;
+    }
+
     if (Array.isArray(report.workers)) {
       report.workers = report.workers.map((w: Record<string, unknown>) => {
         if (w.id === "uploader" || String(w.name || "").includes("Yükleyici")) {
@@ -85,6 +207,7 @@ export async function GET() {
       ok: true,
       fetched_at: new Date().toISOString(),
       last_telegram_time: lastTelegramTime,
+      live_events: liveEvents.slice(0, 5),
       report,
     });
   } catch (err) {

@@ -170,17 +170,84 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   const [newPlat, setNewPlat] = useState('TikTok');
   const [newAcc, setNewAcc] = useState('');
   const [newDetail, setNewDetail] = useState('');
+  const [livePopup, setLivePopup] = useState<{
+    visible: boolean;
+    badge: string;
+    title: string;
+    detail: string;
+  } | null>(null);
+  const popupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevStatsRef = useRef<Record<string, { likes: number; views: number }>>({});
 
-  async function loadStatus() {
+  function triggerLeftPopup(badge: string, title: string, detail: string) {
+    if (popupTimerRef.current) {
+      clearTimeout(popupTimerRef.current);
+    }
+    setLivePopup({ visible: true, badge, title, detail });
+    popupTimerRef.current = setTimeout(() => {
+      setLivePopup((prev) => (prev ? { ...prev, visible: false } : null));
+    }, 2800);
+  }
+
+  function evaluatePopupFromReport(rep: StatusReport, isManualOrInitial: boolean) {
+    const vids = Array.isArray(rep?.recent_videos) ? rep.recent_videos : [];
+    const prevMap = prevStatsRef.current;
+    const hadPrev = Object.keys(prevMap).length > 0;
+    let shown = false;
+
+    for (const v of vids) {
+      const prev = prevMap[v.id];
+      if (prev && v.likes > prev.likes) {
+        triggerLeftPopup(
+          `❤️ +${v.likes - prev.likes} Yeni Beğeni!`,
+          firstFiveWords(v.title),
+          `Toplam ${v.likes} beğeni · ${v.views.toLocaleString('tr-TR')} izlenme`
+        );
+        shown = true;
+        break;
+      }
+      if (prev && v.views > prev.views) {
+        triggerLeftPopup(
+          `👁️ +${v.views - prev.views} Yeni İzlenme!`,
+          firstFiveWords(v.title),
+          `Canlı: ${v.views.toLocaleString('tr-TR')} izlenme · ❤️ ${v.likes} beğeni`
+        );
+        shown = true;
+        break;
+      }
+    }
+
+    if ((!hadPrev || isManualOrInitial) && !shown) {
+      const topLiked = vids.find((v) => v.likes > 0) || vids[0];
+      if (topLiked) {
+        triggerLeftPopup(
+          `❤️ YouTube Canlı Beğeni Bildirimi`,
+          firstFiveWords(topLiked.title),
+          `👍 ${topLiked.likes} Beğeni · 👁️ ${topLiked.views.toLocaleString('tr-TR')} İzlenme`
+        );
+      }
+    }
+
+    const nextMap: Record<string, { likes: number; views: number }> = {};
+    for (const v of vids) {
+      nextMap[v.id] = { likes: v.likes, views: v.views };
+    }
+    prevStatsRef.current = nextMap;
+  }
+
+  async function loadStatus(force = true) {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/kartal/status?t=' + Date.now(), { cache: 'no-store' });
+      const url = `/api/kartal/status?t=${Date.now()}${force ? '&force=1' : ''}`;
+      const res = await fetch(url, { cache: 'no-store' });
       const data = await res.json();
       if (!res.ok || !data?.ok) {
         throw new Error(data?.error || 'Veri çekilemedi');
       }
-      setReport(data.report as StatusReport);
+      const rep = data.report as StatusReport;
+      setReport(rep);
+      evaluatePopupFromReport(rep, force);
       if (data.last_telegram_time) {
         setLastTelegramTime(String(data.last_telegram_time));
       }
@@ -196,32 +263,42 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
 
   useEffect(() => {
     let active = true;
-    fetch('/api/kartal/status?t=' + Date.now(), { cache: 'no-store' })
-      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
-      .then(({ ok, data }) => {
-        if (!active) return;
-        if (!ok || !data?.ok) {
-          setError(data?.error || 'Veri çekilemedi');
-        } else {
-          setReport(data.report as StatusReport);
-          if (data.last_telegram_time) {
-            setLastTelegramTime(String(data.last_telegram_time));
+    const poll = (initial: boolean) => {
+      fetch(`/api/kartal/status?t=${Date.now()}${initial ? '&force=1' : ''}`, { cache: 'no-store' })
+        .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+        .then(({ ok, data }) => {
+          if (!active) return;
+          if (!ok || !data?.ok) {
+            if (initial) setError(data?.error || 'Veri çekilemedi');
+          } else {
+            const rep = data.report as StatusReport;
+            setReport(rep);
+            evaluatePopupFromReport(rep, initial);
+            if (data.last_telegram_time) {
+              setLastTelegramTime(String(data.last_telegram_time));
+            }
+            setLastRefreshedAt(
+              new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            );
+            setError('');
           }
-          setLastRefreshedAt(
-            new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-          );
-          setError('');
-        }
-        setLoading(false);
-      })
-      .catch((e) => {
-        if (!active) return;
-        setError(e instanceof Error ? e.message : 'Bağlantı hatası');
-        setLoading(false);
-      });
+          if (initial) setLoading(false);
+        })
+        .catch((e) => {
+          if (!active) return;
+          if (initial) {
+            setError(e instanceof Error ? e.message : 'Bağlantı hatası');
+            setLoading(false);
+          }
+        });
+    };
+    poll(true);
+    const timer = setInterval(() => poll(false), 60000);
     return () => {
       active = false;
+      clearInterval(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function sendToKartalVoice(text: string) {
@@ -1024,6 +1101,34 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
               Sor
             </button>
           </form>
+        </div>
+      )}
+
+      {/* EKRANIN SOL TARAFINDA SAYDAM YOUTUBE BEĞENİ / ETKİLEŞİM POPUP'I (2.8 SN GÖRÜNÜP KAYBOLUR) */}
+      {livePopup && (
+        <div
+          className={`fixed left-5 bottom-7 z-50 pointer-events-none transition-all duration-500 ease-out ${
+            livePopup.visible
+              ? 'opacity-100 translate-x-0 scale-100'
+              : 'opacity-0 -translate-x-5 scale-95'
+          }`}
+        >
+          <div className="flex max-w-xs items-start gap-3 rounded-2xl border border-white/25 bg-slate-900/65 px-4 py-3 text-white shadow-2xl backdrop-blur-md">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-rose-500/80 text-sm shadow">
+              ❤️
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-extrabold tracking-wide text-rose-300">
+                {livePopup.badge}
+              </div>
+              <div className="mt-0.5 truncate text-xs font-semibold text-white">
+                {livePopup.title}
+              </div>
+              <div className="mt-0.5 text-[11px] text-slate-200/90">
+                {livePopup.detail}
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
