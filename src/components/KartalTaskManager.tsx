@@ -851,7 +851,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                 📋 TikTok / IG Biyografisi Kopyala
               </button>
               <a
-                href="https://drive.google.com/uc?export=download&id=1DmUgq97uJEVplxjpwZlQR2MsALgABsC2"
+                href="/bilgidozu-logo.png"
                 target="_blank"
                 rel="noreferrer"
                 className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 font-semibold text-[#111827] hover:bg-[#F3F4F6]"
