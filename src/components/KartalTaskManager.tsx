@@ -765,8 +765,8 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
               </span>
             </div>
             <div className="text-xs text-[#4B5563]">
-              Son Yayınlanan: <strong className="text-[#065F46]">video_34.mp4 (YÜKLENDİ)</strong> · Sıradaki:{' '}
-              <strong className="text-[#92400E]">video_35.mp4</strong>
+              Son Yayınlanan: <strong className="text-[#065F46]">video_35.mp4 (YÜKLENDİ)</strong> · Sıradaki:{' '}
+              <strong className="text-[#92400E]">video_36.mp4</strong>
             </div>
           </div>
           <div className="grid grid-cols-1 gap-2.5 p-3 sm:grid-cols-3">
@@ -787,7 +787,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                 time: '21:15',
                 slot: 'Ana Prime-Time · 3. Yayın',
                 desc: 'Tek günler Shorts · Çift günler 16:9 Uzun Video',
-                target: 'video_35.mp4 / uzun_video_8.mp4',
+                target: 'video_36.mp4 / uzun_video_8.mp4',
               },
             ] as const).map((s) => (
               <div
@@ -807,6 +807,58 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                 </div>
               </div>
             ))}
+          </div>
+          {/* Lobi & Klasör Hızlı Köprüleri + TikTok/Reels Kurulum Kiti */}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#E5E7EB] bg-[#F8F9FA] px-3.5 py-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-[#111827]">📂 Drive Klasörleri:</span>
+              <a
+                href="https://drive.google.com/drive/folders/1JULlauO1eFpXgGdZKdZZDyqesSdkeT6f"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded border border-[#D97706] bg-[#FFFBEB] px-2.5 py-1 font-semibold text-[#92400E] hover:bg-[#FEF3C7]"
+              >
+                🛋️ Lobi (hazır videolar · Kontrol Bekleyen: 21)
+              </a>
+              <a
+                href="https://drive.google.com/drive/folders/1w8tz_lv7iMFsRRCaTKUSY_ri0F107rz_"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded border border-[#059669] bg-[#ECFDF5] px-2.5 py-1 font-semibold text-[#065F46] hover:bg-[#D1FAE5]"
+              >
+                🚀 KartaL Stok (Onaylı Yayın Klasörü & baslik.xlsx)
+              </a>
+              <a
+                href="https://drive.google.com/drive/folders/1XKZJ12HyAvZkjgiG38ys3HOMhZ42d_jJ"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 font-medium text-[#374151] hover:bg-[#F3F4F6]"
+              >
+                🖼️ KAPAKLAR (21 Kapak)
+              </a>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const bio =
+                    '🧠 Her gün 1 doz gerçek bilim, uzay ve insan beyninin sırları!\n🪐 Kaynaklı & doğruluk kontrolünden geçmiş içerikler\n👇 Uzun belgesellerimiz için YouTube kanalımız:\nhttps://www.youtube.com/@bilgidozuofficial';
+                  void navigator.clipboard.writeText(bio);
+                  setActionMsg('TikTok & Instagram Reels profil biyografisi panoya kopyalandı!');
+                }}
+                className="rounded border border-[#111827] bg-[#111827] px-2.5 py-1 font-semibold text-white hover:bg-[#1F2937]"
+              >
+                📋 TikTok / IG Biyografisi Kopyala
+              </button>
+              <a
+                href="https://drive.google.com/uc?export=download&id=1DmUgq97uJEVplxjpwZlQR2MsALgABsC2"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 font-semibold text-[#111827] hover:bg-[#F3F4F6]"
+              >
+                ⬇️ Kanal Logosu İndir
+              </a>
+            </div>
           </div>
         </section>
 
@@ -943,17 +995,31 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                               <strong>Etiketler:</strong> {hashtags}
                             </div>
                           )}
-                          <div>
-                            Video ID: {v.id} · Beğeni: {fmt(v.likes)} ·{' '}
-                            <a
-                              href={v.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="font-semibold text-blue-700 underline"
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                            <span>
+                              Video ID: {v.id} · Beğeni: {fmt(v.likes)} ·{' '}
+                              <a
+                                href={v.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="font-semibold text-blue-700 underline"
+                              >
+                                YouTube&apos;da aç ↗
+                              </a>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const caption = `${fullClean}\n\nDaha fazla bilgi dozu için @bilgidozuofficial hesabını takip etmeyi unutma! 🧠🪐\n\n#bilgidozu #bilim #ilginçbilgiler #keşfet #fyp #reels`;
+                                void navigator.clipboard.writeText(caption);
+                                setActionMsg(`"${shortTitle}" için TikTok & Reels açıklaması kopyalandı!`);
+                              }}
+                              className="rounded border border-[#111827] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#111827] hover:bg-[#E5E7EB]"
                             >
-                              YouTube&apos;da aç ↗
-                            </a>
+                              📋 TikTok / Reels Metni Kopyala
+                            </button>
                           </div>
                         </div>
                       )}
