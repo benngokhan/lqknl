@@ -414,6 +414,20 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
     }
   }
 
+  // Android Chrome'da ardışık tekrarlanan kelimeleri ("iyiyim iyiyim iyiyim" -> "iyiyim") temizler
+  function cleanRepeatedSpeechWords(raw: string): string {
+    const tokens = raw.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    const out: string[] = [];
+    for (const tok of tokens) {
+      const prev = out[out.length - 1];
+      if (prev && prev.toLocaleLowerCase('tr-TR') === tok.toLocaleLowerCase('tr-TR')) {
+        continue;
+      }
+      out.push(tok);
+    }
+    return out.join(' ');
+  }
+
   function finishAndSendSpeech() {
     manualStopRef.current = true;
     if (silenceTimerRef.current) {
@@ -426,7 +440,9 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       // ignore
     }
     setVoiceListening(false);
-    const fullText = (finalTranscriptRef.current + ' ' + interimTranscriptRef.current).replace(/\s+/g, ' ').trim();
+    const fullText = cleanRepeatedSpeechWords(
+      (finalTranscriptRef.current + ' ' + interimTranscriptRef.current).replace(/\s+/g, ' ').trim()
+    );
     finalTranscriptRef.current = '';
     interimTranscriptRef.current = '';
     setVoiceInterim('');
@@ -439,10 +455,10 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
     }
-    // 5.5 saniye boyunca yeni kelime gelmezse konuşma tamamlandı kabul edip gönderir
+    // Konuşma durduktan 2.8 sn sonra cümleyi tamamlayıp gönderir (sürekli yeniden başlatma yapmaz)
     silenceTimerRef.current = setTimeout(() => {
       finishAndSendSpeech();
-    }, 5500);
+    }, 2800);
   }
 
   function handleTapOrb() {
@@ -472,7 +488,8 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
     const rec = new Ctor();
     recRef.current = rec;
     rec.lang = 'tr-TR';
-    rec.continuous = true;
+    // Android Chrome'da "dıgıdı dıgıdı" yeniden başlatma bildirimini ve kelime tekrarını önlemek için continuous=false
+    rec.continuous = false;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
     rec.onstart = () => {
@@ -480,17 +497,23 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       resetSilenceTimer();
     };
     rec.onresult = (ev: SREvent) => {
-      let interim = '';
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      let latestFinal = '';
+      let latestInterim = '';
+      for (let i = 0; i < ev.results.length; i++) {
         const chunk = ev.results[i][0]?.transcript || '';
         if (ev.results[i].isFinal) {
-          finalTranscriptRef.current += ' ' + chunk;
+          latestFinal = chunk;
         } else {
-          interim += chunk;
+          latestInterim = chunk;
         }
       }
-      interimTranscriptRef.current = interim;
-      const preview = (finalTranscriptRef.current + ' ' + interim).replace(/\s+/g, ' ').trim();
+      if (latestFinal) {
+        finalTranscriptRef.current = cleanRepeatedSpeechWords(latestFinal);
+      }
+      interimTranscriptRef.current = cleanRepeatedSpeechWords(latestInterim);
+      const preview = cleanRepeatedSpeechWords(
+        (finalTranscriptRef.current || interimTranscriptRef.current).replace(/\s+/g, ' ').trim()
+      );
       if (preview) {
         if (subtitleFadeTimerRef.current) clearTimeout(subtitleFadeTimerRef.current);
         setSubtitleSpeaker('user');
@@ -500,21 +523,19 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       resetSilenceTimer();
     };
     rec.onerror = () => {
-      if (manualStopRef.current) {
-        setVoiceListening(false);
-      }
-    };
-    rec.onend = () => {
-      // Tarayıcı 2 saniyelik nefes arasında kendi kendine kapattıysa ve henüz 5.5 sn sessizlik dolmadıysa yeniden başlat
-      if (!manualStopRef.current && silenceTimerRef.current) {
-        try {
-          rec.start();
-          return;
-        } catch {
-          // ignore
-        }
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
       }
       setVoiceListening(false);
+    };
+    rec.onend = () => {
+      // ASLA otomatik rec.start() döngüsüne girmez -> "dıgıdı dıgıdı" bildirim spam'i %100 biter!
+      if (!manualStopRef.current) {
+        finishAndSendSpeech();
+      } else {
+        setVoiceListening(false);
+      }
     };
     try {
       rec.start();
@@ -1085,18 +1106,11 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
               ? 0.35
               : 0.08;
 
-        // Konuşurken ve dinlerken Kartal'ın üstündeki parıltıların renk değiştirmesi ve parlaması
-        const hueShift = speaking
-          ? Math.round(Math.sin(waveTick * 0.14) * 48 + rawAmp * 35)
-          : voiceListening
-            ? Math.round(Math.sin(waveTick * 0.1) * 35 - 25)
-            : voiceThinking
-              ? Math.round((waveTick * 4) % 360)
-              : 0;
-        const brightness = isActive ? 1.08 + rawAmp * 0.32 : 1.02;
-        const saturate = isActive ? 1.25 + rawAmp * 0.55 : 1.08;
-        const floatY = Math.sin(waveTick * 0.06) * (isActive ? 5 : 2.5);
-        const eagleScale = 1 + (speaking ? rawAmp * 0.07 : voiceListening ? 0.03 : 0);
+        // Premium Kraliyet Altını & Elektrik Camgöbeği KartaL (Rengi bozan hue-rotate YOK!)
+        const brightness = isActive ? 1.06 + rawAmp * 0.16 : 1.02;
+        const contrast = isActive ? 1.08 + rawAmp * 0.08 : 1.04;
+        const floatY = Math.sin(waveTick * 0.06) * (isActive ? 4 : 2);
+        const eagleScale = 1 + (speaking ? rawAmp * 0.05 : voiceListening ? 0.025 : 0);
 
         // Sese duyarlı aktif cümle / kelime penceresi (cümle bitince akışkan silinir)
         const words = voiceReply ? voiceReply.split(/\s+/).filter(Boolean) : [];
@@ -1110,31 +1124,30 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
           activeLocalIdx = wordIndex >= 0 ? safeWordIdx - chunkStart : -1;
         }
 
-        // Kartal üzerindeki canlı parıltı (sparkle) koordinatları
+        // Kartal üzerindeki premium altın & camgöbeği yıldız parıltı koordinatları
         const sparkles = [
-          { x: '18%', y: '28%', phase: 0.0, size: 7 },
-          { x: '31%', y: '44%', phase: 1.3, size: 6 },
-          { x: '50%', y: '56%', phase: 2.4, size: 11 },
-          { x: '69%', y: '44%', phase: 3.7, size: 6 },
-          { x: '82%', y: '28%', phase: 4.9, size: 7 },
-          { x: '24%', y: '62%', phase: 2.1, size: 5 },
-          { x: '76%', y: '62%', phase: 0.8, size: 5 },
-          { x: '50%', y: '24%', phase: 3.1, size: 6 },
+          { x: '17%', y: '26%', phase: 0.0, size: 6, gold: true },
+          { x: '31%', y: '42%', phase: 1.3, size: 5, gold: false },
+          { x: '50%', y: '53%', phase: 2.4, size: 12, gold: false },
+          { x: '69%', y: '42%', phase: 3.7, size: 5, gold: false },
+          { x: '83%', y: '26%', phase: 4.9, size: 6, gold: true },
+          { x: '25%', y: '58%', phase: 2.1, size: 5, gold: true },
+          { x: '75%', y: '58%', phase: 0.8, size: 5, gold: true },
         ];
 
         return (
           <div
-            className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center pointer-events-none select-none w-full max-w-2xl px-4"
+            className="fixed bottom-2 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center pointer-events-none select-none w-full max-w-2xl px-3"
             aria-live="polite"
           >
-            {/* 1. ÜST KATMAN: ŞEFFAF HOLOGRAM KARTAL (KONUŞUNCA PARILTILARI PARLAR VE RENK DEĞİŞTİRİR) */}
+            {/* 1. ÜST KATMAN: PREMİUM ALTIN-CAMGÖBEĞİ ZIRHLI KARTAL (SENİN CAPCUT BOYUTUNDA: 320px-360px) */}
             <div className="relative flex flex-col items-center pointer-events-auto">
-              {/* Zarif kapatma düğmesi */}
+              {/* Zarif kapatma düğmesi (X) */}
               <button
                 type="button"
                 onClick={handleToggleVoiceWidget}
                 title="KartaL Sesli Asistanı Kapat"
-                className="absolute -right-2 top-1 z-20 flex h-6 w-6 items-center justify-center rounded-full border border-sky-400/40 bg-white/85 text-[11px] font-bold text-sky-800 shadow-sm backdrop-blur-xs transition hover:scale-110 hover:bg-sky-50"
+                className="absolute right-1 top-1 z-20 flex h-7 w-7 items-center justify-center rounded-full border border-amber-400/60 bg-slate-900/80 text-xs font-bold text-amber-300 shadow-md backdrop-blur-xs transition hover:scale-110 hover:bg-slate-800"
               >
                 ✕
               </button>
@@ -1147,52 +1160,67 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                     ? 'KartaL konuşuyor (Susturmak için dokun)'
                     : voiceListening
                       ? 'Seni dinliyor (Göndermek için dokun)'
-                      : 'KartaL ile konuşmak için dokun'
+                      : 'Konuşmak için KartaL üzerine dokun'
                 }
                 style={{
                   transform: `translateY(${floatY}px) scale(${eagleScale})`,
                 }}
                 className="relative flex items-center justify-center focus:outline-none transition-transform duration-100 active:scale-95"
               >
-                {/* Şeffaf Hologram Kartal Görseli */}
+                {/* Göğüs Enerji Çekirdeği Nabız Halkası (Sadece konuşurken/dinlerken parlar) */}
+                {isActive && (
+                  <span
+                    style={{
+                      left: '50%',
+                      top: '53%',
+                      width: `${46 + rawAmp * 34}px`,
+                      height: `${46 + rawAmp * 34}px`,
+                      transform: 'translate(-50%, -50%)',
+                      background:
+                        'radial-gradient(circle, rgba(56,189,248,0.55) 0%, rgba(245,158,11,0.28) 55%, rgba(0,0,0,0) 75%)',
+                    }}
+                    className="pointer-events-none absolute rounded-full blur-[2px]"
+                  />
+                )}
+
+                {/* 4K Keskinlikte Tok Altın-Camgöbeği Hologram Kartal Görseli */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src="/kartal-hologram.png"
+                  src="/kartal-hologram.png?v=2"
                   alt="KartaL AI Hologram"
                   style={{
-                    filter: `hue-rotate(${hueShift}deg) brightness(${brightness}) saturate(${saturate}) drop-shadow(0 0 ${
-                      isActive ? Math.round(12 + rawAmp * 18) : 6
+                    filter: `brightness(${brightness}) contrast(${contrast}) drop-shadow(0 6px 14px rgba(15,23,42,0.38)) drop-shadow(0 0 ${
+                      isActive ? Math.round(10 + rawAmp * 16) : 5
                     }px ${
                       voiceListening
-                        ? 'rgba(16,185,129,0.75)'
+                        ? 'rgba(245,158,11,0.75)'
                         : speaking
                           ? 'rgba(14,165,233,0.85)'
-                          : 'rgba(56,189,248,0.35)'
+                          : 'rgba(14,165,233,0.35)'
                     })`,
                   }}
-                  className="w-64 sm:w-80 h-auto object-contain pointer-events-none select-none transition-[filter] duration-100"
+                  className="w-[310px] sm:w-[360px] h-auto object-contain pointer-events-none select-none transition-[filter] duration-100"
                 />
 
-                {/* Konuşurken & Dinlerken Kartal Üzerinde Parlayan ve Renk Değiştiren Parıltılar */}
+                {/* Konuşurken & Dinlerken Kartal Üzerinde Altın & Camgöbeği Kıvılcımlar */}
                 {isActive &&
                   sparkles.map((sp, idx) => {
-                    const pulse = 0.5 + 0.5 * Math.sin(waveTick * 0.24 + sp.phase);
-                    const colorList = ['#38bdf8', '#facc15', '#34d399', '#e879f9'];
-                    const col = colorList[(idx + Math.floor(waveTick / 8)) % colorList.length];
+                    const pulse = 0.5 + 0.5 * Math.sin(waveTick * 0.22 + sp.phase);
+                    const col = sp.gold ? '#fbbf24' : '#38bdf8';
                     return (
                       <span
                         key={idx}
                         style={{
                           left: sp.x,
                           top: sp.y,
-                          width: `${sp.size + pulse * 6 * rawAmp}px`,
-                          height: `${sp.size + pulse * 6 * rawAmp}px`,
-                          backgroundColor: col,
-                          opacity: 0.35 + pulse * 0.65,
-                          boxShadow: `0 0 ${8 + pulse * 14}px ${col}, 0 0 ${16 + pulse * 20}px ${col}`,
-                          transform: `translate(-50%, -50%) scale(${0.7 + pulse * 0.8})`,
+                          width: `${sp.size + pulse * 5 * rawAmp}px`,
+                          height: `${sp.size + pulse * 5 * rawAmp}px`,
+                          backgroundColor: '#ffffff',
+                          opacity: 0.4 + pulse * 0.6,
+                          boxShadow: `0 0 ${6 + pulse * 10}px ${col}, 0 0 ${12 + pulse * 16}px ${col}`,
+                          transform: `translate(-50%, -50%) rotate(45deg) scale(${0.65 + pulse * 0.7})`,
                         }}
-                        className="pointer-events-none absolute rounded-full transition-transform duration-75"
+                        className="pointer-events-none absolute rounded-[2px] transition-transform duration-75"
                       />
                     );
                   })}
@@ -1200,12 +1228,12 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
             </div>
 
             {/* 2. ORTA KATMAN: ARKASINDA FON OLMAYAN ŞEFFAF HOLOGRAM SES DALGASI (ALTIN + CAMGÖBEĞİ) */}
-            <div className="-mt-2 flex items-center justify-center pointer-events-none">
+            <div className="-mt-3 flex items-center justify-center pointer-events-none">
               <svg
                 viewBox="0 0 360 54"
-                className="w-64 sm:w-72 h-12 overflow-visible"
+                className="w-[290px] sm:w-[330px] h-12 overflow-visible"
                 style={{
-                  filter: `hue-rotate(${Math.round(hueShift * 0.6)}deg) drop-shadow(0 0 6px rgba(14,165,233,0.45))`,
+                  filter: 'drop-shadow(0 0 6px rgba(14,165,233,0.45))',
                 }}
               >
                 {/* Merkez İnce Enerji Ekseni */}

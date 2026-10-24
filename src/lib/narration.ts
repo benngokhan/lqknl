@@ -18,6 +18,10 @@ export type NarrationOptions = {
   rate?: number;
   /** Optional relative pitch multiplier around 1.0 (e.g. 0.95..1.08). */
   pitch?: number;
+  /** Optional explicit Edge TTS voice name & prosody overrides. */
+  voice?: string;
+  rawRate?: string;
+  rawPitch?: string;
 };
 
 export type NarrationResult = {
@@ -28,14 +32,14 @@ export type NarrationResult = {
 };
 
 /**
- * Hard-locked to `false`: Mira strictly uses 100% FREE TTS engines
+ * Hard-locked to `false`: KartaL strictly uses 100% FREE TTS engines
  * (Microsoft Edge Neural TTS + Google Translate TTS fallback).
  * Paid ElevenLabs calls are permanently disabled even if API keys exist in env.
  */
 export const MIRA_ALLOW_PAID_TTS = false as const;
 
-const DEFAULT_TURKISH_VOICE = "tr-TR-EmelNeural";
-const BACKUP_MULTILINGUAL_VOICE = "en-US-AvaMultilingualNeural";
+const DEFAULT_TURKISH_VOICE = "tr-TR-AhmetNeural";
+const BACKUP_MULTILINGUAL_VOICE = "en-US-AndrewMultilingualNeural";
 
 type CachedClip = NarrationResult & {
   createdAt: number;
@@ -242,8 +246,10 @@ export async function generateWithEdgeTts(
     throw new Error("Seslendirilecek metin boş.");
   }
 
-  const preferredVoice = (process.env.EDGE_TTS_VOICE || DEFAULT_TURKISH_VOICE).trim() || DEFAULT_TURKISH_VOICE;
+  const preferredVoice = (opts?.voice || process.env.EDGE_TTS_VOICE || DEFAULT_TURKISH_VOICE).trim() || DEFAULT_TURKISH_VOICE;
   const prosody = resolveConversationalProsody(opts);
+  const finalRate = opts?.rawRate || prosody.rate;
+  const finalPitch = opts?.rawPitch || prosody.pitch;
 
   const candidateVoices = Array.from(
     new Set([preferredVoice, DEFAULT_TURKISH_VOICE, BACKUP_MULTILINGUAL_VOICE])
@@ -256,8 +262,8 @@ export async function generateWithEdgeTts(
       try {
         const tts = new EdgeTTS({ timeout: 18000 });
         await tts.synthesize(spokenText, voice, {
-          rate: prosody.rate,
-          pitch: prosody.pitch,
+          rate: finalRate,
+          pitch: finalPitch,
           volume: prosody.volume,
           outputFormat: "audio-24khz-96kbitrate-mono-mp3",
           timeout: 18000,
@@ -491,7 +497,7 @@ export async function generateWithGeminiFreeTts(
   if (!spokenText) {
     throw new Error("Metin boş");
   }
-  const voiceName = (process.env.GEMINI_TTS_VOICE || "Aoede").trim();
+  const voiceName = (process.env.GEMINI_TTS_VOICE || "Charon").trim();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 14000);
   try {
@@ -505,7 +511,7 @@ export async function generateWithGeminiFreeTts(
             {
               parts: [
                 {
-                  text: `Sıcak, samimi, doğal bir Türkçe kadın asistan tonuyla oku: ${spokenText}`,
+                  text: `Karizmatik, tok, güven veren bir Türkçe erkek komuta asistanı (KartaL) tonuyla oku: ${spokenText}`,
                 },
               ],
             },
@@ -561,8 +567,8 @@ export async function generateNarration(
     throw new Error("Seslendirilecek geçerli metin bulunamadı.");
   }
 
-  const cacheKey = prepared.length <= 360
-    ? `${opts?.emotion ?? "happy"}|${opts?.solMode ?? "flirty"}|${opts?.rate ?? ""}|${opts?.pitch ?? ""}|${prepared}`
+    const cacheKey = prepared.length <= 360
+    ? `${opts?.voice ?? ""}|${opts?.rawRate ?? ""}|${opts?.rawPitch ?? ""}|${opts?.emotion ?? "focused"}|${opts?.solMode ?? "serious"}|${opts?.rate ?? ""}|${opts?.pitch ?? ""}|${prepared}`
     : "";
 
   if (cacheKey) {
@@ -579,8 +585,24 @@ export async function generateNarration(
 
   const errors: string[] = [];
 
-  // Paid TTS is strictly locked off (`MIRA_ALLOW_PAID_TTS === false`).
-  // Step 0: If free GEMINI_API_KEY is present, try Gemini 2.5 Flash Native Audio TTS (Aoede human voice, $0 free tier)
+  // Step 1: Primary 100% Free Microsoft Edge Neural TTS (`tr-TR-AhmetNeural` charismatic male KartaL voice)
+  try {
+    const edgeResult = await generateWithEdgeTts(prepared, opts);
+    if (cacheKey) {
+      if (SHORT_SPEECH_CACHE.size >= MAX_CACHE_ENTRIES) {
+        const oldestKey = SHORT_SPEECH_CACHE.keys().next().value;
+        if (oldestKey) SHORT_SPEECH_CACHE.delete(oldestKey);
+      }
+      SHORT_SPEECH_CACHE.set(cacheKey, { ...edgeResult, createdAt: Date.now() });
+    }
+    return edgeResult;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    errors.push(`EdgeTTS: ${message}`);
+    console.warn("[KartaL TTS] Edge TTS hatası, yedeğe geçiliyor:", message);
+  }
+
+  // Step 2: If free GEMINI_API_KEY is present, try Gemini 2.5 Flash Native Audio TTS (Charon male voice)
   if ((process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || "").trim()) {
     try {
       const geminiResult = await generateWithGeminiFreeTts(prepared, opts);
@@ -602,23 +624,6 @@ export async function generateNarration(
       const gMsg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
       errors.push(`GeminiFreeTTS: ${gMsg}`);
     }
-  }
-
-  // Step 1: 100% Free Microsoft Edge Neural TTS (Turkish female voice with warm studio prosody)
-  try {
-    const edgeResult = await generateWithEdgeTts(prepared, opts);
-    if (cacheKey) {
-      if (SHORT_SPEECH_CACHE.size >= MAX_CACHE_ENTRIES) {
-        const oldestKey = SHORT_SPEECH_CACHE.keys().next().value;
-        if (oldestKey) SHORT_SPEECH_CACHE.delete(oldestKey);
-      }
-      SHORT_SPEECH_CACHE.set(cacheKey, { ...edgeResult, createdAt: Date.now() });
-    }
-    return edgeResult;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    errors.push(`EdgeTTS: ${message}`);
-    console.warn("[Mira TTS] Edge TTS hatası, ücretsiz Google TTS yedeğine geçiliyor:", message);
   }
 
   // Step 2: 100% Free Keyless Google Translate TTS fallback
