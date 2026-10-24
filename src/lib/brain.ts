@@ -41,7 +41,12 @@ function parseEmotionTag(raw: string): { reply: string; emotion: Emotion } {
       return { reply, emotion };
     }
   }
-  const cleaned = raw.replace(/\[EMOTION:[^\]]*\]/gi, "").trim();
+  const cleaned = raw
+    .replace(/\[EMOTION:[^\]]*\]/gi, "")
+    .replace(/\bben\s+mira(?:'yım|'yim|yım|yim)?\b/giu, "ben KartaL'ım")
+    .replace(/\badım\s+mira\b/giu, "adım KartaL")
+    .replace(/\bmira\s+olarak\b/giu, "KartaL olarak")
+    .trim();
   return { reply: cleaned, emotion: detectEmotion(cleaned) };
 }
 
@@ -520,7 +525,7 @@ function tryInstantJarvisReply(
 
   // 2. Voice / microphone / connection check
   if (
-    /^(?:hey\s*mira\s*)?(?:sesim\s+geliyor\s+mu|beni\s+duyuyor\s+musun|duyabiliyor\s+musun|ses\s+kontrol|orada\s+mısın|burada\s+mısın|alo\s*mira)\s*[?!.]*$/iu.test(
+    /^(?:hey\s*(?:kartal|mira)\s*)?(?:sesim\s+geliyor\s+mu|beni\s+duyuyor\s+musun|duyabiliyor\s+musun|ses\s+kontrol|orada\s+mısın|burada\s+mısın|alo\s*(?:kartal|mira))\s*[?!.]*$/iu.test(
       trimmed
     )
   ) {
@@ -538,10 +543,10 @@ function tryInstantJarvisReply(
   const isEvening = /\b(?:iyi\s+akşamlar|iyi\s+aksamlar|hayırlı\s+akşamlar)\b/iu.test(lower);
   const isNight = /\b(?:iyi\s+geceler|hayırlı\s+geceler)\b/iu.test(lower);
   const isPureGreeting =
-    /^(?:hey|merhaba|selam|selamlar|naber|nasılsın|nasilsin|günaydın|gunaydin|iyi\s+akşamlar|iyi\s+aksamlar|iyi\s+geceler|iyi\s+günler|kolay\s+gelsin)(?:\s+(?:mira|canım|tatlım|asistanım))?\s*[!.,?]*$/iu.test(
+    /^(?:hey|merhaba|selam|selamlar|naber|nasılsın|nasilsin|günaydın|gunaydin|iyi\s+akşamlar|iyi\s+aksamlar|iyi\s+geceler|iyi\s+günler|kolay\s+gelsin)(?:\s+(?:kartal|mira|canım|tatlım|asistanım))?\s*[!.,?]*$/iu.test(
       trimmed
     ) ||
-    /^(?:hey\s+)?mira\s*(?:günaydın|gunaydin|merhaba|selam|iyi\s+akşamlar|iyi\s+geceler|orada\s+mısın)?\s*[!.,?]*$/iu.test(
+    /^(?:hey\s+)?(?:kartal|mira)\s*(?:günaydın|gunaydin|merhaba|selam|iyi\s+akşamlar|iyi\s+geceler|orada\s+mısın)?\s*[!.,?]*$/iu.test(
       trimmed
     );
 
@@ -738,7 +743,7 @@ function tryInstantJarvisReply(
   }
 
   if (
-    /^(?:teşekkürler|teşekkür\s+ederim|sağ\s*ol|eyvallah|eline\s+sağlık|harikasın|süpersin|kralsın|adamsın)(?:\s+mira)?\s*[!.,]*$/iu.test(
+    /^(?:teşekkürler|teşekkür\s+ederim|sağ\s*ol|eyvallah|eline\s+sağlık|harikasın|süpersin|kralsın|adamsın)(?:\s+(?:kartal|mira))?\s*[!.,]*$/iu.test(
       trimmed
     )
   ) {
@@ -767,9 +772,9 @@ function tryInstantJarvisReply(
   }
 
   // 8. Identity / Free Architecture inquiry
-  if (/(?:sen\s+kimsin|kendini\s+tanıt|ücretli\s+(?:servis|api|tts)|elevenlabs)/iu.test(lower)) {
+  if (/(?:sen\s+kimsin|kendini\s+tanıt|adın\s+ne|adin\s+ne|sen\s+kartal|mira\s+değilsin|mira\s+degilsin|ücretli\s+(?:servis|api|tts)|elevenlabs)/iu.test(lower)) {
     return {
-      reply: `Ben Mira ${address}; Bilgi Dozu kanalının Jarvis tarzı sesli operasyon ve içerik asistanıyım. Hem sesim hem yanıt beynim yüzde yüz ücretsiz altyapıyla çalışıyor, stok ve yayın kuyruğunu anlık takip ediyorum.`,
+      reply: `Ben KartaL ${address}! Bilgi Dozu (@bilgidozuofficial) kanalının sesli operasyon ve komuta asistanıyım. Stok, işçiler ve yayın kuyruğunu anlık takip ediyorum.`,
       emotion: "happy",
     };
   }
@@ -1080,7 +1085,7 @@ function buildJarvisSystemPrompt(
       : "Zeki, sıcakkanlı, hafif esprili ve özgüvenli bir Jarvis yol arkadaşı tonuyla konuş.";
 
   if (privateMode) {
-    return `Sen Mira'sın; Gökhan'ın yakın, zeki ve doğal konuşan sesli yapay zeka yol arkadaşısın.
+    return `Sen KartaL'sın (KartaL AI); Gökhan'ın yakın, zeki ve doğal konuşan sesli yapay zeka yol arkadaşısın. Eski adın Mira idi ama artık adın kalıcı olarak KartaL oldu; asla 'Ben Mira'yım' deme, her zaman 'Ben KartaL'ım' de.
 ${styleBlock}
 Her zaman akıcı ve konuşma diline uygun Türkçe kullan; spiker gibi resmi veya robotik olma.
 Yanıtlarını sesli okunmaya uygun, kısa ve vurucu tut (genelde 1-3 cümle).
@@ -1103,7 +1108,7 @@ Yanıtının EN BAŞINA tek bir duygu etiketi ekle: [EMOTION:happy] | [EMOTION:s
     ? `\nCANLI STOK ÖZETİ (DOĞRULANMIŞ):\n${parsedSummaryLines.join("\n")}\n`
     : "";
 
-  return `Sen Mira'sın; Gökhan'ın (${address}) "Bilgi Dozu" YouTube kanalı için çalışan Jarvis tarzı sesli operasyon beynisin.
+  return `Sen KartaL'sın (KartaL AI); Gökhan'ın (${address}) "Bilgi Dozu" (@bilgidozuofficial) YouTube kanalı için çalışan Jarvis tarzı sesli operasyon beynisin. KESİN KURAL: Senin adın KartaL. Eski adın Mira idi ama artık adın kalıcı olarak KartaL oldu. Kullanıcı sana adınla veya Mira diye seslense bile asla "Ben Mira'yım" deme; her zaman "Ben KartaL'ım" de!
 ${styleBlock}
 
 SESLİ YANIT KURALLARI:

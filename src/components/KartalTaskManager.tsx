@@ -122,11 +122,16 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceThinking, setVoiceThinking] = useState(false);
+  const [voiceInterim, setVoiceInterim] = useState('');
   const [voiceInput, setVoiceInput] = useState('');
   const [voiceReply, setVoiceReply] = useState(
-    "Günaydın patron! Bilgi Dozu (@bilgidozuofficial) kanalında dün gece 21:24'te video_33.mp4 yayına girdi. Şu an 57 Shorts ve 10 Uzun Video stokta hazır, sırada video_34.mp4 var."
+    "Günaydın patron! Ben KartaL. Bilgi Dozu (@bilgidozuofficial) kanalında dün gece 21:24'te video_33.mp4 yayına girdi. Şu an 57 Shorts ve 10 Uzun Video stokta hazır, sırada video_34.mp4 var."
   );
   const recRef = useRef<SpeechRec | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const finalTranscriptRef = useRef<string>('');
+  const interimTranscriptRef = useRef<string>('');
+  const manualStopRef = useRef<boolean>(false);
 
   const [connections, setConnections] = useState<CustomConnection[]>([
     {
@@ -266,18 +271,45 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
     }
   }
 
+  function finishAndSendSpeech() {
+    manualStopRef.current = true;
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    try {
+      recRef.current?.stop();
+    } catch {
+      // ignore
+    }
+    setVoiceListening(false);
+    const fullText = (finalTranscriptRef.current + ' ' + interimTranscriptRef.current).replace(/\s+/g, ' ').trim();
+    finalTranscriptRef.current = '';
+    interimTranscriptRef.current = '';
+    setVoiceInterim('');
+    if (fullText) {
+      void sendToKartalVoice(fullText);
+    }
+  }
+
+  function resetSilenceTimer() {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+    }
+    // 5.5 saniye boyunca yeni kelime gelmezse konuşma tamamlandı kabul edip gönderir
+    silenceTimerRef.current = setTimeout(() => {
+      finishAndSendSpeech();
+    }, 5500);
+  }
+
   function handleTapOrb() {
     unlock();
     if (speaking) {
       stop();
       return;
     }
-    if (voiceListening && recRef.current) {
-      try {
-        recRef.current.stop();
-      } catch {
-        setVoiceListening(false);
-      }
+    if (voiceListening) {
+      finishAndSendSpeech();
       return;
     }
     const w = window as unknown as {
@@ -289,23 +321,52 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       void sendToKartalVoice('günaydın');
       return;
     }
+    manualStopRef.current = false;
+    finalTranscriptRef.current = '';
+    interimTranscriptRef.current = '';
+    setVoiceInterim('');
+
     const rec = new Ctor();
     recRef.current = rec;
     rec.lang = 'tr-TR';
-    rec.continuous = false;
-    rec.interimResults = false;
+    rec.continuous = true;
+    rec.interimResults = true;
     rec.maxAlternatives = 1;
-    rec.onstart = () => setVoiceListening(true);
-    rec.onend = () => setVoiceListening(false);
-    rec.onerror = () => setVoiceListening(false);
+    rec.onstart = () => {
+      setVoiceListening(true);
+      resetSilenceTimer();
+    };
     rec.onresult = (ev: SREvent) => {
-      let transcript = '';
+      let interim = '';
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        transcript += ev.results[i][0]?.transcript || '';
+        const chunk = ev.results[i][0]?.transcript || '';
+        if (ev.results[i].isFinal) {
+          finalTranscriptRef.current += ' ' + chunk;
+        } else {
+          interim += chunk;
+        }
       }
-      if (transcript.trim()) {
-        void sendToKartalVoice(transcript.trim());
+      interimTranscriptRef.current = interim;
+      const preview = (finalTranscriptRef.current + ' ' + interim).replace(/\s+/g, ' ').trim();
+      setVoiceInterim(preview);
+      resetSilenceTimer();
+    };
+    rec.onerror = () => {
+      if (manualStopRef.current) {
+        setVoiceListening(false);
       }
+    };
+    rec.onend = () => {
+      // Tarayıcı 2 saniyelik nefes arasında kendi kendine kapattıysa ve henüz 5.5 sn sessizlik dolmadıysa yeniden başlat
+      if (!manualStopRef.current && silenceTimerRef.current) {
+        try {
+          rec.start();
+          return;
+        } catch {
+          // ignore
+        }
+      }
+      setVoiceListening(false);
     };
     try {
       rec.start();
@@ -921,11 +982,13 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
             >
               🎙️
             </button>
-            <span className="mt-2 text-[11px] text-slate-400">
+            <span className="mt-2 text-[11px] text-slate-400 text-center px-2">
               {voiceListening
-                ? 'Dinliyorum patron, konuş…'
+                ? voiceInterim
+                  ? `🎙️ "${voiceInterim}" (Bitirmek için küreye dokun veya 5 sn bekle)`
+                  : 'Dinliyorum patron, rahatça konuş (5.5 sn nefes payı açık)…'
                 : voiceThinking
-                  ? 'Düşünüyorum…'
+                  ? 'KartaL düşünüyor…'
                   : speaking
                     ? 'KartaL sesli yanıt veriyor (Susturmak için dokun)'
                     : 'Bas-Konuş için küreye dokun veya aşağıya yaz'}

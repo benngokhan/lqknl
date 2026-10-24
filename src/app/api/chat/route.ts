@@ -62,7 +62,7 @@ function normalizedVoiceTitle(value: string) {
   return value.normalize("NFKC").toLocaleLowerCase("tr-TR").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
-const VOICE_GREETING_RE = /^(?:hey\s+)?(?:mira\s*[,.]?\s*)?gunaydin(?:\s+mira)?[.!…\s]*$/u;
+const VOICE_GREETING_RE = /^(?:hey\s+)?(?:(?:kartal|mira)\s*[,.]?\s*)?gunaydin(?:\s+(?:kartal|mira))?[.!…\s]*$/u;
 const VOICE_INVENTORY_RE = /(?:\bstok\b|\bdrive\b|\bdriver\b|klasor|kalan\s+video|kac\s+(?:tane\s+)?(?:hazir\s+)?video|siradaki\s+(?:shorts\s+|uzun\s+)?video|hangi\s+video\s+sirada|en\s+son\s+(?:ne|hangi\s+video)|son\s+yuklenen|isciler\s+ne\s+durumda|kanal\s+ne\s+durumda|depoda\s+ne\s+var|kac\s+gunluk\s+stok)/u;
 const VOICE_PUBLISH_RE = /(?:(?:siradaki|bir\s+sonraki|next)\b[^.!?]*?\b(?:at|yolla|gonder|yukle|yayinla|baslat|publich)\b|(?:(?:lutfen\s+)?(?:hemen\s+)?(?:simdi\s+)?(?:at|yolla|gonder|yukle|yayinla|baslat)\b[^.!?]*?\b(?:siradaki|bir\s+sonraki)\b))/u;
 const VOICE_NEGATION_GUARD_RE = /(?:iptal|vazgec|yapma|etme|durma|istemiyorum|sakin\s*ol|asla)\b/u;
@@ -368,8 +368,8 @@ export async function POST(req: Request) {
     }
 
     // A bare wake word is a conversational cue, not a request to inspect source code.
-    if (/^mira[!.… ]*$/iu.test(message.trim())) {
-      return NextResponse.json({ reply: 'Buradayım, söyle.', emotion: 'happy' });
+    if (/^(?:kartal|mira)[!.… ]*$/iu.test(message.trim())) {
+      return NextResponse.json({ reply: 'Buradayım patron, KartaL seni dinliyor.', emotion: 'happy' });
     }
 
     // ===== MODÜL 4 — sesli stok sorgusu + yayınlatma kontrolü (voice-first) =====
@@ -1468,6 +1468,16 @@ export async function POST(req: Request) {
         .reverse()
         .filter((m): m is { role: "user" | "assistant"; content: string } =>
           (m.role === "user" || m.role === "assistant") && typeof m.content === "string"
+        )
+        .map((m) =>
+          m.role === "assistant"
+            ? {
+                ...m,
+                content: m.content
+                  .replace(/\bben\s+mira(?:'yım|'yim|yım|yim)?\b/giu, "ben KartaL'ım")
+                  .replace(/\bMira\b/g, "KartaL"),
+              }
+            : m
         );
 
       const relevantMemories = await getRelevantMemories(message, 8);
