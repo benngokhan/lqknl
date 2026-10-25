@@ -827,7 +827,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                   )}
                 </span>
                 <span>🟡 Sıradaki: <strong className="text-[#111827]">{lastUploadFile && /video_(\d+)/.test(lastUploadFile) ? `video_${Number(/video_(\d+)/.exec(lastUploadFile)![1]) + 1}.mp4` : '—'}</strong></span>
-                <span>🛋️ Lobi&apos;de kontrol bekleyen: <strong className="text-[#111827]">21 video</strong></span>
+                <a href="https://drive.google.com/drive/folders/1JULlauO1eFpXgGdZKdZZDyqesSdkeT6f" target="_blank" rel="noreferrer" title="Lobi klasörünü yeni sekmede aç" className="font-semibold text-[#92400E] underline decoration-dotted underline-offset-2 hover:text-[#B45309]">🛋️ Lobi&apos;de kontrol bekleyen: <strong>21 video</strong></a>
               </div>
             </section>
 
