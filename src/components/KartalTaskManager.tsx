@@ -110,6 +110,8 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
 
   const [report, setReport] = useState<StatusReport | null>(null);
   const [lastTelegramTime, setLastTelegramTime] = useState<string>('21:24');
+  const [lastUploadFile, setLastUploadFile] = useState<string>('');
+  const [lastUploadUrl, setLastUploadUrl] = useState<string>('');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -135,6 +137,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   const finalTranscriptRef = useRef<string>('');
   const interimTranscriptRef = useRef<string>('');
   const manualStopRef = useRef<boolean>(false);
+  const restartBudgetRef = useRef<number>(4); // dıgıdı spam'ini yok eden sınır: her dinleme turunda 4 geri alma hakkı
 
   const [connections, setConnections] = useState<CustomConnection[]>([
     {
@@ -254,6 +257,10 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       if (data.last_telegram_time) {
         setLastTelegramTime(String(data.last_telegram_time));
       }
+      if (data.last_upload_file) {
+        setLastUploadFile(String(data.last_upload_file));
+        setLastUploadUrl(String(data.last_upload_url || ''));
+      }
       setLastRefreshedAt(
         new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       );
@@ -279,6 +286,10 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
             evaluatePopupFromReport(rep, initial);
             if (data.last_telegram_time) {
               setLastTelegramTime(String(data.last_telegram_time));
+            }
+            if (data.last_upload_file) {
+              setLastUploadFile(String(data.last_upload_file));
+              setLastUploadUrl(String(data.last_upload_url || ''));
             }
             setLastRefreshedAt(
               new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -401,7 +412,12 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
     } else {
       // İlk açılışta otomatik mikrofon izni istemez; Kartal alt-ortaya süzülür ve karşılama özetini sesli + canlı altyazılı söyler
       setVoiceOpen(true);
-      const greeting = `Ben KartaL patron! Dün gece ${lastTelegramTime}'te video 33 yayına girdi. Şu an ${report?.summary?.stock_shorts ?? 57} Shorts ve ${report?.summary?.stock_long ?? 10} Uzun Video stokta hazır, sırada video 34 var.`;
+      const sonDosya = lastUploadFile || '';
+      const sonNo = /video_(\d+)/.exec(sonDosya)?.[1] || '';
+      const siraNo = sonNo ? `video_${Number(sonNo) + 1}` : '';
+      const greeting = sonDosya
+        ? `Ben KartaL kanka! Kanalda en son ${sonDosya} yayına girdi. Stokta ${report?.summary?.stock_shorts ?? ''} Shorts ve ${report?.summary?.stock_long ?? ''} Uzun Video hazır duruyor${siraNo ? `, sıradaki ${siraNo}` : ''}. Bugünkü otomatik turlar 14:15, 18:15 ve 21:15'te. Ne bakalım?`
+        : `Ben KartaL kanka! Bugünkü otomatik yayın turları 14:15, 18:15 ve 21:15'te. Ne bakalım?`;
       setVoiceReply(greeting);
       setSubtitleSpeaker('kartal');
       setSubtitleVisible(true);
@@ -482,6 +498,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       return;
     }
     manualStopRef.current = false;
+    restartBudgetRef.current = 4;
     finalTranscriptRef.current = '';
     interimTranscriptRef.current = '';
     setVoiceInterim('');
@@ -498,6 +515,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       resetSilenceTimer();
     };
     rec.onresult = (ev: SREvent) => {
+      restartBudgetRef.current = 4; // gerçek konuşma algılandıkça bütçe tazelenir
       let latestFinal = '';
       let latestInterim = '';
       for (let i = 0; i < ev.results.length; i++) {
@@ -531,7 +549,21 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       setVoiceListening(false);
     };
     rec.onend = () => {
-      // ASLA otomatik rec.start() döngüsüne girmez -> "dıgıdı dıgıdı" bildirim spam'i %100 biter!
+      // BÜTÇELİ cankurtaran: mobil Chrome'un nefes arasına otomatik kapanmasına karşı
+      // en fazla 4 geri alma (~4x150ms) — dıgıdı spam'ine dönüş YASAK.
+      if (!manualStopRef.current && restartBudgetRef.current > 0) {
+        restartBudgetRef.current -= 1;
+        window.setTimeout(() => {
+          if (!manualStopRef.current) {
+            try {
+              rec.start();
+            } catch {
+              // yutulur
+            }
+          }
+        }, 150);
+        return;
+      }
       if (!manualStopRef.current) {
         finishAndSendSpeech();
       } else {
@@ -785,8 +817,16 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[#E5E7EB] px-3.5 py-2.5 text-xs text-[#6B7280]">
-                <span>🟢 Son atılan: <strong className="text-[#111827]">video_38.mp4</strong></span>
-                <span>🟡 Sıradaki: <strong className="text-[#111827]">video_39.mp4</strong></span>
+                <span>🟢 Son atılan:{' '}
+                  {lastUploadUrl ? (
+                    <a href={lastUploadUrl} target="_blank" rel="noreferrer" className="font-semibold text-[#065F46] underline">
+                      {lastUploadFile || '—'}
+                    </a>
+                  ) : (
+                    <strong className="text-[#111827]">{lastUploadFile || '—'}</strong>
+                  )}
+                </span>
+                <span>🟡 Sıradaki: <strong className="text-[#111827]">{lastUploadFile && /video_(\d+)/.test(lastUploadFile) ? `video_${Number(/video_(\d+)/.exec(lastUploadFile)![1]) + 1}.mp4` : '—'}</strong></span>
                 <span>🛋️ Lobi&apos;de kontrol bekleyen: <strong className="text-[#111827]">21 video</strong></span>
               </div>
             </section>

@@ -1502,7 +1502,7 @@ export async function POST(req: Request) {
       try {
         const ls = await getLiveAutomationStock();
         if (ls && ls.ok) {
-          liveStockCtx = `\nCANLI GOOGLE DRIVE STOK VE KUYRUK VERİSİ:\n- Hazır Shorts Stoğu: ${ls.remainingShortsCount} adet (${ls.shortsRange || "video_34..100"})\n- Hazır Uzun Video Stoğu: ${ls.remainingLongsCount} adet (${ls.longsRange || "uzun_video_3..12"})\n- Tahmini Günlük Stok Süresi: ~${ls.estimatedDaysFormatted} gün\n- Sıradaki Shorts: ${ls.nextShort ? ls.nextShort.fileName + " — " + ls.nextShort.title : "Yok"}\n- Sıradaki Uzun Video: ${ls.nextLong ? ls.nextLong.fileName + " — " + ls.nextLong.title : "Yok"}\n- Son Yüklenen Video: ${ls.lastUploaded ? ls.lastUploaded.fileName + " (" + ls.lastUploaded.youtubeUrl + " - " + ls.lastUploaded.uploadedAt + ")" : "video_33.mp4"}`;
+          liveStockCtx = `\nCANLI GOOGLE DRIVE STOK VE KUYRUK VERİSİ:\n- Hazır Shorts Stoğu: ${ls.remainingShortsCount} adet (${ls.shortsRange || "video_34..100"})\n- Hazır Uzun Video Stoğu: ${ls.remainingLongsCount} adet (${ls.longsRange || "uzun_video_3..12"})\n- Tahmini Günlük Stok Süresi: ~${ls.estimatedDaysFormatted} gün\n- Sıradaki Shorts: ${ls.nextShort ? ls.nextShort.fileName + " — " + ls.nextShort.title : "Yok"}\n- Sıradaki Uzun Video: ${ls.nextLong ? ls.nextLong.fileName + " — " + ls.nextLong.title : "Yok"}\n- Son Yüklenen Video: ${ls.lastUploaded ? ls.lastUploaded.fileName + " (" + ls.lastUploaded.youtubeUrl + " - " + ls.lastUploaded.uploadedAt + ")" : "bilinmiyor (GitHub okunamadı)"}`;
         }
       } catch {}
       memoryContext = channelIdentity + liveStockCtx + "\n\n" + formatMemoriesForContext(combinedMems) + taskSummary;

@@ -219,6 +219,9 @@ export async function GET(req: NextRequest) {
       ok: true,
       fetched_at: new Date().toISOString(),
       last_telegram_time: lastTelegramTime,
+      last_upload_file: lastFile,
+      last_upload_url: lastUrl,
+      last_upload_full: lastUploadFull,
       live_events: liveEvents.slice(0, 5),
       report,
     });
