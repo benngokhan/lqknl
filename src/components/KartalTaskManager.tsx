@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useSpeaker } from './useSpeaker';
+import { PAYLASIM_KITLERI } from '../data/paylasim_kitleri';
 
 interface WorkerItem {
   id: string;
@@ -112,7 +113,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'genel' | 'videolar' | 'isciler' | 'baglantilar' | 'uyarilar'>('genel');
+  const [activeTab, setActiveTab] = useState<'genel' | 'videolar' | 'paylasim' | 'isciler' | 'baglantilar' | 'uyarilar'>('genel');
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
   const [paused, setPaused] = useState(false);
   const [actionMsg, setActionMsg] = useState('');
@@ -685,6 +686,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
             {([
               ['genel', 'Genel'],
               ['videolar', 'Videolar'],
+              ['paylasim', '📲 Paylaşım'],
               ['isciler', 'İşçiler'],
               ['baglantilar', 'Bağlantılar'],
               ['uyarilar', 'Uyarılar'],
@@ -1109,6 +1111,83 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                   </div>
                 );
               })}
+            </div>
+          </section>
+        )}
+
+        {/* Paylaşım Kitleri Sekmesi (Instagram Reels + TikTok manuel paylaşım) */}
+        {activeTab === 'paylasim' && (
+          <section className="rounded-md border border-[#E5E7EB] bg-white">
+            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
+              <span className="text-sm font-semibold text-[#111827]">📲 Instagram / TikTok — Manuel Paylaşım Kitleri</span>
+              <span className="text-xs text-[#6B7280]">Açıklama + Sabit Yorum hazır, kopyala-yapıştır</span>
+            </div>
+            <div className="border-b border-[#E5E7EB] bg-[#F8F9FA] px-3.5 py-2.5 text-xs text-[#111827] space-y-1">
+              <div><strong>Kurallar:</strong> VPN kapalı · günde en fazla 2 video (12:45 &amp; 21:45) · paylaşınca 10-15 dk uygulamada kal · sabit yorumu kendin ilk yorum olarak at + pinle.</div>
+              <div>
+                Video dosyaları:{' '}
+                <a
+                  href="https://drive.google.com/drive/folders/1w8tz_lv7iMFsRRCaTKUSY_ri0F107rz_"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-blue-700 underline"
+                >
+                  Drive &quot;KartaL Stok&quot; klasörü ↗
+                </a>{' '}
+                (karttaki <code className="rounded bg-white px-1">video_XX.mp4</code> adıyla aynı dosya)
+              </div>
+            </div>
+            <div className="divide-y divide-[#E5E7EB]">
+              {PAYLASIM_KITLERI.map((k) => (
+                <div key={k.no} className="px-3.5 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-[13px] font-semibold text-[#111827]">🎬 {k.dosya}</div>
+                      <div className="mt-0.5 text-xs text-[#6B7280]">Drive adı: {k.driveAdi} · {k.gunSlot !== '—' ? `Plan: ${k.gunSlot}` : 'Plan: yayında'}</div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      {renderBadge(k.durum === 'yayinda' ? 'ok' : 'warn', k.durum === 'yayinda' ? 'YAYINDA' : 'SIRADA')}
+                      {k.not && <span className="text-[11px] text-[#6B7280]">{k.not}</span>}
+                    </div>
+                  </div>
+                  <div className="mt-2 rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2.5 text-xs leading-relaxed text-[#111827] whitespace-pre-wrap">
+                    {k.caption}
+                  </div>
+                  <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2.5 text-xs leading-relaxed text-[#111827]">
+                    <strong>📌 Sabit Yorum:</strong> {k.yorum}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(k.caption);
+                        setActionMsg(`"${k.driveAdi}" açıklaması kopyalandı!`);
+                      }}
+                      className="rounded border border-[#111827] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#111827] hover:bg-[#E5E7EB]"
+                    >
+                      📋 Açıklamayı Kopyala
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(k.yorum);
+                        setActionMsg(`"${k.driveAdi}" sabit yorumu kopyalandı!`);
+                      }}
+                      className="rounded border border-amber-600 bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
+                    >
+                      📌 Sabit Yorumu Kopyala
+                    </button>
+                    <a
+                      href={k.ytUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-[#F3F4F6]"
+                    >
+                      ▶ YouTube&apos;da Aç
+                    </a>
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
         )}
