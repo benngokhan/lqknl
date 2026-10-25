@@ -737,242 +737,59 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
           </div>
         )}
 
-        {/* Üst Kartlar */}
-        <section className="mb-4 grid grid-cols-2 gap-2.5 md:grid-cols-4">
-          <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
-            <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary?.total_views)}</div>
-            <div className="mt-0.5 text-xs text-[#6B7280]">toplam görüntülenme (YouTube API)</div>
-          </div>
-          <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
-            <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary?.weekly_uploaded)}</div>
-            <div className="mt-0.5 text-xs text-[#6B7280]">bu hafta yüklenen video</div>
-          </div>
-          <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
-            <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary?.total_comments)}</div>
-            <div className="mt-0.5 text-xs text-[#6B7280]">toplam yorum</div>
-          </div>
-          <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
-            <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary?.failed_jobs)}</div>
-            <div className="mt-0.5 text-xs text-[#6B7280]">başarısız işler</div>
-          </div>
-        </section>
+        {/* Üst Kartlar kaldırıldı — Genel sekmesine taşındı (sadelik) */}
 
-        {/* Günlük Yayın Saatleri — Kayan Şerit (Yer Kaplamaz) */}
-        <section className="mb-4 overflow-hidden rounded-md border border-[#E5E7EB] bg-white">
-          <style>{`
-            @keyframes kartalMarquee {
-              from { transform: translateX(0); }
-              to { transform: translateX(-50%); }
-            }
-          `}</style>
-          <div className="relative overflow-hidden bg-[#0B0F1A] py-2">
-            <div
-              className="flex w-max items-center whitespace-nowrap hover:[animation-play-state:paused]"
-              style={{ animation: 'kartalMarquee 34s linear infinite' }}
-            >
-              {[0, 1].map((copy) => (
-                <div key={copy} className="flex items-center gap-10 pr-10 text-xs" aria-hidden={copy === 1}>
-                  <span className="flex items-center gap-1.5 text-[#9CA3AF]">
-                    <span aria-hidden>⏰</span>
-                    <strong className="text-sm font-bold text-[#FACC15]">14:15</strong>
-                    {"Öğle Kuşağı · 1. Shorts"}
-                  </span>
-                  <span className="text-[#374151]">•</span>
-                  <span className="flex items-center gap-1.5 text-[#9CA3AF]">
-                    <span aria-hidden>🌆</span>
-                    <strong className="text-sm font-bold text-[#FACC15]">18:15</strong>
-                    {"Akşamüstü · 2. Shorts"}
-                  </span>
-                  <span className="text-[#374151]">•</span>
-                  <span className="flex items-center gap-1.5 text-[#9CA3AF]">
-                    <span aria-hidden>🌙</span>
-                    <strong className="text-sm font-bold text-[#FACC15]">21:15</strong>
-                    {"Ana Prime-Time · Tek gün Shorts / Çift gün Uzun Video"}
-                  </span>
-                  <span className="text-[#374151]">•</span>
-                  <span className="flex items-center gap-1.5 text-[#9CA3AF]">
-                    🟢 {"Son:"} <strong className="text-[#34D399]">video_35.mp4 (YÜKLENDİ)</strong>
-                  </span>
-                  <span className="text-[#374151]">•</span>
-                  <span className="flex items-center gap-1.5 text-[#9CA3AF]">
-                    🟡 {"Sıradaki:"} <strong className="text-[#FBBF24]">video_36.mp4</strong>
-                  </span>
-                  <span className="text-[#374151]">•</span>
-                  <span className="flex items-center gap-1.5 text-[#9CA3AF]">
-                    🛋️ {"Lobi'de kontrol bekleyen:"} <strong className="text-[#67E8F9]">21 video</strong>
-                  </span>
-                  <span className="text-[#374151]">•</span>
-                  <a
-                    href="https://www.instagram.com/bilgidozuofficial"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-semibold text-[#F472B6] hover:text-[#F9A8D4]"
-                  >
-                    📸 Instagram
-                  </a>
-                  <span className="text-[#374151]">•</span>
-                  <a
-                    href="https://www.tiktok.com/@bilgidozuofficial"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-semibold text-[#67E8F9] hover:text-[#A5F3FC]"
-                  >
-                    🎵 TikTok
-                  </a>
-                  <span className="text-[#374151]">•</span>
-                  <span className="rounded bg-[#064E3B] px-2 py-0.5 text-[11px] font-semibold text-[#6EE7B7]">
-                    {"Otomatik Zamanlayıcı Aktif · TR Saati"}
-                  </span>
-                  <span className="text-[#374151]">•</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          {/* Lobi & Klasör Hızlı Köprüleri + TikTok/Reels Kurulum Kiti */}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#E5E7EB] bg-[#F8F9FA] px-3.5 py-2 text-xs">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-semibold text-[#111827]">📂 Drive Klasörleri:</span>
-              <a
-                href="https://drive.google.com/drive/folders/1JULlauO1eFpXgGdZKdZZDyqesSdkeT6f"
-                target="_blank"
-                rel="noreferrer"
-                className="rounded border border-[#D97706] bg-[#FFFBEB] px-2.5 py-1 font-semibold text-[#92400E] hover:bg-[#FEF3C7]"
-              >
-                🛋️ Lobi (hazır videolar · Kontrol Bekleyen: 21)
-              </a>
-              <a
-                href="https://drive.google.com/drive/folders/1w8tz_lv7iMFsRRCaTKUSY_ri0F107rz_"
-                target="_blank"
-                rel="noreferrer"
-                className="rounded border border-[#059669] bg-[#ECFDF5] px-2.5 py-1 font-semibold text-[#065F46] hover:bg-[#D1FAE5]"
-              >
-                🚀 KartaL Stok (Onaylı Yayın Klasörü & baslik.xlsx)
-              </a>
-              <a
-                href="https://drive.google.com/drive/folders/1XKZJ12HyAvZkjgiG38ys3HOMhZ42d_jJ"
-                target="_blank"
-                rel="noreferrer"
-                className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 font-medium text-[#374151] hover:bg-[#F3F4F6]"
-              >
-                🖼️ KAPAKLAR (21 Kapak)
-              </a>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  const bio =
-                    '🧠 Her gün 1 doz gerçek bilim, uzay ve insan beyninin sırları!\n🪐 Kaynaklı & doğruluk kontrolünden geçmiş içerikler\n👇 Uzun belgesellerimiz için YouTube kanalımız:\nhttps://www.youtube.com/@bilgidozuofficial';
-                  void navigator.clipboard.writeText(bio);
-                  setActionMsg('TikTok & Instagram Reels profil biyografisi panoya kopyalandı!');
-                }}
-                className="rounded border border-[#111827] bg-[#111827] px-2.5 py-1 font-semibold text-white hover:bg-[#1F2937]"
-              >
-                📋 TikTok / IG Biyografisi Kopyala
-              </button>
-              <a
-                href="/bilgidozu-logo.png"
-                target="_blank"
-                rel="noreferrer"
-                className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 font-semibold text-[#111827] hover:bg-[#F3F4F6]"
-              >
-                ⬇️ Kanal Logosu İndir
-              </a>
-            </div>
-          </div>
-        </section>
+        {/* Kayan şerit (marquee) tamamen kaldırıldı — göz yormuyor artık. Program kartı Genel sekmesinde, Drive köprüleri Bağlantılar sekmesinde. */}
 
         {/* Genel Sekmesi */}
         {activeTab === 'genel' && (
           <div className="space-y-4">
-            <div className="space-y-4">
-              <section className="rounded-md border border-[#E5E7EB] bg-white">
-                <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-                  <span className="text-sm font-semibold text-[#111827]">İşçi durumları</span>
-                  <span className="text-xs text-[#6B7280]">Ayrıntı için satıra dokun</span>
-                </div>
-                <div className="divide-y divide-[#E5E7EB]">
-                  {(report?.workers || []).map((w) => {
-                    const key = `w-${w.id}`;
-                    const isOpen = !!openRows[key];
-                    return (
-                      <div
-                        key={w.id}
-                        onClick={() => toggleRow(key)}
-                        className="cursor-pointer px-3.5 py-2.5 hover:bg-[#F3F4F6]"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="text-[13px] font-medium text-[#111827]">{w.name}</span>
-                          {renderBadge(w.status, w.status_text)}
-                        </div>
-                        <div className="mt-1 flex flex-wrap gap-2 text-xs text-[#6B7280]">
-                          <span>Son güncelleme: {(w.updated_at || '').replace(/-/g, '.')}</span>
-                          {(w.id === 'uploader' || w.id === 'telegram') && (
-                            <>
-                              <span>·</span>
-                              <span className="font-semibold text-[#111827]">
-                                Telegram&apos;a son bildirim: {w.telegram_last || lastTelegramTime}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                        {isOpen && (
-                          <div className="mt-2 rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2 text-xs text-[#111827]">
-                            {w.error_message ? (
-                              <>
-                                <div>
-                                  <strong>Son hata:</strong> {w.error_message}
-                                </div>
-                                <div className="mt-1">
-                                  <strong>Son işlem:</strong> {w.last_action}
-                                </div>
-                              </>
-                            ) : (
-                              <div>
-                                <strong>Son işlem:</strong> {w.last_action}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
+            {/* KPI Kartları (dört temel sayaç) */}
+            <section className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+              <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
+                <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary?.total_views)}</div>
+                <div className="mt-0.5 text-xs text-[#6B7280]">toplam görüntülenme</div>
+              </div>
+              <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
+                <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary?.weekly_uploaded)}</div>
+                <div className="mt-0.5 text-xs text-[#6B7280]">bu hafta yüklenen</div>
+              </div>
+              <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
+                <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary?.total_comments)}</div>
+                <div className="mt-0.5 text-xs text-[#6B7280]">toplam yorum</div>
+              </div>
+              <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
+                <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary?.failed_jobs)}</div>
+                <div className="mt-0.5 text-xs text-[#6B7280]">başarısız iş</div>
+              </div>
+            </section>
 
-              <section className="rounded-md border border-[#E5E7EB] bg-white">
-                <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-                  <span className="text-sm font-semibold text-[#111827]">Uyarılar</span>
-                  <span className="text-xs text-[#6B7280]">Kota ve bağlantı kontrolleri</span>
+            {/* Yayın Programı — STATIK kart (kayan yazı yok) */}
+            <section className="rounded-md border border-[#E5E7EB] bg-white">
+              <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
+                <span className="text-sm font-semibold text-[#111827]">⏰ Günlük Yayın Programı (TR saati)</span>
+                <span className="text-xs text-[#6B7280]">otomatik zamanlayıcı aktif</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 px-3.5 py-3 sm:grid-cols-3">
+                <div className="rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2.5 text-xs">
+                  <div className="text-base font-bold text-[#111827]">14:15</div>
+                  <div className="mt-0.5 text-[#6B7280]">Öğle Kuşağı · 1. Shorts</div>
                 </div>
-                <div className="divide-y divide-[#E5E7EB]">
-                  {(report?.alerts || []).map((a) => {
-                    const key = `a-${a.id}`;
-                    const isOpen = !!openRows[key];
-                    return (
-                      <div
-                        key={a.id}
-                        onClick={() => toggleRow(key)}
-                        className="cursor-pointer px-3.5 py-2.5 hover:bg-[#F3F4F6]"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="text-[13px] font-medium text-[#111827]">{a.title}</span>
-                          {renderBadge(a.status, a.status_text)}
-                        </div>
-                        <div className="mt-1 text-xs text-[#6B7280]">
-                          Son kontrol: {(a.updated_at || '').replace(/-/g, '.')}
-                        </div>
-                        {isOpen && (
-                          <div className="mt-2 rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2 text-xs text-[#111827]">
-                            {a.detail}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                <div className="rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2.5 text-xs">
+                  <div className="text-base font-bold text-[#111827]">18:15</div>
+                  <div className="mt-0.5 text-[#6B7280]">Akşamüstü · 2. Shorts</div>
                 </div>
-              </section>
-            </div>
+                <div className="rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2.5 text-xs">
+                  <div className="text-base font-bold text-[#111827]">21:15</div>
+                  <div className="mt-0.5 text-[#6B7280]">Prime-Time · tek gün Shorts / çift gün Uzun Video</div>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[#E5E7EB] px-3.5 py-2.5 text-xs text-[#6B7280]">
+                <span>🟢 Son atılan: <strong className="text-[#111827]">video_38.mp4</strong></span>
+                <span>🟡 Sıradaki: <strong className="text-[#111827]">video_39.mp4</strong></span>
+                <span>🛋️ Lobi&apos;de kontrol bekleyen: <strong className="text-[#111827]">21 video</strong></span>
+              </div>
+            </section>
 
             {/* Sağda Son Videolar (Kısa başlık + tıklayınca tam başlık ve hashtag'ler) */}
             <section className="rounded-md border border-[#E5E7EB] bg-white lg:col-span-7">
@@ -1227,6 +1044,75 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
         {/* Bağlantılar Sekmesi */}
         {activeTab === 'baglantilar' && (
           <div className="space-y-4">
+            <section className="rounded-md border border-[#E5E7EB] bg-white">
+              <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
+                <span className="text-sm font-semibold text-[#111827]">📂 Drive Klasörleri & Hızlı Köprüler</span>
+                <span className="text-xs text-[#6B7280]">tek dokun</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 px-3.5 py-3 text-xs">
+                <a
+                  href="https://drive.google.com/drive/folders/1JULlauO1eFpXgGdZKdZZDyqesSdkeT6f"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded border border-[#D97706] bg-[#FFFBEB] px-2.5 py-1 font-semibold text-[#92400E] hover:bg-[#FEF3C7]"
+                >
+                  🛋️ Lobi (hazır videolar)
+                </a>
+                <a
+                  href="https://drive.google.com/drive/folders/1w8tz_lv7iMFsRRCaTKUSY_ri0F107rz_"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded border border-[#059669] bg-[#ECFDF5] px-2.5 py-1 font-semibold text-[#065F46] hover:bg-[#D1FAE5]"
+                >
+                  🚀 KartaL Stok (yayın kuyruğu + baslik.xlsx)
+                </a>
+                <a
+                  href="https://drive.google.com/drive/folders/1XKZJ12HyAvZkjgiG38ys3HOMhZ42d_jJ"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 font-medium text-[#374151] hover:bg-[#F3F4F6]"
+                >
+                  🖼️ KAPAKLAR
+                </a>
+                <a
+                  href="https://www.instagram.com/bilgidozuofficial"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded border border-pink-300 bg-pink-50 px-2.5 py-1 font-semibold text-pink-700 hover:bg-pink-100"
+                >
+                  📸 Instagram
+                </a>
+                <a
+                  href="https://www.tiktok.com/@bilgidozuofficial"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded border border-cyan-300 bg-cyan-50 px-2.5 py-1 font-semibold text-cyan-800 hover:bg-cyan-100"
+                >
+                  🎵 TikTok
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const bio =
+                      '🧠 Her gün 1 doz gerçek bilim, uzay ve insan beyninin sırları!\n🪐 Kaynaklı & doğruluk kontrolünden geçmiş içerikler\n👇 Uzun belgesellerimiz için YouTube kanalımız:\nhttps://www.youtube.com/@bilgidozuofficial';
+                    void navigator.clipboard.writeText(bio);
+                    setActionMsg('TikTok & Instagram Reels profil biyografisi panoya kopyalandı!');
+                  }}
+                  className="rounded border border-[#111827] bg-[#111827] px-2.5 py-1 font-semibold text-white hover:bg-[#1F2937]"
+                >
+                  📋 Biyografi Kopyala
+                </button>
+                <a
+                  href="/bilgidozu-logo.png"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 font-semibold text-[#111827] hover:bg-[#F3F4F6]"
+                >
+                  ⬇️ Logo İndir
+                </a>
+              </div>
+            </section>
+
             <section className="rounded-md border border-[#E5E7EB] bg-white">
               <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
                 <span className="text-sm font-semibold text-[#111827]">Aktif ve Hazır Platform Bağlantıları</span>
