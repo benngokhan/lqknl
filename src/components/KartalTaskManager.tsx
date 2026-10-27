@@ -150,7 +150,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'genel' | 'videolar' | 'paylasim' | 'isciler' | 'baglantilar' | 'uyarilar' | 'github'>('genel');
+  const [activeTab, setActiveTab] = useState<'genel' | 'videolar' | 'paylasim' | 'isciler' | 'baglantilar' | 'uyarilar' | 'github' | 'plan'>('genel');
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
   const [paused, setPaused] = useState(false);
   const [actionMsg, setActionMsg] = useState('');
@@ -161,6 +161,8 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   const [ghRuns, setGhRuns] = useState<GhRunsResponse | null>(null);
   const [ghLoading, setGhLoading] = useState(false);
   const [ghError, setGhError] = useState('');
+  const [plan, setPlan] = useState<{ sabah: string; ogle: string; aksam: string } | null>(null);
+  const [planError, setPlanError] = useState('');
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadType, setUploadType] = useState<'auto' | 'short' | 'long'>('auto');
   const [uploadDryRun, setUploadDryRun] = useState(false);
@@ -328,6 +330,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
             const rep = data.report as StatusReport;
             setReport(rep);
             evaluatePopupFromReport(rep, initial);
+          void loadPlan();
             if (data.last_telegram_time) {
               setLastTelegramTime(String(data.last_telegram_time));
             }
@@ -460,8 +463,8 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       const sonNo = /video_(\d+)/.exec(sonDosya)?.[1] || '';
       const siraNo = sonNo ? `video_${Number(sonNo) + 1}` : '';
       const greeting = sonDosya
-        ? `Ben KartaL kanka! Kanalda en son ${sonDosya} yayına girdi. Stokta ${report?.summary?.stock_shorts ?? ''} Shorts ve ${report?.summary?.stock_long ?? ''} Uzun Video hazır duruyor${siraNo ? `, sıradaki ${siraNo}` : ''}. Bugünkü otomatik turlar 14:15, 18:15 ve 21:15'te. Ne bakalım?`
-        : `Ben KartaL kanka! Bugünkü otomatik yayın turları 14:15, 18:15 ve 21:15'te. Ne bakalım?`;
+        ? `Ben KartaL kanka! Kanalda en son ${sonDosya} yayına girdi. Stokta ${report?.summary?.stock_shorts ?? ''} Shorts ve ${report?.summary?.stock_long ?? ''} Uzun Video hazır duruyor${siraNo ? `, sıradaki ${siraNo}` : ''}. Bugünkü otomatik turlar ${plan ? `${plan.sabah}, ${plan.ogle} ve ${plan.aksam} saatlerinde` : 'Yayın Planı sayfasındaki saatlerde'}. Ne bakalım?`
+        : `Ben KartaL kanka! Bugünkü otomatik yayın turları ${plan ? `${plan.sabah}, ${plan.ogle} ve ${plan.aksam} saatlerinde` : 'Yayın Planı sayfasına göre'}. Ne bakalım?`;
       setVoiceReply(greeting);
       setSubtitleSpeaker('kartal');
       setSubtitleVisible(true);
@@ -806,6 +809,50 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
     }
   }
 
+  async function loadPlan(force = false) {
+    try {
+      const res = await fetch('/api/automation/schedule', { cache: 'no-store' });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) {
+        setPlan(data.slots);
+        setPlanError('');
+        return;
+      }
+      if (force) setPlanError(data?.error || 'Plan okunamadı.');
+    } catch {
+      if (force) setPlanError('Plan isteği gönderilemedi.');
+    }
+  }
+
+  async function handleSavePlan() {
+    if (!plan || busy) return;
+    const confirmed = window.confirm(
+      `Yayın planı güncellenecek:\n\nSabah ${plan.sabah} · Öğle ${plan.ogle} · Akşam ${plan.aksam}\n\nGitHub'a kaydedilecek; işçi yeni saatlerde çalışacak. Emin misin?`
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setPlanError('');
+    setActionMsg('');
+    try {
+      const res = await fetch('/api/automation/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slots: plan }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) {
+        setPlan(data.slots);
+        setActionMsg(data.message || 'Plan kaydedildi.');
+      } else {
+        setPlanError(data?.error || 'Plan kaydedilemedi.');
+      }
+    } catch {
+      setPlanError('İstek gönderilemedi.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const renderBadge = (status: 'ok' | 'warn' | 'err', text: string) => {
     const styles =
       status === 'err'
@@ -927,7 +974,8 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
               activeTab === 'isciler' ||
               activeTab === 'baglantilar' ||
               activeTab === 'uyarilar' ||
-              activeTab === 'github'
+              activeTab === 'github' ||
+              activeTab === 'plan'
                 ? 'border-[#111827] font-semibold text-[#111827]'
                 : 'border-transparent text-[#6B7280] hover:text-[#111827]'
             }`}
@@ -953,7 +1001,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
             <h3 className="text-[15px] font-semibold text-[#111827]">Şimdi paylaş</h3>
             <p className="mt-1 text-xs leading-5 text-[#6B7280]">
               Zamanlayıcıyı beklemeden GitHub Actions yükleyici işçisini başlatır. Zamanlanmış yayın
-              saatleri (14:15 / 18:15 / 21:15) aynen çalışmaya devam eder.
+              saatleri (Yayın Planı sayfası) aynen çalışmaya devam eder.
             </p>
             <div className="mt-4 grid grid-cols-3 gap-2">
               {([
@@ -1035,6 +1083,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                   ['baglantilar', 'Bağlantılar', 'Drive köprüleri ve platformlar'],
                   ['uyarilar', 'Uyarılar', 'Kota ve sistem uyarıları'],
                   ['github', 'GitHub', 'Actions çalıştırmaları ve cron anahtarları'],
+                  ['plan', 'Yayın Planı', 'Sabah / Öğle / Akşam çalışma saatleri'],
                 ] as const).map(([key, label, desc]) => (
                   <button
                     key={key}
@@ -1043,6 +1092,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                       setActiveTab(key);
                       setMorePanelOpen(false);
                       if (key === 'github') void loadGithubRuns();
+                      if (key === 'plan') void loadPlan();
                     }}
                     className="flex w-full items-baseline justify-between gap-3 py-3 text-left transition hover:bg-[#FAFAFA]"
                   >
@@ -1142,18 +1192,21 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                 </span>
               </div>
               <div className="mt-3.5 grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-6">
-                <div className="border-t-2 border-[#111827] pt-2.5">
-                  <div className="text-[17px] font-semibold tabular-nums text-[#111827]">14:15</div>
-                  <div className="mt-0.5 text-xs text-[#6B7280]">Öğle Kuşağı · Shorts</div>
-                </div>
-                <div className="border-t border-[#D1D5DB] pt-2.5">
-                  <div className="text-[17px] font-semibold tabular-nums text-[#111827]">18:15</div>
-                  <div className="mt-0.5 text-xs text-[#6B7280]">Akşamüstü · Shorts</div>
-                </div>
-                <div className="border-t border-[#D1D5DB] pt-2.5">
-                  <div className="text-[17px] font-semibold tabular-nums text-[#111827]">21:15</div>
-                  <div className="mt-0.5 text-xs text-[#6B7280]">Prime-Time · tek gün Shorts / çift gün Uzun</div>
-                </div>
+                {([
+                  ['Sabah', plan?.sabah || '—:—', 'dün eksikse telafi'],
+                  ['Öğle', plan?.ogle || '—:—', '1. yayın'],
+                  ['Akşam', plan?.aksam || '—:—', '2. yayın'],
+                ] as const).map(([label, time, note], idx) => (
+                  <div
+                    key={label}
+                    className={idx === 0 ? 'border-t-2 border-[#111827] pt-2.5' : 'border-t border-[#D1D5DB] pt-2.5'}
+                  >
+                    <div className="text-[17px] font-semibold tabular-nums text-[#111827]">{time}</div>
+                    <div className="mt-0.5 text-xs text-[#6B7280]">
+                      {label} · {note}
+                    </div>
+                  </div>
+                ))}
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-[#6B7280]">
                 <span>
@@ -1618,6 +1671,65 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
             </form>
           </div>
         )}
+        {/* Yayın Planı Sekmesi */}
+        {activeTab === 'plan' && (
+          <section className="max-w-md pb-2">
+            <div className="flex items-baseline justify-between pb-1 pt-1">
+              <h2 className="text-[13px] font-semibold text-[#111827]">Yayın Planı</h2>
+              <button
+                type="button"
+                onClick={() => void loadPlan(true)}
+                className="text-xs text-[#6B7280] underline decoration-dotted underline-offset-2 hover:text-[#111827]"
+              >
+                Yenile
+              </button>
+            </div>
+            <p className="border-t border-[#E5E7EB] pt-3 text-xs leading-5 text-[#6B7280]">
+              İşçinin günlük çalışma saatleri. Saati yaz → Kaydet → onayla. GitHub&apos;a kaydedilir ve yeni
+              saatlerden itibaren geçerli olur.
+            </p>
+            {planError && (
+              <div className="mt-3 border-l-2 border-[#EF4444] pl-3 text-xs text-[#B91C1C]">{planError}</div>
+            )}
+            <div className="mt-4 divide-y divide-[#E5E7EB] border-y border-[#E5E7EB]">
+              {([
+                ['sabah', 'Sabah', 'Dün eksik yayın varsa çalışır (telafi)'],
+                ['ogle', 'Öğle', 'Gündüz çalıştırması'],
+                ['aksam', 'Akşam', 'Akşam çalıştırması'],
+              ] as const).map(([key, label, note]) => (
+                <div key={key} className="flex items-center justify-between gap-3 py-3.5">
+                  <div className="min-w-0">
+                    <div className="text-[13.5px] font-semibold text-[#111827]">{label}</div>
+                    <div className="mt-0.5 text-xs text-[#9CA3AF]">{note}</div>
+                  </div>
+                  <input
+                    type="time"
+                    disabled={!plan}
+                    value={plan ? plan[key] : ''}
+                    onChange={(e) => {
+                      if (!plan) return;
+                      const value = e.target.value;
+                      setPlan({ ...plan, [key]: value } as { sabah: string; ogle: string; aksam: string });
+                    }}
+                    className="rounded-md border border-[#E5E7EB] bg-white px-3 py-2 text-[15px] tabular-nums text-[#111827] focus:border-[#111827] focus:outline-none disabled:opacity-50"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void handleSavePlan()}
+                disabled={!plan || busy}
+                className="rounded-md bg-[#111827] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#1F2937] disabled:opacity-50"
+              >
+                {busy ? 'Kaydediliyor…' : 'Kaydet'}
+              </button>
+              {!plan && !planError && <span className="text-xs text-[#9CA3AF]">Plan yükleniyor…</span>}
+            </div>
+          </section>
+        )}
+
         {/* GitHub Sekmesi */}
         {activeTab === 'github' && (
           <section className="pb-2">
