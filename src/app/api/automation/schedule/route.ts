@@ -100,8 +100,8 @@ function parseCrons(text: string): string[] {
 
 function utcToTr(cron: string): string {
   const parts = cron.trim().split(/\s+/);
-  const minute = Number(parts[1]);
-  const hour = Number(parts[2]);
+  const minute = Number(parts[0]);
+  const hour = Number(parts[1]);
   if (!Number.isFinite(minute) || !Number.isFinite(hour)) return "--:--";
   const trHour = (hour + 3) % 24;
   return `${String(trHour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
@@ -247,5 +247,5 @@ export async function POST(req: Request) {
 
 function fmtUtc(cron: string): string {
   const parts = cron.trim().split(/\s+/);
-  return `${String(Number(parts[1])).padStart(2, "0")}:${String(Number(parts[2])).padStart(2, "0")}`;
+  return `${String(Number(parts[1])).padStart(2, "0")}:${String(Number(parts[0])).padStart(2, "0")}`;
 }
