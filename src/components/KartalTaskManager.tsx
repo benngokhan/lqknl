@@ -121,6 +121,13 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   const [actionMsg, setActionMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // Menü / "Şimdi paylaş" paneli
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadType, setUploadType] = useState<'auto' | 'short' | 'long'>('auto');
+  const [uploadDryRun, setUploadDryRun] = useState(false);
+
   // Sayfa İçi Sesli Asistan KartaL Penceresi (Ayrı sayfa değil, panelin içinde!)
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [voiceListening, setVoiceListening] = useState(false);
@@ -205,7 +212,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       const prev = prevMap[v.id];
       if (prev && v.likes > prev.likes) {
         triggerLeftPopup(
-          `❤️ +${v.likes - prev.likes} Yeni Beğeni!`,
+          `+${v.likes - prev.likes} yeni beğeni`,
           getShortCleanTitle(v.title).shortTitle,
           `Toplam ${v.likes} beğeni · ${v.views.toLocaleString('tr-TR')} izlenme`
         );
@@ -214,9 +221,9 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       }
       if (prev && v.views > prev.views) {
         triggerLeftPopup(
-          `👁️ +${v.views - prev.views} Yeni İzlenme!`,
+          `+${v.views - prev.views} yeni izlenme`,
           getShortCleanTitle(v.title).shortTitle,
-          `Canlı: ${v.views.toLocaleString('tr-TR')} izlenme · ❤️ ${v.likes} beğeni`
+          `Canlı: ${v.views.toLocaleString('tr-TR')} izlenme · ${v.likes} beğeni`
         );
         shown = true;
         break;
@@ -227,9 +234,9 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       const topLiked = vids.find((v) => v.likes > 0) || vids[0];
       if (topLiked) {
         triggerLeftPopup(
-          `❤️ YouTube Canlı Beğeni Bildirimi`,
+          `YouTube canlı beğeni bildirimi`,
           getShortCleanTitle(topLiked.title).shortTitle,
-          `👍 ${topLiked.likes} Beğeni · 👁️ ${topLiked.views.toLocaleString('tr-TR')} İzlenme`
+          `${topLiked.likes} beğeni · ${topLiked.views.toLocaleString('tr-TR')} izlenme`
         );
       }
     }
@@ -607,17 +614,17 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       const res = await fetch('/api/automation/yt-bridge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'dispatch' }),
+        body: JSON.stringify({ action: 'upload_now', videoType: 'auto' }),
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.ok) {
-        setActionMsg('Yükleyici iş akışı tetiklendi. Sonuç birkaç dakika içinde tabloya yansır.');
+        setActionMsg(data.message || 'Yükleyici iş akışı tetiklendi. Sonuç birkaç dakika içinde tabloya yansır.');
       } else {
-        setActionMsg(data?.error || 'Şu anda hatalı iş bulunmuyor; tüm işçiler normal çalışıyor.');
+        setActionMsg(data?.error || 'Yükleyici başlatılamadı.');
       }
       await loadStatus();
     } catch {
-      setActionMsg('İşlem isteği gönderilemedi.');
+      setActionMsg('İstek gönderilemedi.');
     } finally {
       setBusy(false);
     }
@@ -632,6 +639,88 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       setActionMsg(paused ? 'İşçiler yeniden etkinleştirildi.' : 'Tüm zamanlanmış işçiler geçici olarak duraklatıldı.');
     }
   }
+
+  useEffect(() => {
+    if (!menuOpen && !moreOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target || !target.closest?.('[data-pop]')) {
+        setMenuOpen(false);
+        setMoreOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [menuOpen, moreOpen]);
+
+  async function handleUploadNow() {
+    if (busy) return;
+    setBusy(true);
+    setActionMsg('');
+    setUploadOpen(false);
+    try {
+      const res = await fetch('/api/automation/yt-bridge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: uploadDryRun ? 'dry_run' : 'upload_now', videoType: uploadType }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) {
+        setActionMsg(data.message || (uploadDryRun ? 'Dry-run doğrulama akışı başlatıldı.' : 'Yükleme işçisi başlatıldı.'));
+        void loadStatus(false);
+      } else {
+        setActionMsg(data?.error || 'İşçi başlatılamadı.');
+      }
+    } catch {
+      setActionMsg('İstek gönderilemedi.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function confirmUploadNow() {
+    if (!uploadDryRun) {
+      const confirmed = window.confirm(
+        'Sıradaki video hemen YouTube yükleyici işçisi tarafından yüklenecek. Zamanlanmış yayın saatini beklemeden devam edilsin mi?'
+      );
+      if (!confirmed) return;
+    }
+    void handleUploadNow();
+  }
+
+  async function handleTelegramTest() {
+    if (busy) return;
+    setBusy(true);
+    setMenuOpen(false);
+    setActionMsg('');
+    try {
+      const res = await fetch('/api/automation/telegram-test', { method: 'POST' });
+      const data = await res.json().catch(() => null);
+      setActionMsg(
+        res.ok && data?.ok
+          ? 'Telegram test mesajı gönderildi.'
+          : data?.error || 'Telegram testi başarısız oldu.'
+      );
+    } catch {
+      setActionMsg('Telegram test isteği gönderilemedi.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fmtDate = (iso?: string) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso.slice(0, 16).replace('T', ' ');
+    const now = new Date();
+    const hm = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+    if (sameDay(d, now)) return `Bugün ${hm}`;
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (sameDay(d, yesterday)) return `Dün ${hm}`;
+    return `${d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })} ${hm}`;
+  };
 
   const fmt = (n: number | undefined) => Number(n || 0).toLocaleString('tr-TR');
 
@@ -674,170 +763,351 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
 
   return (
     <div className="min-h-[100dvh] w-full bg-[#F8F9FA] text-[#111827] font-sans text-sm antialiased">
-      {/* Üst Başlık Şeridi */}
-      <header className="sticky top-0 z-30 border-b border-[#E5E7EB] bg-white px-4 py-2.5">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5">
-            <span className="text-[15px] font-bold text-[#111827]">KartaL AI · Görev Yöneticisi</span>
-            {renderBadge(overallStatus, overallText)}
-          </div>
-          <div className="flex flex-wrap items-center gap-2.5 text-xs text-[#4B5563]">
-            <span>
-              Stok: <strong>{report?.summary?.stock_shorts ?? 57}</strong> Shorts ·{' '}
-              <strong>{report?.summary?.stock_long ?? 10}</strong> Uzun
+      {/* Üst Başlık */}
+      <header className="sticky top-0 z-30 border-b border-[#E5E7EB] bg-white/95 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-6xl items-center gap-2.5 px-5 pt-3.5">
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${
+              overallStatus === 'err' ? 'bg-[#EF4444]' : overallStatus === 'warn' ? 'bg-[#F59E0B]' : 'bg-[#10B981]'
+            }`}
+            title={overallText}
+          />
+          <span className="text-[15px] font-semibold tracking-tight text-[#111827]">KartaL AI</span>
+          {overallStatus !== 'ok' && (
+            <span className={`text-xs ${overallStatus === 'err' ? 'text-[#B91C1C]' : 'text-[#92400E]'}`}>
+              {overallText}
             </span>
-            <span>·</span>
-            <span>
-              Son güncelleme: <strong>{(report?.updated_at || '2026.10.23 - 21:24').replace(/-/g, '.')}</strong> · Telegram&apos;a son bildirim: <strong>{lastTelegramTime}</strong>
-            </span>
-            {/* BELİRGİN YENİLE DÜĞMESİ */}
+          )}
+          <div className="relative ml-auto flex items-center gap-0.5" data-pop>
             <button
               type="button"
+              title="Yenile"
               onClick={() => void loadStatus()}
               disabled={loading}
-              className="rounded-md border-2 border-[#111827] bg-white px-3 py-1 text-xs font-bold text-[#111827] shadow-xs hover:bg-[#F3F4F6] disabled:opacity-60"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-[#6B7280] transition hover:bg-[#F3F4F6] hover:text-[#111827] disabled:opacity-50"
             >
-              ↻ {loading ? 'Yenileniyor…' : lastRefreshedAt ? `Yenile (${lastRefreshedAt})` : 'Yenile'}
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                <path d="M21 3v6h-6" />
+              </svg>
             </button>
-            {/* SAYFA İÇİNDE AÇILAN SESLİ ASİSTAN KARTAL DÜĞMESİ */}
             <button
               type="button"
+              title={voiceOpen ? 'Sesli asistanı kapat' : 'Sesli Asistan KartaL'}
               onClick={handleToggleVoiceWidget}
-              className="rounded-md border border-[#1E3A8A] bg-[#0F172A] px-3 py-1 text-xs font-semibold text-white shadow-xs hover:bg-[#1E293B]"
+              className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                voiceOpen ? 'bg-[#111827] text-white' : 'text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111827]'
+              }`}
             >
-              🎙️ {voiceOpen ? 'KartaL Sesli Asistanı Kapat' : 'Sesli Asistan KartaL'}
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="2" width="6" height="12" rx="3" />
+                <path d="M5 10v1a7 7 0 0 0 14 0v-1" />
+                <path d="M12 18v4" />
+              </svg>
             </button>
+            <button
+              type="button"
+              title="Menü"
+              onClick={() => {
+                setMenuOpen((v) => !v);
+                setMoreOpen(false);
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-[#6B7280] transition hover:bg-[#F3F4F6] hover:text-[#111827]"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="5" cy="12" r="1.7" />
+                <circle cx="12" cy="12" r="1.7" />
+                <circle cx="19" cy="12" r="1.7" />
+              </svg>
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-9 z-40 w-60 rounded-lg border border-[#E5E7EB] bg-white py-1.5 text-[13px] shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setUploadOpen(true);
+                  }}
+                  className="block w-full px-4 py-2 text-left text-[#111827] hover:bg-[#F3F4F6]"
+                >
+                  Şimdi paylaş…
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleTelegramTest()}
+                  disabled={busy}
+                  className="block w-full px-4 py-2 text-left text-[#111827] hover:bg-[#F3F4F6] disabled:opacity-50"
+                >
+                  Telegram&apos;ı test et
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void handleRetryOrRun();
+                  }}
+                  disabled={busy}
+                  className="block w-full px-4 py-2 text-left text-[#111827] hover:bg-[#F3F4F6] disabled:opacity-50"
+                >
+                  Yükleyiciyi şimdi çalıştır
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    handlePauseAll();
+                  }}
+                  className="block w-full px-4 py-2 text-left text-[#111827] hover:bg-[#F3F4F6]"
+                >
+                  {paused ? 'Devam ettir' : 'Tümünü duraklat'}
+                </button>
+                <a
+                  href="https://github.com/benngokhan/yt_auto_uploader/actions/workflows/youtube-drive-uploader.yml"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block px-4 py-2 text-[#111827] hover:bg-[#F3F4F6]"
+                >
+                  GitHub Actions işçileri
+                </a>
+              </div>
+            )}
           </div>
+        </div>
+        <div className="mx-auto flex max-w-6xl flex-wrap gap-x-3 gap-y-0.5 px-5 pb-2.5 pt-1.5 text-[11px] text-[#9CA3AF]">
+          <span>
+            Stok {report ? `${report.summary.stock_shorts} Shorts · ${report.summary.stock_long} Uzun` : '—'}
+          </span>
+          <span>Son güncelleme {(report?.updated_at || '—').replace(/-/g, '.')}</span>
+          <span>Telegram {lastTelegramTime}</span>
+          {lastRefreshedAt && <span>yenilendi {lastRefreshedAt}</span>}
         </div>
       </header>
 
-      {/* Üst Sekmeler */}
-      <nav className="border-b border-[#E5E7EB] bg-white px-4">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
-          <div className="flex gap-1 overflow-x-auto">
-            {([
-              ['genel', 'Genel'],
-              ['videolar', 'Videolar'],
-              ['paylasim', '📲 Paylaşım'],
-              ['isciler', 'İşçiler'],
-              ['baglantilar', 'Bağlantılar'],
-              ['uyarilar', 'Uyarılar'],
-            ] as const).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setActiveTab(key)}
-                className={`border-b-2 px-3 py-2.5 text-[13px] whitespace-nowrap ${
-                  activeTab === key
-                    ? 'border-[#111827] font-semibold text-[#111827]'
-                    : 'border-transparent font-medium text-[#6B7280] hover:text-[#111827]'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2 py-1.5">
+      {/* Sekmeler */}
+      <nav className="border-b border-[#E5E7EB] bg-white" data-pop>
+        <div className="mx-auto flex max-w-6xl items-center gap-4 overflow-x-auto px-5">
+          {([
+            ['genel', 'Genel'],
+            ['videolar', 'Videolar'],
+            ['paylasim', 'Paylaşım'],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setActiveTab(key)}
+              className={`border-b-2 px-0.5 py-3 text-[13px] whitespace-nowrap transition ${
+                activeTab === key
+                  ? 'border-[#111827] font-semibold text-[#111827]'
+                  : 'border-transparent text-[#6B7280] hover:text-[#111827]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          <div className="relative">
             <button
               type="button"
-              onClick={() => void handleRetryOrRun()}
-              disabled={busy}
-              className="rounded border border-[#111827] bg-[#111827] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+              onClick={() => setMoreOpen((v) => !v)}
+              className={`flex items-center gap-1 border-b-2 px-0.5 py-3 text-[13px] whitespace-nowrap transition ${
+                activeTab === 'isciler' || activeTab === 'baglantilar' || activeTab === 'uyarilar'
+                  ? 'border-[#111827] font-semibold text-[#111827]'
+                  : 'border-transparent text-[#6B7280] hover:text-[#111827]'
+              }`}
             >
-              {busy ? 'Çalıştırılıyor…' : 'Hatalıları yeniden dene'}
+              Daha fazla
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
             </button>
-            <button
-              type="button"
-              onClick={handlePauseAll}
-              className="rounded border border-[#E5E7EB] bg-white px-3 py-1.5 text-xs font-medium text-[#111827] hover:bg-[#F3F4F6]"
-            >
-              {paused ? 'Devam ettir' : 'Tümünü duraklat'}
-            </button>
+            {moreOpen && (
+              <div className="absolute left-0 top-full z-40 w-44 rounded-lg border border-[#E5E7EB] bg-white py-1.5 text-[13px] shadow-lg">
+                {([
+                  ['isciler', 'İşçiler'],
+                  ['baglantilar', 'Bağlantılar'],
+                  ['uyarilar', 'Uyarılar'],
+                ] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(key);
+                      setMoreOpen(false);
+                    }}
+                    className={`block w-full px-4 py-2 text-left text-[#111827] hover:bg-[#F3F4F6] ${
+                      activeTab === key ? 'font-semibold' : ''
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </nav>
 
+      {/* Şimdi paylaş penceresi */}
+      {uploadOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4"
+          onClick={() => setUploadOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-[15px] font-semibold text-[#111827]">Şimdi paylaş</h3>
+            <p className="mt-1 text-xs leading-5 text-[#6B7280]">
+              Zamanlayıcıyı beklemeden GitHub Actions yükleyici işçisini başlatır. Zamanlanmış yayın
+              saatleri (14:15 / 18:15 / 21:15) aynen çalışmaya devam eder.
+            </p>
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              {([
+                ['auto', 'Otomatik'],
+                ['short', 'Shorts'],
+                ['long', 'Uzun Video'],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setUploadType(key)}
+                  className={`rounded-md border px-2 py-2.5 text-xs transition ${
+                    uploadType === key
+                      ? 'border-[#111827] bg-[#111827] font-semibold text-white'
+                      : 'border-[#E5E7EB] text-[#374151] hover:border-[#9CA3AF]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label className="mt-3.5 flex items-start gap-2 text-xs leading-5 text-[#374151]">
+              <input
+                type="checkbox"
+                checked={uploadDryRun}
+                onChange={(e) => setUploadDryRun(e.target.checked)}
+                className="mt-0.5 h-3.5 w-3.5 accent-[#111827]"
+              />
+              Sadece test (dry-run — video yüklemez, yalnızca tablo ve Drive bağlantısını doğrular)
+            </label>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setUploadOpen(false)}
+                className="rounded-md px-3.5 py-2 text-xs text-[#6B7280] hover:text-[#111827]"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={confirmUploadNow}
+                disabled={busy}
+                className="rounded-md bg-[#111827] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#1F2937] disabled:opacity-50"
+              >
+                {busy ? 'Başlatılıyor…' : 'Başlat'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="mx-auto max-w-6xl px-4 py-4 pb-24">
         {actionMsg && (
-          <div className="mb-3 rounded border border-[#E5E7EB] bg-white px-3 py-2 text-xs text-[#111827]">
-            {actionMsg}
-          </div>
+          <div className="mb-4 border-l-2 border-[#111827] pl-3 text-[13px] leading-5 text-[#111827]">{actionMsg}</div>
         )}
         {error && (
-          <div className="mb-3 rounded border border-[#EF4444] bg-[#FEF2F2] px-3 py-2 text-xs text-[#991B1B]">
+          <div className="mb-4 border-l-2 border-[#EF4444] pl-3 text-[13px] leading-5 text-[#B91C1C]">
             Veri okuma hatası: {error}
           </div>
         )}
 
-        {/* Üst Kartlar kaldırıldı — Genel sekmesine taşındı (sadelik) */}
-
-        {/* Kayan şerit (marquee) tamamen kaldırıldı — göz yormuyor artık. Program kartı Genel sekmesinde, Drive köprüleri Bağlantılar sekmesinde. */}
-
         {/* Genel Sekmesi */}
         {activeTab === 'genel' && (
-          <div className="space-y-4">
-            {/* KPI Kartları (dört temel sayaç) */}
-            <section className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
-              <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
-                <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary?.total_views)}</div>
-                <div className="mt-0.5 text-xs text-[#6B7280]">toplam görüntülenme</div>
+          <div>
+            {/* Tek vurgu: ana sayı */}
+            <section className="flex items-end justify-between gap-4 pb-6 pt-2">
+              <div className="min-w-0">
+                <div className="text-[52px] font-semibold leading-none tracking-tight tabular-nums text-[#111827] sm:text-[60px]">
+                  {fmt(report?.summary?.total_views)}
+                </div>
+                <div className="mt-2.5 text-[13px] text-[#6B7280]">toplam görüntülenme</div>
               </div>
-              <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
-                <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary?.weekly_uploaded)}</div>
-                <div className="mt-0.5 text-xs text-[#6B7280]">bu hafta yüklenen</div>
-              </div>
-              <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
-                <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary?.total_comments)}</div>
-                <div className="mt-0.5 text-xs text-[#6B7280]">toplam yorum</div>
-              </div>
-              <div className="rounded-md border border-[#E5E7EB] bg-white p-3">
-                <div className="text-xl font-semibold text-[#111827]">{fmt(report?.summary?.failed_jobs)}</div>
-                <div className="mt-0.5 text-xs text-[#6B7280]">başarısız iş</div>
+              <div className="shrink-0 pb-1 text-right text-[13px] leading-5 text-[#6B7280]">
+                <div>
+                  {fmt(report?.summary?.weekly_uploaded)} bu hafta · {fmt(report?.summary?.total_comments)} yorum
+                </div>
+                <div className={report?.summary?.failed_jobs ? 'font-semibold text-[#B91C1C]' : 'text-[#9CA3AF]'}>
+                  {fmt(report?.summary?.failed_jobs)} hata
+                </div>
               </div>
             </section>
 
-            {/* Yayın Programı — STATIK kart (kayan yazı yok) */}
-            <section className="rounded-md border border-[#E5E7EB] bg-white">
-              <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-                <span className="text-sm font-semibold text-[#111827]">⏰ Günlük Yayın Programı (TR saati)</span>
-                <span className="text-xs text-[#6B7280]">otomatik zamanlayıcı aktif</span>
-              </div>
-              <div className="grid grid-cols-1 gap-2 px-3.5 py-3 sm:grid-cols-3">
-                <div className="rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2.5 text-xs">
-                  <div className="text-base font-bold text-[#111827]">14:15</div>
-                  <div className="mt-0.5 text-[#6B7280]">Öğle Kuşağı · 1. Shorts</div>
-                </div>
-                <div className="rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2.5 text-xs">
-                  <div className="text-base font-bold text-[#111827]">18:15</div>
-                  <div className="mt-0.5 text-[#6B7280]">Akşamüstü · 2. Shorts</div>
-                </div>
-                <div className="rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2.5 text-xs">
-                  <div className="text-base font-bold text-[#111827]">21:15</div>
-                  <div className="mt-0.5 text-[#6B7280]">Prime-Time · tek gün Shorts / çift gün Uzun Video</div>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[#E5E7EB] px-3.5 py-2.5 text-xs text-[#6B7280]">
-                <span>🟢 Son atılan:{' '}
-                  {lastUploadUrl ? (
-                    <a href={lastUploadUrl} target="_blank" rel="noreferrer" className="font-semibold text-[#065F46] underline">
-                      {lastUploadFile || '—'}
-                    </a>
-                  ) : (
-                    <strong className="text-[#111827]">{lastUploadFile || '—'}</strong>
-                  )}
+            {/* Bugünkü yayınlar — kutusuz, çizgi ve boşlukla */}
+            <section className="border-t border-[#E5E7EB] py-6">
+              <div className="flex items-baseline justify-between">
+                <h2 className="text-[13px] font-semibold text-[#111827]">Bugünkü yayınlar</h2>
+                <span className="text-xs text-[#9CA3AF]">
+                  stok {report?.summary?.stock_shorts ?? '—'} · {report?.summary?.stock_long ?? '—'}
                 </span>
-                <span>🟡 Sıradaki: <strong className="text-[#111827]">{lastUploadFile && /video_(\d+)/.test(lastUploadFile) ? `video_${Number(/video_(\d+)/.exec(lastUploadFile)![1]) + 1}.mp4` : '—'}</strong></span>
-                <a href="https://drive.google.com/drive/folders/1MBjwKp1DXoxLiCAkds84MowZAFMOK7Br" target="_blank" rel="noreferrer" title="Yayın kuyruğu — Lobi'deki her video artık buraya otomatik akıyor" className="font-semibold text-[#065F46] underline decoration-dotted underline-offset-2 hover:text-[#047857]">⚡ Tam otomatik: <strong>Lobi onaysız kuyruğa akıyor</strong></a>
+              </div>
+              <div className="mt-3.5 grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-6">
+                <div className="border-t-2 border-[#111827] pt-2.5">
+                  <div className="text-[17px] font-semibold tabular-nums text-[#111827]">14:15</div>
+                  <div className="mt-0.5 text-xs text-[#6B7280]">Öğle Kuşağı · Shorts</div>
+                </div>
+                <div className="border-t border-[#D1D5DB] pt-2.5">
+                  <div className="text-[17px] font-semibold tabular-nums text-[#111827]">18:15</div>
+                  <div className="mt-0.5 text-xs text-[#6B7280]">Akşamüstü · Shorts</div>
+                </div>
+                <div className="border-t border-[#D1D5DB] pt-2.5">
+                  <div className="text-[17px] font-semibold tabular-nums text-[#111827]">21:15</div>
+                  <div className="mt-0.5 text-xs text-[#6B7280]">Prime-Time · tek gün Shorts / çift gün Uzun</div>
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-[#6B7280]">
+                <span>
+                  Sıradaki:{' '}
+                  <strong className="font-semibold text-[#111827]">
+                    {lastUploadFile && /video_(\d+)/.test(lastUploadFile)
+                      ? `video_${Number(/video_(\d+)/.exec(lastUploadFile)![1]) + 1}.mp4`
+                      : '—'}
+                  </strong>
+                </span>
+                {lastUploadUrl && (
+                  <a
+                    href={lastUploadUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline decoration-dotted underline-offset-2 hover:text-[#111827]"
+                  >
+                    son atılan {lastUploadFile || '—'}
+                  </a>
+                )}
+                <a
+                  href="https://drive.google.com/drive/folders/1MBjwKp1DXoxLiCAkds84MowZAFMOK7Br"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline decoration-dotted underline-offset-2 hover:text-[#111827]"
+                  title="Yayın kuyruğu — Lobi'deki her video buraya otomatik akıyor"
+                >
+                  Lobi onaysız kuyruğa akıyor
+                </a>
               </div>
             </section>
 
-            {/* Sağda Son Videolar (Kısa başlık + tıklayınca tam başlık ve hashtag'ler) */}
-            <section className="rounded-md border border-[#E5E7EB] bg-white lg:col-span-7">
-              <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-                <span className="text-sm font-semibold text-[#111827]">Son videolar (Kısa başlık)</span>
-                <span className="text-xs text-[#6B7280]">Tam başlık için satıra dokun</span>
+            {/* Son videolar */}
+            <section className="border-t border-[#E5E7EB] py-6">
+              <div className="flex items-baseline justify-between">
+                <h2 className="text-[13px] font-semibold text-[#111827]">Son videolar</h2>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('videolar')}
+                  className="text-xs text-[#6B7280] underline-offset-2 hover:text-[#111827] hover:underline"
+                >
+                  Tümünü gör
+                </button>
               </div>
-              <div className="max-h-[560px] divide-y divide-[#E5E7EB] overflow-y-auto">
+              <div className="mt-1 divide-y divide-[#E5E7EB]">
                 {(report?.videos || []).map((v) => {
                   const key = `v-${v.id}`;
                   const isOpen = !!openRows[key];
@@ -846,56 +1116,50 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                     <div
                       key={v.id}
                       onClick={() => toggleRow(key)}
-                      className="cursor-pointer px-3.5 py-2.5 hover:bg-[#F3F4F6]"
+                      className="cursor-pointer py-3.5 transition hover:bg-[#FAFAFA]"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-[13px] font-semibold text-[#111827]">
-                          {isOpen ? '▾ ' : '▸ '}
-                          {shortTitle}
-                        </span>
-                        {renderBadge('ok', 'Yayında')}
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-2 text-xs text-[#6B7280]">
-                        <span>{fmt(v.views)} görüntüleme</span>
-                        <span>·</span>
-                        <span>{fmt(v.comments)} yorum</span>
-                        <span>·</span>
-                        <span>{(v.publishedAt || '').slice(0, 16).replace('T', ' ')}</span>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="truncate text-[13.5px] font-semibold text-[#111827]">{shortTitle}</div>
+                          <div className="mt-1 text-xs text-[#9CA3AF]">{fmtDate(v.publishedAt)}</div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="text-[13.5px] font-semibold tabular-nums text-[#111827]">{fmt(v.views)}</div>
+                          <div className="mt-0.5 text-[11px] text-[#9CA3AF]">görüntülenme</div>
+                        </div>
                       </div>
                       {isOpen && (
-                        <div className="mt-2 rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2.5 text-xs text-[#111827] space-y-1">
+                        <div className="mt-3 space-y-1.5 border-l border-[#E5E7EB] pl-3.5 text-xs leading-5 text-[#374151]">
                           <div>
-                            <strong>Tam Başlık:</strong> {fullClean}
+                            <span className="text-[#9CA3AF]">Tam başlık:</span> {fullClean}
                           </div>
                           {hashtags && (
-                            <div className="text-[#6B7280]">
-                              <strong>Etiketler:</strong> {hashtags}
+                            <div>
+                              <span className="text-[#9CA3AF]">Etiketler:</span> {hashtags}
                             </div>
                           )}
-                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                            <span>
-                              Video ID: {v.id} · Beğeni: {fmt(v.likes)} ·{' '}
-                              <a
-                                href={v.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="font-semibold text-blue-700 underline"
-                              >
-                                YouTube&apos;da aç ↗
-                              </a>
-                            </span>
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-1">
+                            <span className="text-[#9CA3AF]">Beğeni {fmt(v.likes)}</span>
+                            <a
+                              href={v.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-[#111827] underline decoration-dotted underline-offset-2 hover:text-[#374151]"
+                            >
+                              YouTube&apos;da aç
+                            </a>
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const caption = `${fullClean}\n\nDaha fazla bilgi dozu için @bilgidozuofficial hesabını takip etmeyi unutma! 🧠🪐\n\n#bilgidozu #bilim #ilginçbilgiler #keşfet #fyp #reels`;
                                 void navigator.clipboard.writeText(caption);
-                                setActionMsg(`"${shortTitle}" için TikTok & Reels açıklaması kopyalandı!`);
+                                setActionMsg(`"${shortTitle}" için TikTok & Reels metni kopyalandı.`);
                               }}
-                              className="rounded border border-[#111827] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#111827] hover:bg-[#E5E7EB]"
+                              className="text-[#6B7280] underline decoration-dotted underline-offset-2 hover:text-[#111827]"
                             >
-                              📋 TikTok / Reels Metni Kopyala
+                              Reels metnini kopyala
                             </button>
                           </div>
                         </div>
@@ -903,175 +1167,197 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                     </div>
                   );
                 })}
+                {!(report?.videos || []).length && (
+                  <div className="py-6 text-center text-xs text-[#9CA3AF]">Henüz video yok.</div>
+                )}
               </div>
             </section>
           </div>
         )}
-
         {/* Videolar Sekmesi */}
         {activeTab === 'videolar' && (
-          <section className="rounded-md border border-[#E5E7EB] bg-white">
-            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-              <span className="text-sm font-semibold text-[#111827]">Tüm yayınlanan videolar</span>
-              <span className="text-xs text-[#6B7280]">Tam başlığı görmek için satıra dokun</span>
+          <section className="pb-2">
+            <div className="flex items-baseline justify-between pb-1 pt-1">
+              <h2 className="text-[13px] font-semibold text-[#111827]">Tüm videolar</h2>
+              <span className="text-xs text-[#9CA3AF]">tam başlık için satıra dokun</span>
             </div>
-            <div className="divide-y divide-[#E5E7EB]">
+            <div className="divide-y divide-[#E5E7EB] border-t border-[#E5E7EB]">
               {(report?.videos || []).map((v) => {
                 const key = `vt-${v.id}`;
                 const isOpen = !!openRows[key];
                 const { shortTitle, fullClean, hashtags } = getShortCleanTitle(v.title);
                 return (
-                  <div
-                    key={v.id}
-                    onClick={() => toggleRow(key)}
-                    className="cursor-pointer px-3.5 py-2.5 hover:bg-[#F3F4F6]"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-[13px] font-semibold text-[#111827]">
-                        {isOpen ? '▾ ' : '▸ '}
-                        {shortTitle}
-                      </span>
-                      {renderBadge('ok', 'Yayında')}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-2 text-xs text-[#6B7280]">
-                      <span>{fmt(v.views)} görüntüleme</span>
-                      <span>·</span>
-                      <span>{fmt(v.comments)} yorum</span>
-                      <span>·</span>
-                      <span>{fmt(v.likes)} beğeni</span>
-                      <span>·</span>
-                      <span>{(v.publishedAt || '').slice(0, 16).replace('T', ' ')}</span>
+                  <div key={v.id} onClick={() => toggleRow(key)} className="cursor-pointer py-3.5 transition hover:bg-[#FAFAFA]">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="truncate text-[13.5px] font-semibold text-[#111827]">{shortTitle}</div>
+                        <div className="mt-1 text-xs text-[#9CA3AF]">
+                          {fmtDate(v.publishedAt)} · {fmt(v.likes)} beğeni
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-[13.5px] font-semibold tabular-nums text-[#111827]">{fmt(v.views)}</div>
+                        <div className="mt-0.5 text-[11px] text-[#9CA3AF]">görüntülenme</div>
+                      </div>
                     </div>
                     {isOpen && (
-                      <div className="mt-2 rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2.5 text-xs text-[#111827] space-y-1">
+                      <div className="mt-3 space-y-1.5 border-l border-[#E5E7EB] pl-3.5 text-xs leading-5 text-[#374151]">
                         <div>
-                          <strong>Tam Başlık:</strong> {fullClean}
+                          <span className="text-[#9CA3AF]">Tam başlık:</span> {fullClean}
                         </div>
                         {hashtags && (
-                          <div className="text-[#6B7280]">
-                            <strong>Etiketler:</strong> {hashtags}
+                          <div>
+                            <span className="text-[#9CA3AF]">Etiketler:</span> {hashtags}
                           </div>
                         )}
-                        <div>
-                          <a
-                            href={v.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="font-semibold text-blue-700 underline"
-                          >
-                            ▶️ YouTube&apos;da aç ({v.url})
-                          </a>
-                        </div>
+                        <a
+                          href={v.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-block pt-0.5 text-[#111827] underline decoration-dotted underline-offset-2"
+                        >
+                          YouTube&apos;da aç
+                        </a>
                       </div>
                     )}
                   </div>
                 );
               })}
+              {!(report?.videos || []).length && (
+                <div className="py-6 text-center text-xs text-[#9CA3AF]">Henüz video yok.</div>
+              )}
             </div>
           </section>
         )}
-
-        {/* Paylaşım Kitleri Sekmesi (Instagram Reels + TikTok manuel paylaşım) */}
+        {/* Paylaşım Kitleri Sekmesi */}
         {activeTab === 'paylasim' && (
-          <section className="rounded-md border border-[#E5E7EB] bg-white">
-            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-              <span className="text-sm font-semibold text-[#111827]">📲 Instagram / TikTok — Manuel Paylaşım Kitleri</span>
-              <span className="text-xs text-[#6B7280]">Açıklama + Sabit Yorum hazır, kopyala-yapıştır</span>
+          <section className="pb-2">
+            <div className="flex items-baseline justify-between pb-1 pt-1">
+              <h2 className="text-[13px] font-semibold text-[#111827]">Instagram / TikTok — manuel paylaşım kitleri</h2>
+              <span className="text-xs text-[#9CA3AF]">açıklama + sabit yorum hazır, kopyala-yapıştır</span>
             </div>
-            <div className="border-b border-[#E5E7EB] bg-[#F8F9FA] px-3.5 py-2.5 text-xs text-[#111827] space-y-1">
-              <div><strong>Kurallar:</strong> VPN kapalı · günde en fazla 2 video (12:45 &amp; 21:45) · paylaşınca 10-15 dk uygulamada kal · sabit yorumu kendin ilk yorum olarak at + pinle.</div>
+            <div className="space-y-1 border-t border-[#E5E7EB] py-3 text-xs leading-5 text-[#6B7280]">
+              <div>
+                <span className="font-semibold text-[#374151]">Kurallar:</span> VPN kapalı · günde en fazla 2 video (12:45 ve 21:45) ·
+                paylaşınca 10-15 dk uygulamada kal · sabit yorumu kendin ilk yorum olarak at + pinle.
+              </div>
               <div>
                 Video dosyaları:{' '}
                 <a
                   href="https://drive.google.com/drive/folders/1w8tz_lv7iMFsRRCaTKUSY_ri0F107rz_"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-semibold text-blue-700 underline"
+                  className="font-semibold text-[#111827] underline decoration-dotted underline-offset-2"
                 >
-                  Drive &quot;KartaL Stok&quot; klasörü ↗
+                  Drive &quot;KartaL Stok&quot;
                 </a>{' '}
-                (karttaki <code className="rounded bg-white px-1">video_XX.mp4</code> adıyla aynı dosya)
+                (karttaki <code className="text-[#374151]">video_XX.mp4</code> adıyla aynı dosya)
               </div>
             </div>
-            <div className="divide-y divide-[#E5E7EB]">
+            <div className="divide-y divide-[#E5E7EB] border-t border-[#E5E7EB]">
               {PAYLASIM_KITLERI.map((k) => (
-                <div key={k.no} className="px-3.5 py-3">
+                <div key={k.no} className="py-4">
                   <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="text-[13px] font-semibold text-[#111827]">🎬 {k.dosya}</div>
-                      <div className="mt-0.5 text-xs text-[#6B7280]">Drive adı: {k.driveAdi} · {k.gunSlot !== '—' ? `Plan: ${k.gunSlot}` : 'Plan: yayında'}</div>
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-semibold text-[#111827]">{k.dosya}</div>
+                      <div className="mt-0.5 text-xs text-[#9CA3AF]">
+                        Drive: {k.driveAdi} · {k.gunSlot !== '—' ? `plan: ${k.gunSlot}` : 'plan: yayında'}
+                      </div>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
-                      {renderBadge(k.durum === 'yayinda' ? 'ok' : 'warn', k.durum === 'yayinda' ? 'YAYINDA' : 'SIRADA')}
-                      {k.not && <span className="text-[11px] text-[#6B7280]">{k.not}</span>}
-                    </div>
+                    {k.durum !== 'yayinda' && renderBadge('warn', 'SIRADA')}
                   </div>
-                  <div className="mt-2 rounded border border-[#E5E7EB] bg-[#F8F9FA] p-2.5 text-xs leading-relaxed text-[#111827] whitespace-pre-wrap">
-                    {k.caption}
+                  <div className="mt-2.5 text-xs leading-6 text-[#374151] whitespace-pre-wrap">{k.caption}</div>
+                  <div className="mt-2.5 border-l-2 border-[#D97706] pl-3 text-xs leading-6 text-[#374151]">
+                    <span className="font-semibold">Sabit yorum:</span> {k.yorum}
                   </div>
-                  <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2.5 text-xs leading-relaxed text-[#111827]">
-                    <strong>📌 Sabit Yorum:</strong> {k.yorum}
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
+                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
                     <button
                       type="button"
                       onClick={() => {
                         void navigator.clipboard.writeText(k.caption);
-                        setActionMsg(`"${k.driveAdi}" açıklaması kopyalandı!`);
+                        setActionMsg(`"${k.driveAdi}" açıklaması kopyalandı.`);
                       }}
-                      className="rounded border border-[#111827] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#111827] hover:bg-[#E5E7EB]"
+                      className="text-[#111827] underline decoration-dotted underline-offset-2 hover:text-[#374151]"
                     >
-                      📋 Açıklamayı Kopyala
+                      Açıklamayı kopyala
                     </button>
                     <button
                       type="button"
                       onClick={() => {
                         void navigator.clipboard.writeText(k.yorum);
-                        setActionMsg(`"${k.driveAdi}" sabit yorumu kopyalandı!`);
+                        setActionMsg(`"${k.driveAdi}" sabit yorumu kopyalandı.`);
                       }}
-                      className="rounded border border-amber-600 bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
+                      className="text-[#111827] underline decoration-dotted underline-offset-2 hover:text-[#374151]"
                     >
-                      📌 Sabit Yorumu Kopyala
+                      Sabit yorumu kopyala
                     </button>
-                    <a
-                      href={k.ytUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-[#F3F4F6]"
-                    >
-                      ▶ YouTube&apos;da Aç
+                    <a href={k.ytUrl} target="_blank" rel="noopener noreferrer" className="text-[#6B7280] underline decoration-dotted underline-offset-2 hover:text-[#111827]">
+                      YouTube&apos;da aç
                     </a>
+                    {k.not && <span className="text-[#9CA3AF]">{k.not}</span>}
                   </div>
                 </div>
               ))}
             </div>
           </section>
         )}
-
         {/* İşçiler Sekmesi */}
         {activeTab === 'isciler' && (
-          <section className="rounded-md border border-[#E5E7EB] bg-white">
-            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-              <span className="text-sm font-semibold text-[#111827]">İşçi durumları</span>
-              <span className="text-xs text-[#6B7280]">Durum, zaman ve bildirim kayıtları</span>
+          <section className="pb-2">
+            <div className="flex flex-wrap items-center gap-2 border-b border-[#E5E7EB] py-3.5">
+              <span className="mr-1 text-xs text-[#9CA3AF]">Kontroller</span>
+              <button
+                type="button"
+                onClick={() => setUploadOpen(true)}
+                className="rounded-md bg-[#111827] px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-[#1F2937]"
+              >
+                Şimdi paylaş
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleTelegramTest()}
+                disabled={busy}
+                className="rounded-md border border-[#E5E7EB] px-3.5 py-1.5 text-xs text-[#111827] transition hover:border-[#9CA3AF] disabled:opacity-50"
+              >
+                Telegram&apos;ı test et
+              </button>
+              <button
+                type="button"
+                onClick={handlePauseAll}
+                className="rounded-md border border-[#E5E7EB] px-3.5 py-1.5 text-xs text-[#111827] transition hover:border-[#9CA3AF]"
+              >
+                {paused ? 'Devam ettir' : 'Tümünü duraklat'}
+              </button>
+              <a
+                href="https://github.com/benngokhan/yt_auto_uploader/actions/workflows/youtube-drive-uploader.yml"
+                target="_blank"
+                rel="noreferrer"
+                className="ml-auto text-xs text-[#6B7280] underline decoration-dotted underline-offset-2 hover:text-[#111827]"
+              >
+                GitHub Actions akışları
+              </a>
             </div>
-            <div className="divide-y divide-[#E5E7EB]">
+            <div className="flex items-baseline justify-between pb-1 pt-5">
+              <h2 className="text-[13px] font-semibold text-[#111827]">İşçi durumları</h2>
+              <span className="text-xs text-[#9CA3AF]">sorun yoksa rozet gösterilmez</span>
+            </div>
+            <div className="divide-y divide-[#E5E7EB] border-t border-[#E5E7EB]">
               {(report?.workers || []).map((w) => (
-                <div key={w.id} className="px-3.5 py-3">
+                <div key={w.id} className="py-3.5">
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-[13px] font-medium text-[#111827]">{w.name}</span>
-                    {renderBadge(w.status, w.status_text)}
+                    {w.status !== 'ok' && renderBadge(w.status, w.status_text)}
                   </div>
-                  <div className="mt-1 text-xs text-[#6B7280]">
-                    Son güncelleme: {(w.updated_at || '').replace(/-/g, '.')} · Toplam iş: {w.jobs_done}
+                  <div className="mt-1 text-xs text-[#9CA3AF]">
+                    Son güncelleme {(w.updated_at || '').replace(/-/g, '.')} · Toplam iş {w.jobs_done}
                     {(w.id === 'uploader' || w.id === 'telegram') && (
-                      <> · <strong>Telegram&apos;a son bildirim: {w.telegram_last || lastTelegramTime}</strong></>
+                      <> · Telegram {w.telegram_last || lastTelegramTime}</>
                     )}
                   </div>
-                  <div className="mt-1 text-xs text-[#111827]">{w.last_action}</div>
+                  <div className="mt-1 text-xs text-[#374151]">{w.last_action}</div>
                   {w.error_message && (
-                    <div className="mt-1.5 rounded border border-[#EF4444] bg-[#FEF2F2] p-2 text-xs text-[#991B1B]">
+                    <div className="mt-1.5 border-l-2 border-[#EF4444] pl-2.5 text-xs text-[#B91C1C]">
                       Son hata: {w.error_message}
                     </div>
                   )}
@@ -1080,55 +1366,34 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
             </div>
           </section>
         )}
-
         {/* Bağlantılar Sekmesi */}
         {activeTab === 'baglantilar' && (
-          <div className="space-y-4">
-            <section className="rounded-md border border-[#E5E7EB] bg-white">
-              <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-                <span className="text-sm font-semibold text-[#111827]">📂 Drive Klasörleri & Hızlı Köprüler</span>
-                <span className="text-xs text-[#6B7280]">tek dokun</span>
+          <div className="space-y-6 pt-1">
+            <section>
+              <div className="flex items-baseline justify-between pb-1">
+                <h2 className="text-[13px] font-semibold text-[#111827]">Drive klasörleri ve köprüler</h2>
+                <span className="text-xs text-[#9CA3AF]">tek dokun</span>
               </div>
-              <div className="flex flex-wrap items-center gap-2 px-3.5 py-3 text-xs">
-                <a
-                  href="https://drive.google.com/drive/folders/1JULlauO1eFpXgGdZKdZZDyqesSdkeT6f"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded border border-[#D97706] bg-[#FFFBEB] px-2.5 py-1 font-semibold text-[#92400E] hover:bg-[#FEF3C7]"
-                >
-                  🛋️ Lobi (hazır videolar)
+              <div className="flex flex-wrap items-center gap-2 border-t border-[#E5E7EB] pt-3 text-xs">
+                <a href="https://drive.google.com/drive/folders/1JULlauO1eFpXgGdZKdZZDyqesSdkeT6f" target="_blank" rel="noreferrer"
+                  className="rounded-md border border-[#E5E7EB] px-2.5 py-1.5 text-[#374151] transition hover:border-[#9CA3AF]">
+                  Lobi · hazır videolar
                 </a>
-                <a
-                  href="https://drive.google.com/drive/folders/1w8tz_lv7iMFsRRCaTKUSY_ri0F107rz_"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded border border-[#059669] bg-[#ECFDF5] px-2.5 py-1 font-semibold text-[#065F46] hover:bg-[#D1FAE5]"
-                >
-                  🚀 KartaL Stok (yayın kuyruğu + baslik.xlsx)
+                <a href="https://drive.google.com/drive/folders/1w8tz_lv7iMFsRRCaTKUSY_ri0F107rz_" target="_blank" rel="noreferrer"
+                  className="rounded-md border border-[#E5E7EB] px-2.5 py-1.5 text-[#374151] transition hover:border-[#9CA3AF]">
+                  KartaL Stok · yayın kuyruğu
                 </a>
-                <a
-                  href="https://drive.google.com/drive/folders/1XKZJ12HyAvZkjgiG38ys3HOMhZ42d_jJ"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 font-medium text-[#374151] hover:bg-[#F3F4F6]"
-                >
-                  🖼️ KAPAKLAR
+                <a href="https://drive.google.com/drive/folders/1XKZJ12HyAvZkjgiG38ys3HOMhZ42d_jJ" target="_blank" rel="noreferrer"
+                  className="rounded-md border border-[#E5E7EB] px-2.5 py-1.5 text-[#374151] transition hover:border-[#9CA3AF]">
+                  Kapaklar
                 </a>
-                <a
-                  href="https://www.instagram.com/bilgidozuofficial"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded border border-pink-300 bg-pink-50 px-2.5 py-1 font-semibold text-pink-700 hover:bg-pink-100"
-                >
-                  📸 Instagram
+                <a href="https://www.instagram.com/bilgidozuofficial" target="_blank" rel="noreferrer"
+                  className="rounded-md border border-[#E5E7EB] px-2.5 py-1.5 text-[#374151] transition hover:border-[#9CA3AF]">
+                  Instagram
                 </a>
-                <a
-                  href="https://www.tiktok.com/@bilgidozuofficial"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded border border-cyan-300 bg-cyan-50 px-2.5 py-1 font-semibold text-cyan-800 hover:bg-cyan-100"
-                >
-                  🎵 TikTok
+                <a href="https://www.tiktok.com/@bilgidozuofficial" target="_blank" rel="noreferrer"
+                  className="rounded-md border border-[#E5E7EB] px-2.5 py-1.5 text-[#374151] transition hover:border-[#9CA3AF]">
+                  TikTok
                 </a>
                 <button
                   type="button"
@@ -1136,53 +1401,46 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                     const bio =
                       '🧠 Her gün 1 doz gerçek bilim, uzay ve insan beyninin sırları!\n🪐 Kaynaklı & doğruluk kontrolünden geçmiş içerikler\n👇 Uzun belgesellerimiz için YouTube kanalımız:\nhttps://www.youtube.com/@bilgidozuofficial';
                     void navigator.clipboard.writeText(bio);
-                    setActionMsg('TikTok & Instagram Reels profil biyografisi panoya kopyalandı!');
+                    setActionMsg('Profil biyografisi panoya kopyalandı.');
                   }}
-                  className="rounded border border-[#111827] bg-[#111827] px-2.5 py-1 font-semibold text-white hover:bg-[#1F2937]"
+                  className="rounded-md bg-[#111827] px-2.5 py-1.5 font-semibold text-white transition hover:bg-[#1F2937]"
                 >
-                  📋 Biyografi Kopyala
+                  Biyografiyi kopyala
                 </button>
-                <a
-                  href="/bilgidozu-logo.png"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded border border-[#E5E7EB] bg-white px-2.5 py-1 font-semibold text-[#111827] hover:bg-[#F3F4F6]"
-                >
-                  ⬇️ Logo İndir
+                <a href="/bilgidozu-logo.png" target="_blank" rel="noreferrer"
+                  className="rounded-md border border-[#E5E7EB] px-2.5 py-1.5 text-[#374151] transition hover:border-[#9CA3AF]">
+                  Logo indir
                 </a>
               </div>
             </section>
 
-            <section className="rounded-md border border-[#E5E7EB] bg-white">
-              <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-                <span className="text-sm font-semibold text-[#111827]">Aktif ve Hazır Platform Bağlantıları</span>
-                <span className="text-xs text-[#6B7280]">Çoklu kanal yönetim zemini</span>
+            <section>
+              <div className="flex items-baseline justify-between pb-1">
+                <h2 className="text-[13px] font-semibold text-[#111827]">Platform bağlantıları</h2>
+                <span className="text-xs text-[#9CA3AF]">sorun yoksa rozet gösterilmez</span>
               </div>
-              <div className="divide-y divide-[#E5E7EB]">
+              <div className="divide-y divide-[#E5E7EB] border-t border-[#E5E7EB]">
                 {connections.map((c) => (
-                  <div key={c.id} className="px-3.5 py-3">
+                  <div key={c.id} className="py-3.5">
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-[13px] font-semibold text-[#111827]">
                         {c.platform} — {c.account}
                       </span>
-                      {renderBadge(c.status, c.statusText)}
+                      {c.status !== 'ok' && renderBadge(c.status, c.statusText)}
                     </div>
-                    <div className="mt-1 text-xs text-[#6B7280]">{c.detail}</div>
+                    <div className="mt-1 text-xs text-[#9CA3AF]">{c.detail}</div>
                   </div>
                 ))}
               </div>
             </section>
 
-            <form
-              onSubmit={handleAddConnection}
-              className="rounded-md border border-[#E5E7EB] bg-white p-4 space-y-3"
-            >
-              <div className="text-sm font-semibold text-[#111827]">+ Yeni Kanal / Manuel Bağlantı Ekle</div>
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+            <form onSubmit={handleAddConnection} className="border-t border-[#E5E7EB] pt-5">
+              <div className="text-[13px] font-semibold text-[#111827]">Yeni kanal / manuel bağlantı ekle</div>
+              <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
                 <select
                   value={newPlat}
                   onChange={(e) => setNewPlat(e.target.value)}
-                  className="rounded border border-[#D1D5DB] bg-white px-3 py-2 text-xs text-[#111827]"
+                  className="rounded-md border border-[#E5E7EB] bg-white px-3 py-2 text-xs text-[#111827] focus:border-[#111827] focus:outline-none"
                 >
                   <option value="TikTok">TikTok</option>
                   <option value="Instagram Reels">Instagram Reels</option>
@@ -1194,46 +1452,48 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                   value={newAcc}
                   onChange={(e) => setNewAcc(e.target.value)}
                   placeholder="Hesap adı (örn. @bilgidozuofficial)"
-                  className="rounded border border-[#D1D5DB] bg-white px-3 py-2 text-xs text-[#111827]"
+                  className="rounded-md border border-[#E5E7EB] bg-white px-3 py-2 text-xs text-[#111827] focus:border-[#111827] focus:outline-none"
                 />
                 <input
                   type="text"
                   value={newDetail}
                   onChange={(e) => setNewDetail(e.target.value)}
-                  placeholder="API Anahtarı / Webhook URL / Not"
-                  className="rounded border border-[#D1D5DB] bg-white px-3 py-2 text-xs text-[#111827]"
+                  placeholder="API anahtarı / webhook URL / not"
+                  className="rounded-md border border-[#E5E7EB] bg-white px-3 py-2 text-xs text-[#111827] focus:border-[#111827] focus:outline-none"
                 />
               </div>
               <button
                 type="submit"
-                className="rounded bg-[#111827] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1F2937]"
+                className="mt-3 rounded-md bg-[#111827] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#1F2937]"
               >
-                Bağlantıyı Kaydet
+                Bağlantıyı kaydet
               </button>
             </form>
           </div>
         )}
-
         {/* Uyarılar Sekmesi */}
         {activeTab === 'uyarilar' && (
-          <section className="rounded-md border border-[#E5E7EB] bg-white">
-            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-3.5 py-2.5">
-              <span className="text-sm font-semibold text-[#111827]">Sistem uyarıları</span>
-              <span className="text-xs text-[#6B7280]">YouTube API kotası, Drive/Sheets ve yorum işçisi</span>
+          <section className="pb-2">
+            <div className="flex items-baseline justify-between pb-1 pt-1">
+              <h2 className="text-[13px] font-semibold text-[#111827]">Sistem uyarıları</h2>
+              <span className="text-xs text-[#9CA3AF]">yalnızca sorun varsa rozet gösterilir</span>
             </div>
             <div className="divide-y divide-[#E5E7EB]">
               {(report?.alerts || []).map((a) => (
-                <div key={a.id} className="px-3.5 py-3">
+                <div key={a.id} className="py-3.5">
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-[13px] font-medium text-[#111827]">{a.title}</span>
-                    {renderBadge(a.status, a.status_text)}
+                    {a.status !== 'ok' && renderBadge(a.status, a.status_text)}
                   </div>
-                  <div className="mt-1 text-xs text-[#6B7280]">
-                    Son kontrol: {(a.updated_at || '').replace(/-/g, '.')}
+                  <div className="mt-1 text-xs text-[#9CA3AF]">
+                    Son kontrol {(a.updated_at || '').replace(/-/g, '.')}
                   </div>
-                  <div className="mt-1 text-xs text-[#111827]">{a.detail}</div>
+                  <div className="mt-1 text-xs text-[#374151]">{a.detail}</div>
                 </div>
               ))}
+              {!(report?.alerts || []).length && (
+                <div className="py-6 text-center text-xs text-[#9CA3AF]">Uyarı yok.</div>
+              )}
             </div>
           </section>
         )}
@@ -1291,7 +1551,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                 type="button"
                 onClick={handleToggleVoiceWidget}
                 title="KartaL Sesli Asistanı Kapat"
-                className="absolute right-1 top-1 z-20 flex h-7 w-7 items-center justify-center rounded-full border border-amber-400/60 bg-slate-900/80 text-xs font-bold text-amber-300 shadow-md backdrop-blur-xs transition hover:scale-110 hover:bg-slate-800"
+                className="absolute right-1 top-1 z-20 flex h-7 w-7 items-center justify-center rounded-full border border-amber-400/60 bg-slate-900/80 text-xs font-semibold text-amber-300 shadow-md backdrop-blur-xs transition hover:scale-110 hover:bg-slate-800"
               >
                 ✕
               </button>
@@ -1475,7 +1735,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                     textShadow:
                       '0 0 12px rgba(255,255,255,0.98), 0 0 6px rgba(255,255,255,0.95), 0 1px 8px rgba(16,185,129,0.35)',
                   }}
-                  className="text-sm sm:text-[15px] font-bold tracking-tight text-emerald-700"
+                  className="text-sm sm:text-[15px] font-semibold tracking-tight text-emerald-700"
                 >
                   {voiceInterim}
                 </p>
@@ -1485,7 +1745,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                     textShadow:
                       '0 0 14px rgba(255,255,255,0.98), 0 0 6px rgba(255,255,255,0.98), 0 2px 10px rgba(14,165,233,0.3)',
                   }}
-                  className="text-sm sm:text-[15px] font-bold tracking-tight text-[#0369A1] leading-snug"
+                  className="text-sm sm:text-[15px] font-semibold tracking-tight text-[#0369A1] leading-snug"
                 >
                   {activeChunkWords.map((w, i) => (
                     <span
@@ -1519,7 +1779,9 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
         >
           <div className="flex max-w-xs items-start gap-3 rounded-2xl border border-white/25 bg-slate-900/65 px-4 py-3 text-white shadow-2xl backdrop-blur-md">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-rose-500/80 text-sm shadow">
-              ❤️
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white">
+                <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+              </svg>
             </div>
             <div className="min-w-0">
               <div className="text-[11px] font-extrabold tracking-wide text-rose-300">
