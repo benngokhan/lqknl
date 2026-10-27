@@ -1270,46 +1270,101 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
           <section className="pb-2">
             <div className="flex items-baseline justify-between pb-1 pt-1">
               <h2 className="text-[13px] font-semibold text-[#111827]">Tüm videolar</h2>
-              <span className="text-xs text-[#9CA3AF]">tam başlık için satıra dokun</span>
+              <span className="text-xs text-[#9CA3AF]">önizleme · sayılar · analiz için satıra dokun</span>
             </div>
             <div className="divide-y divide-[#E5E7EB] border-t border-[#E5E7EB]">
               {(report?.videos || []).map((v) => {
                 const key = `vt-${v.id}`;
                 const isOpen = !!openRows[key];
                 const { shortTitle, fullClean, hashtags } = getShortCleanTitle(v.title);
+                const likeRate = v.views > 0 ? ((v.likes / v.views) * 100).toFixed(1) : null;
                 return (
-                  <div key={v.id} onClick={() => toggleRow(key)} className="cursor-pointer py-3.5 transition hover:bg-[#FAFAFA]">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
+                  <div key={v.id} onClick={() => toggleRow(key)} className="cursor-pointer py-4 transition hover:bg-[#FAFAFA]">
+                    <div className="flex items-start gap-3.5">
+                      {/* 1) Onizleme */}
+                      <div className="h-[54px] w-24 shrink-0 overflow-hidden rounded-md border border-[#E5E7EB] bg-[#F3F4F6]">
+                        <img
+                          src={`https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`}
+                          alt=""
+                          loading="lazy"
+                          className="h-full w-full object-cover"
+                          onError={(e) => {
+                            e.currentTarget.style.visibility = 'hidden';
+                          }}
+                        />
+                      </div>
+                      {/* 2) Baslik + tarih */}
+                      <div className="min-w-0 flex-1">
                         <div className="truncate text-[13.5px] font-semibold text-[#111827]">{shortTitle}</div>
-                        <div className="mt-1 text-xs text-[#9CA3AF]">
-                          {fmtDate(v.publishedAt)} · {fmt(v.likes)} beğeni
+                        <div className="mt-0.5 text-xs text-[#9CA3AF]">{fmtDate(v.publishedAt)}</div>
+                        {/* 3) Istatistikler */}
+                        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+                          <span>
+                            <span className="font-semibold tabular-nums text-[#111827]">{fmt(v.views)}</span>{' '}
+                            <span className="text-[#9CA3AF]">izlenme</span>
+                          </span>
+                          <span>
+                            <span className="font-semibold tabular-nums text-[#111827]">{fmt(v.likes)}</span>{' '}
+                            <span className="text-[#9CA3AF]">beğeni</span>
+                          </span>
+                          <span>
+                            <span className="font-semibold tabular-nums text-[#111827]">{fmt(v.comments)}</span>{' '}
+                            <span className="text-[#9CA3AF]">yorum</span>
+                          </span>
                         </div>
                       </div>
-                      <div className="shrink-0 text-right">
-                        <div className="text-[13.5px] font-semibold tabular-nums text-[#111827]">{fmt(v.views)}</div>
-                        <div className="mt-0.5 text-[11px] text-[#9CA3AF]">görüntülenme</div>
-                      </div>
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={`mt-1 shrink-0 text-[#9CA3AF] transition ${isOpen ? 'rotate-180' : ''}`}
+                      >
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
                     </div>
+                    {/* 4) Acilir analiz */}
                     {isOpen && (
                       <div className="mt-3 space-y-1.5 border-l border-[#E5E7EB] pl-3.5 text-xs leading-5 text-[#374151]">
                         <div>
                           <span className="text-[#9CA3AF]">Tam başlık:</span> {fullClean}
                         </div>
                         {hashtags && (
-                          <div>
+                          <div className="truncate">
                             <span className="text-[#9CA3AF]">Etiketler:</span> {hashtags}
                           </div>
                         )}
-                        <a
-                          href={v.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-block pt-0.5 text-[#111827] underline decoration-dotted underline-offset-2"
-                        >
-                          YouTube&apos;da aç
-                        </a>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-1">
+                          {likeRate && (
+                            <span className="text-[#9CA3AF]">Beğeni oranı %{likeRate}</span>
+                          )}
+                          <span className="text-[#9CA3AF]">Video ID: {v.id}</span>
+                          <a
+                            href={v.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[#111827] underline decoration-dotted underline-offset-2 hover:text-[#374151]"
+                          >
+                            YouTube&apos;da aç
+                          </a>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const caption = `${fullClean}\n\nDaha fazla bilgi dozu için @bilgidozuofficial hesabını takip etmeyi unutma! 🧠🪐\n\n#bilgidozu #bilim #ilginçbilgiler #keşfet #fyp #reels`;
+                              void navigator.clipboard.writeText(caption);
+                              setActionMsg(`"${shortTitle}" için TikTok & Reels metni kopyalandı.`);
+                            }}
+                            className="text-[#6B7280] underline decoration-dotted underline-offset-2 hover:text-[#111827]"
+                          >
+                            Reels metnini kopyala
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1321,6 +1376,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
             </div>
           </section>
         )}
+
         {/* Paylaşım Kitleri Sekmesi */}
         {activeTab === 'paylasim' && (
           <section className="pb-2">
@@ -1431,14 +1487,14 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
             </div>
             <div className="flex items-baseline justify-between pb-1 pt-5">
               <h2 className="text-[13px] font-semibold text-[#111827]">İşçi durumları</h2>
-              <span className="text-xs text-[#9CA3AF]">sorun yoksa rozet gösterilmez</span>
+              <span className="text-xs text-[#9CA3AF]">yeşil: aktif · sarı: beklemede · kırmızı: hata</span>
             </div>
             <div className="divide-y divide-[#E5E7EB] border-t border-[#E5E7EB]">
               {(report?.workers || []).map((w) => (
                 <div key={w.id} className="py-3.5">
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-[13px] font-medium text-[#111827]">{w.name}</span>
-                    {w.status !== 'ok' && renderBadge(w.status, w.status_text)}
+                    {renderBadge(w.status, w.status_text)}
                   </div>
                   <div className="mt-1 text-xs text-[#9CA3AF]">
                     Son güncelleme {(w.updated_at || '').replace(/-/g, '.')} · Toplam iş {w.jobs_done}
@@ -1508,7 +1564,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
             <section>
               <div className="flex items-baseline justify-between pb-1">
                 <h2 className="text-[13px] font-semibold text-[#111827]">Platform bağlantıları</h2>
-                <span className="text-xs text-[#9CA3AF]">sorun yoksa rozet gösterilmez</span>
+                <span className="text-xs text-[#9CA3AF]">canlı durum göstergesi</span>
               </div>
               <div className="divide-y divide-[#E5E7EB] border-t border-[#E5E7EB]">
                 {connections.map((c) => (
@@ -1517,7 +1573,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                       <span className="text-[13px] font-semibold text-[#111827]">
                         {c.platform} — {c.account}
                       </span>
-                      {c.status !== 'ok' && renderBadge(c.status, c.statusText)}
+                      {renderBadge(c.status, c.statusText)}
                     </div>
                     <div className="mt-1 text-xs text-[#9CA3AF]">{c.detail}</div>
                   </div>
@@ -1713,14 +1769,14 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
           <section className="pb-2">
             <div className="flex items-baseline justify-between pb-1 pt-1">
               <h2 className="text-[13px] font-semibold text-[#111827]">Sistem uyarıları</h2>
-              <span className="text-xs text-[#9CA3AF]">yalnızca sorun varsa rozet gösterilir</span>
+              <span className="text-xs text-[#9CA3AF]">yeşil: yeterli · kırmızı: kota/sorun</span>
             </div>
             <div className="divide-y divide-[#E5E7EB]">
               {(report?.alerts || []).map((a) => (
                 <div key={a.id} className="py-3.5">
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-[13px] font-medium text-[#111827]">{a.title}</span>
-                    {a.status !== 'ok' && renderBadge(a.status, a.status_text)}
+                    {renderBadge(a.status, a.status_text)}
                   </div>
                   <div className="mt-1 text-xs text-[#9CA3AF]">
                     Son kontrol {(a.updated_at || '').replace(/-/g, '.')}
