@@ -104,6 +104,41 @@ function getShortCleanTitle(rawTitle: string): { shortTitle: string; fullClean: 
   };
 }
 
+interface GhWorkflow {
+  id: number;
+  name: string;
+  state: string;
+  path: string;
+}
+
+interface GhRun {
+  id: number;
+  runNumber: number;
+  workflowName: string;
+  event: string;
+  conclusion: string | null;
+  createdAt: string;
+  durationSec: number | null;
+  displayTitle: string;
+  htmlUrl: string;
+}
+
+interface GhRepoBlock {
+  key: string;
+  repo: string;
+  label: string;
+  url: string;
+  error?: string;
+  workflows: GhWorkflow[];
+  runs: GhRun[];
+}
+
+interface GhRunsResponse {
+  ok: boolean;
+  fetchedAt: string;
+  repos: GhRepoBlock[];
+}
+
 export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: () => void }) {
   void onSwitchToOrb;
   const { speak, stop, unlock, speaking, wordIndex, ampRef } = useSpeaker();
@@ -115,15 +150,17 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'genel' | 'videolar' | 'paylasim' | 'isciler' | 'baglantilar' | 'uyarilar'>('genel');
+  const [activeTab, setActiveTab] = useState<'genel' | 'videolar' | 'paylasim' | 'isciler' | 'baglantilar' | 'uyarilar' | 'github'>('genel');
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
   const [paused, setPaused] = useState(false);
   const [actionMsg, setActionMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
   // Menü / "Şimdi paylaş" paneli
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
+  const [morePanelOpen, setMorePanelOpen] = useState(false);
+  const [ghRuns, setGhRuns] = useState<GhRunsResponse | null>(null);
+  const [ghLoading, setGhLoading] = useState(false);
+  const [ghError, setGhError] = useState('');
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadType, setUploadType] = useState<'auto' | 'short' | 'long'>('auto');
   const [uploadDryRun, setUploadDryRun] = useState(false);
@@ -608,6 +645,10 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
 
   async function handleRetryOrRun() {
     if (busy) return;
+    const confirmed = window.confirm(
+      'Yükleyici işçisi hemen çalıştırılsın mı? Sıradaki video zamanlanmış saati beklemeden yüklenecek.'
+    );
+    if (!confirmed) return;
     setBusy(true);
     setActionMsg('');
     try {
@@ -640,19 +681,6 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
     }
   }
 
-  useEffect(() => {
-    if (!menuOpen && !moreOpen) return;
-    const onDocMouseDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target || !target.closest?.('[data-pop]')) {
-        setMenuOpen(false);
-        setMoreOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDocMouseDown);
-    return () => document.removeEventListener('mousedown', onDocMouseDown);
-  }, [menuOpen, moreOpen]);
-
   async function handleUploadNow() {
     if (busy) return;
     setBusy(true);
@@ -679,19 +707,21 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   }
 
   function confirmUploadNow() {
-    if (!uploadDryRun) {
-      const confirmed = window.confirm(
-        'Sıradaki video hemen YouTube yükleyici işçisi tarafından yüklenecek. Zamanlanmış yayın saatini beklemeden devam edilsin mi?'
-      );
-      if (!confirmed) return;
-    }
+    const kind = uploadType === 'long' ? 'uzun video' : uploadType === 'short' ? 'Short' : 'otomatik (prime-time)';
+    const message = uploadDryRun
+      ? `Dry-run (sadece test) çalıştırılacak: ${kind}. Video yüklenmez; tablo ve Drive bağlantısı doğrulanır. Emin misin?`
+      : `Sıradaki video HEMEN yüklenecek (${kind}) — zamanlanmış saat beklemeden. Emin misin?`;
+    if (!window.confirm(message)) return;
     void handleUploadNow();
   }
 
   async function handleTelegramTest() {
     if (busy) return;
+    const confirmed = window.confirm(
+      "Telegram'a test mesajı gönderilsin mi? Sohbetine '✅ Mira Telegram test bildirimi' düşmeli."
+    );
+    if (!confirmed) return;
     setBusy(true);
-    setMenuOpen(false);
     setActionMsg('');
     try {
       const res = await fetch('/api/automation/telegram-test', { method: 'POST' });
@@ -723,6 +753,58 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   };
 
   const fmt = (n: number | undefined) => Number(n || 0).toLocaleString('tr-TR');
+
+  const fmtDur = (sec?: number | null) => {
+    if (!sec || sec < 1) return '—';
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return m > 0 ? `${m}dk ${s}sn` : `${s}sn`;
+  };
+
+  async function loadGithubRuns(force = false) {
+    if (ghLoading) return;
+    if (ghRuns && !force) return;
+    setGhLoading(true);
+    setGhError('');
+    try {
+      const res = await fetch('/api/automation/github-runs', { cache: 'no-store' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) throw new Error(data?.error || 'GitHub verisi çekilemedi.');
+      setGhRuns(data as GhRunsResponse);
+    } catch (e) {
+      setGhError(e instanceof Error ? e.message : 'GitHub verisi çekilemedi.');
+    } finally {
+      setGhLoading(false);
+    }
+  }
+
+  async function handleWorkflowToggle(repo: string, workflowId: number, enable: boolean, label: string) {
+    const message = enable
+      ? `"${label}" akışı yeniden başlatılacak; zamanlanmış cron'lar tekrar çalışacak. Emin misin?`
+      : `"${label}" akışı GitHub'da DURDURULACAK; zamanlanmış cron'lar (otomatik paylaşımlar) durur. Emin misin?`;
+    if (!window.confirm(message)) return;
+    if (busy) return;
+    setBusy(true);
+    setActionMsg('');
+    try {
+      const res = await fetch('/api/automation/github-runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo, workflowId, action: enable ? 'enable' : 'disable' }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) {
+        setActionMsg(enable ? 'Akış yeniden başlatıldı (cron aktif).' : 'Akış durduruldu (cron kapalı).');
+        await loadGithubRuns(true);
+      } else {
+        setActionMsg(data?.error || 'Akış durumu değiştirilemedi.');
+      }
+    } catch {
+      setActionMsg('İstek gönderilemedi.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const renderBadge = (status: 'ok' | 'warn' | 'err', text: string) => {
     const styles =
@@ -778,7 +860,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
               {overallText}
             </span>
           )}
-          <div className="relative ml-auto flex items-center gap-0.5" data-pop>
+          <div className="ml-auto flex items-center gap-0.5">
             <button
               type="button"
               title="Yenile"
@@ -805,72 +887,6 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                 <path d="M12 18v4" />
               </svg>
             </button>
-            <button
-              type="button"
-              title="Menü"
-              onClick={() => {
-                setMenuOpen((v) => !v);
-                setMoreOpen(false);
-              }}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-[#6B7280] transition hover:bg-[#F3F4F6] hover:text-[#111827]"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="5" cy="12" r="1.7" />
-                <circle cx="12" cy="12" r="1.7" />
-                <circle cx="19" cy="12" r="1.7" />
-              </svg>
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 top-9 z-40 w-60 rounded-lg border border-[#E5E7EB] bg-white py-1.5 text-[13px] shadow-lg">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setUploadOpen(true);
-                  }}
-                  className="block w-full px-4 py-2 text-left text-[#111827] hover:bg-[#F3F4F6]"
-                >
-                  Şimdi paylaş…
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleTelegramTest()}
-                  disabled={busy}
-                  className="block w-full px-4 py-2 text-left text-[#111827] hover:bg-[#F3F4F6] disabled:opacity-50"
-                >
-                  Telegram&apos;ı test et
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    void handleRetryOrRun();
-                  }}
-                  disabled={busy}
-                  className="block w-full px-4 py-2 text-left text-[#111827] hover:bg-[#F3F4F6] disabled:opacity-50"
-                >
-                  Yükleyiciyi şimdi çalıştır
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    handlePauseAll();
-                  }}
-                  className="block w-full px-4 py-2 text-left text-[#111827] hover:bg-[#F3F4F6]"
-                >
-                  {paused ? 'Devam ettir' : 'Tümünü duraklat'}
-                </button>
-                <a
-                  href="https://github.com/benngokhan/yt_auto_uploader/actions/workflows/youtube-drive-uploader.yml"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block px-4 py-2 text-[#111827] hover:bg-[#F3F4F6]"
-                >
-                  GitHub Actions işçileri
-                </a>
-              </div>
-            )}
           </div>
         </div>
         <div className="mx-auto flex max-w-6xl flex-wrap gap-x-3 gap-y-0.5 px-5 pb-2.5 pt-1.5 text-[11px] text-[#9CA3AF]">
@@ -884,8 +900,8 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       </header>
 
       {/* Sekmeler */}
-      <nav className="border-b border-[#E5E7EB] bg-white" data-pop>
-        <div className="mx-auto flex max-w-6xl items-center gap-4 overflow-x-auto px-5">
+      <nav className="border-b border-[#E5E7EB] bg-white">
+        <div className="mx-auto flex max-w-6xl items-center gap-4 px-5">
           {([
             ['genel', 'Genel'],
             ['videolar', 'Videolar'],
@@ -904,45 +920,23 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
               {label}
             </button>
           ))}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setMoreOpen((v) => !v)}
-              className={`flex items-center gap-1 border-b-2 px-0.5 py-3 text-[13px] whitespace-nowrap transition ${
-                activeTab === 'isciler' || activeTab === 'baglantilar' || activeTab === 'uyarilar'
-                  ? 'border-[#111827] font-semibold text-[#111827]'
-                  : 'border-transparent text-[#6B7280] hover:text-[#111827]'
-              }`}
-            >
-              Daha fazla
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </button>
-            {moreOpen && (
-              <div className="absolute left-0 top-full z-40 w-44 rounded-lg border border-[#E5E7EB] bg-white py-1.5 text-[13px] shadow-lg">
-                {([
-                  ['isciler', 'İşçiler'],
-                  ['baglantilar', 'Bağlantılar'],
-                  ['uyarilar', 'Uyarılar'],
-                ] as const).map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => {
-                      setActiveTab(key);
-                      setMoreOpen(false);
-                    }}
-                    className={`block w-full px-4 py-2 text-left text-[#111827] hover:bg-[#F3F4F6] ${
-                      activeTab === key ? 'font-semibold' : ''
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => setMorePanelOpen(true)}
+            className={`flex items-center gap-1 border-b-2 px-0.5 py-3 text-[13px] whitespace-nowrap transition ${
+              activeTab === 'isciler' ||
+              activeTab === 'baglantilar' ||
+              activeTab === 'uyarilar' ||
+              activeTab === 'github'
+                ? 'border-[#111827] font-semibold text-[#111827]'
+                : 'border-transparent text-[#6B7280] hover:text-[#111827]'
+            }`}
+          >
+            Daha fazla
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
         </div>
       </nav>
 
@@ -1011,6 +1005,103 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
         </div>
       )}
 
+      {/* Daha Fazla paneli */}
+      {morePanelOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4"
+          onClick={() => setMorePanelOpen(false)}
+        >
+          <div
+            className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-xl border border-[#E5E7EB] bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[#E5E7EB] px-5 py-3.5">
+              <h3 className="text-[15px] font-semibold text-[#111827]">Daha fazla</h3>
+              <button
+                type="button"
+                onClick={() => setMorePanelOpen(false)}
+                className="flex h-7 w-7 items-center justify-center rounded-full text-[#6B7280] transition hover:bg-[#F3F4F6] hover:text-[#111827]"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              <div className="text-[11px] font-semibold tracking-wider text-[#9CA3AF] uppercase">Sayfalar</div>
+              <div className="mt-1 divide-y divide-[#E5E7EB]">
+                {([
+                  ['isciler', 'İşçiler', 'Durumlar ve kontroller'],
+                  ['baglantilar', 'Bağlantılar', 'Drive köprüleri ve platformlar'],
+                  ['uyarilar', 'Uyarılar', 'Kota ve sistem uyarıları'],
+                  ['github', 'GitHub', 'Actions çalıştırmaları ve cron anahtarları'],
+                ] as const).map(([key, label, desc]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(key);
+                      setMorePanelOpen(false);
+                      if (key === 'github') void loadGithubRuns();
+                    }}
+                    className="flex w-full items-baseline justify-between gap-3 py-3 text-left transition hover:bg-[#FAFAFA]"
+                  >
+                    <span className="text-[13.5px] font-semibold text-[#111827]">{label}</span>
+                    <span className="min-w-0 flex-1 truncate text-right text-xs text-[#9CA3AF]">{desc}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-5 text-[11px] font-semibold tracking-wider text-[#9CA3AF] uppercase">İşlemler</div>
+              <div className="mt-1 divide-y divide-[#E5E7EB]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMorePanelOpen(false);
+                    setUploadOpen(true);
+                  }}
+                  className="block w-full py-3 text-left text-[13.5px] font-medium text-[#111827] transition hover:bg-[#FAFAFA]"
+                >
+                  Şimdi paylaş…
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMorePanelOpen(false);
+                    void handleTelegramTest();
+                  }}
+                  className="block w-full py-3 text-left text-[13.5px] font-medium text-[#111827] transition hover:bg-[#FAFAFA]"
+                >
+                  Telegram&apos;ı test et
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMorePanelOpen(false);
+                    void handleRetryOrRun();
+                  }}
+                  className="block w-full py-3 text-left text-[13.5px] font-medium text-[#111827] transition hover:bg-[#FAFAFA]"
+                >
+                  Yükleyiciyi çalıştır
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMorePanelOpen(false);
+                    handlePauseAll();
+                  }}
+                  className="block w-full py-3 text-left text-[13.5px] font-medium text-[#111827] transition hover:bg-[#FAFAFA]"
+                >
+                  {paused ? 'Devam ettir' : 'Tümünü duraklat'}
+                </button>
+              </div>
+              <p className="mt-3 text-[11px] leading-5 text-[#9CA3AF]">
+                Her işlem çalışmadan önce &quot;Emin misin?&quot; onayı sorar; hiçbir tuş tek başına işlem yapmaz.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       <main className="mx-auto max-w-6xl px-4 py-4 pb-24">
         {actionMsg && (
           <div className="mb-4 border-l-2 border-[#111827] pl-3 text-[13px] leading-5 text-[#111827]">{actionMsg}</div>
@@ -1471,6 +1562,152 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
             </form>
           </div>
         )}
+        {/* GitHub Sekmesi */}
+        {activeTab === 'github' && (
+          <section className="pb-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-1 pt-1">
+              <h2 className="text-[13px] font-semibold text-[#111827]">GitHub Actions işçileri</h2>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void loadGithubRuns(true)}
+                  disabled={ghLoading}
+                  className="text-xs text-[#6B7280] underline decoration-dotted underline-offset-2 hover:text-[#111827] disabled:opacity-50"
+                >
+                  {ghLoading ? 'Yenileniyor…' : 'Yenile'}
+                </button>
+                <a
+                  href="https://github.com/benngokhan/yt_auto_uploader/actions"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-[#6B7280] underline decoration-dotted underline-offset-2 hover:text-[#111827]"
+                >
+                  GitHub&apos;da aç
+                </a>
+              </div>
+            </div>
+            {ghError && (
+              <div className="border-l-2 border-[#EF4444] py-2 pl-3 text-xs text-[#B91C1C]">{ghError}</div>
+            )}
+            {ghLoading && !ghRuns && (
+              <div className="space-y-2 border-t border-[#E5E7EB] pt-4 text-xs text-[#9CA3AF]">
+                <div className="h-3 w-1/3 animate-pulse rounded bg-[#E5E7EB]" />
+                <div className="h-3 w-2/3 animate-pulse rounded bg-[#E5E7EB]" />
+                <div className="h-3 w-1/2 animate-pulse rounded bg-[#E5E7EB]" />
+              </div>
+            )}
+            {(ghRuns?.repos || []).map((r) => (
+              <div key={r.key} className="border-t border-[#E5E7EB] py-5 first:border-t-0">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <div>
+                    <span className="text-[13px] font-semibold text-[#111827]">{r.label}</span>{' '}
+                    <a
+                      href={r.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-[#9CA3AF] underline decoration-dotted underline-offset-2 hover:text-[#111827]"
+                    >
+                      {r.repo}
+                    </a>
+                  </div>
+                  {r.key === 'uploader' && (
+                    <button
+                      type="button"
+                      onClick={() => setUploadOpen(true)}
+                      className="rounded-md bg-[#111827] px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-[#1F2937]"
+                    >
+                      Şimdi paylaş
+                    </button>
+                  )}
+                </div>
+                {r.error ? (
+                  <div className="mt-2 border-l-2 border-[#EF4444] pl-3 text-xs text-[#B91C1C]">{r.error}</div>
+                ) : (
+                  <>
+                    <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+                      {r.workflows.map((wf) => (
+                        <span
+                          key={wf.id}
+                          className="inline-flex items-center gap-2 rounded-md border border-[#E5E7EB] px-2.5 py-1.5 text-[#374151]"
+                        >
+                          {wf.name}
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() =>
+                              handleWorkflowToggle(
+                                r.repo,
+                                wf.id,
+                                wf.state !== 'active',
+                                wf.name
+                              )
+                            }
+                            className={`font-semibold underline decoration-dotted underline-offset-2 disabled:opacity-50 ${
+                              wf.state === 'active'
+                                ? 'text-[#B91C1C] hover:text-[#7F1D1D]'
+                                : 'text-[#047857] hover:text-[#065F46]'
+                            }`}
+                          >
+                            {wf.state === 'active' ? 'Durdur' : 'Başlat'}
+                          </button>
+                          {wf.state !== 'active' && renderBadge('warn', 'DURDURULDU')}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="mt-1 divide-y divide-[#E5E7EB]">
+                      {r.runs.map((run) => {
+                        const dot =
+                          run.conclusion === 'success'
+                            ? 'bg-[#10B981]'
+                            : run.conclusion === 'failure'
+                              ? 'bg-[#EF4444]'
+                              : run.conclusion === 'cancelled' || run.conclusion === 'skipped'
+                                ? 'bg-[#F59E0B]'
+                                : 'bg-[#9CA3AF]';
+                        const eventLabel =
+                          run.event === 'schedule'
+                            ? 'zamanlanmış'
+                            : run.event === 'workflow_dispatch'
+                              ? 'manuel'
+                              : run.event;
+                        return (
+                          <a
+                            key={run.id}
+                            href={run.htmlUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-start gap-2.5 py-2.5 transition hover:bg-[#FAFAFA]"
+                          >
+                            <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[13px] font-medium text-[#111827]">
+                                {run.workflowName} #{run.runNumber}
+                              </span>
+                              <span className="mt-0.5 block truncate text-xs text-[#9CA3AF]">
+                                {run.displayTitle} · {eventLabel} · {fmtDate(run.createdAt)} · {fmtDur(run.durationSec)}
+                              </span>
+                            </span>
+                          </a>
+                        );
+                      })}
+                      {!r.runs.length && (
+                        <div className="py-4 text-center text-xs text-[#9CA3AF]">Çalıştırma kaydı yok.</div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+            {ghRuns && !ghRuns.repos.length && (
+              <div className="py-6 text-center text-xs text-[#9CA3AF]">Veri yok.</div>
+            )}
+            <p className="border-t border-[#E5E7EB] pt-4 text-[11px] leading-5 text-[#9CA3AF]">
+              &quot;Durdur&quot; seçeneği GitHub&apos;da workflow&apos;u gerçekten devre dışı bırakır —
+              zamanlanmış cron&apos;lar durur. &quot;Başlat&quot; yeniden etkinleştirir. Her işlem onay ister.
+            </p>
+          </section>
+        )}
+
         {/* Uyarılar Sekmesi */}
         {activeTab === 'uyarilar' && (
           <section className="pb-2">
