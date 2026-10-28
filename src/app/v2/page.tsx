@@ -238,6 +238,7 @@ export default function PanelV2Page() {
   const [tab, setTab] = useState<TabId>('bugun');
   const [report, setReport] = useState<StatusReport | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [lastUploadFile, setLastUploadFile] = useState<string | null>(null);
   const [err, setErr] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -250,13 +251,18 @@ export default function PanelV2Page() {
       ]);
       if (repR.ok) {
         const data = await repR.json();
-        if (data && data.summary) setReport(data as StatusReport);
+        if (data?.ok && data.report) {
+          setReport(data.report as StatusReport);
+          if (data.last_upload_file) setLastUploadFile(String(data.last_upload_file));
+        } else {
+          setErr(data?.error || 'Durum verisi alınamadı');
+        }
       } else {
         setErr('Durum verisi alınamadı');
       }
       if (planR && planR.ok) {
-        const d = await planR.json();
-        if (d && d.slots) setPlan(d.slots as Plan);
+        const d = await planR.json().catch(() => null);
+        if (d?.ok && d.slots) setPlan(d.slots as Plan);
       }
     } catch {
       setErr('Bağlantı hatası');
@@ -283,13 +289,15 @@ export default function PanelV2Page() {
   }, [report]);
 
   const nextVideo = useMemo(() => {
+    const fromUpload = /video[_\s-]*(\d+)/i.exec(lastUploadFile || '');
+    if (fromUpload) return `video_${+fromUpload[1] + 1}`;
     let maxN = 0;
     for (const v of report?.videos || []) {
       const m = /video[_\s-]*(\d+)/i.exec(v.title || v.id || '');
       if (m) maxN = Math.max(maxN, +m[1]);
     }
     return maxN > 0 ? `video_${maxN + 1}` : null;
-  }, [report]);
+  }, [report, lastUploadFile]);
 
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<'views' | 'new'>('views');
