@@ -62,7 +62,38 @@ interface Plan {
   aksam: string;
 }
 
-type TabId = 'bugun' | 'videolar' | 'paylasim' | 'sistem';
+type TabId = 'bugun' | 'videolar' | 'paylasim' | 'kartal' | 'sistem';
+
+interface AgentKomut {
+  id: number;
+  komut: string;
+  durum: string;
+  sonuc: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface AgentVeri {
+  tablet: { online: boolean; last_seen: string | null };
+  bekleyen: number;
+  komutlar: AgentKomut[];
+}
+
+function agentDurumLabel(d: string): { etiket: string; cls: string } {
+  switch (d) {
+    case 'BEKLEMEDE': return { etiket: 'Beklemede', cls: 'v2-adot-warn' };
+    case 'CALISIYOR': return { etiket: 'Çalışıyor', cls: 'v2-adot-run' };
+    case 'BITTI': return { etiket: 'Tamamlandı', cls: 'v2-adot-ok' };
+    case 'HATA': return { etiket: 'Hata', cls: 'v2-adot-err' };
+    default: return { etiket: d, cls: 'v2-adot-warn' };
+  }
+}
+
+function timeShort(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString('tr-TR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
 
 const DRIVE_STOK_URL = 'https://drive.google.com/drive/folders/1w8tz_lv7iMFsRRCaTKUSY_ri0F107rz_';
 
@@ -349,6 +380,63 @@ export default function PanelV2Page() {
   const badAlerts = alerts.filter((a) => a.status !== 'ok');
   const sifa = badWorkers.length === 0 && badAlerts.length === 0;
 
+  /* ===== KartaL ajan — panel → tablet komut kuyruğu ===== */
+  const [agentVeri, setAgentVeri] = useState<AgentVeri | null>(null);
+  const [agentKomut, setAgentKomut] = useState('');
+  const [agentGonderiliyor, setAgentGonderiliyor] = useState(false);
+  const [agentErr, setAgentErr] = useState('');
+
+  const loadAgent = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/kartal/agent/status?t=${Date.now()}`, { cache: 'no-store' });
+      if (r.ok) {
+        const d = await r.json();
+        if (d?.ok) setAgentVeri(d as AgentVeri);
+      }
+    } catch {
+      /* tablet hattı geçici olarak erişilemedi */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab !== 'kartal') return;
+    loadAgent();
+    const id = setInterval(() => loadAgent(), 5000);
+    return () => clearInterval(id);
+  }, [tab, loadAgent]);
+
+  const agentGonder = useCallback(
+    async (metin?: string) => {
+      const k = (metin ?? agentKomut).trim();
+      if (!k || agentGonderiliyor) return;
+      setAgentGonderiliyor(true);
+      setAgentErr('');
+      try {
+        const r = await fetch('/api/kartal/agent/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ komut: k }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d?.error || 'Komut gönderilemedi');
+        setAgentKomut('');
+        loadAgent();
+      } catch (e) {
+        setAgentErr(e instanceof Error ? e.message : 'Komut gönderilemedi');
+      } finally {
+        setAgentGonderiliyor(false);
+      }
+    },
+    [agentKomut, agentGonderiliyor, loadAgent]
+  );
+
+  const AGENT_CHIPS = [
+    'YouTube kanalını aç',
+    'YouTube kanalını aç, analiz et',
+    'Chrome\u2019da Arena\u2019yı aç',
+    'Mail\u2019leri kontrol et',
+  ];
+
   return (
     <div className="v2-root">
       <style>{CSS}</style>
@@ -564,6 +652,80 @@ export default function PanelV2Page() {
           </main>
         )}
 
+        {/* ===== KARTAL AJAN ===== */}
+        {tab === 'kartal' && (
+          <main className="v2-main">
+            <section className="v2-card v2-hero">
+              <div className="v2-hero-label">KARTA AJAN · TABLET KÖPRÜSÜ</div>
+              <div className="v2-agent-title">Panele yaz, tablet yapsın</div>
+              <div className={`v2-agent-status ${agentVeri?.tablet?.online ? 'v2-agent-on' : 'v2-agent-off'}`}>
+                <span className={`v2-agent-led ${agentVeri?.tablet?.online ? 'on' : 'off'}`} />
+                {agentVeri?.tablet?.online
+                  ? 'Tablet çevrimiçi — komutu alır, çalışır, sonucu buraya yazar'
+                  : 'Tablet bekleniyor — KartaL açık olduğunda kuyruktaki komut çalışır'}
+              </div>
+            </section>
+
+            <section className="v2-card">
+              <div className="v2-sechead">
+                <span>Komut Ver</span>
+                {(agentVeri?.bekleyen ?? 0) > 0 && <span className="v2-live">{agentVeri!.bekleyen} sırada</span>}
+              </div>
+              <input
+                className="v2-search"
+                placeholder="Örn: YouTube kanalını aç, analiz et"
+                value={agentKomut}
+                onChange={(e) => setAgentKomut(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') agentGonder();
+                }}
+                maxLength={300}
+              />
+              <div className="v2-chips">
+                {AGENT_CHIPS.map((s) => (
+                  <button key={s} className="v2-chip" onClick={() => agentGonder(s)}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+              {agentErr && <div className="v2-agent-err">⚠️ {agentErr}</div>}
+              <button
+                className="v2-btn v2-btn-primary v2-agent-send"
+                disabled={agentGonderiliyor || !agentKomut.trim()}
+                onClick={() => agentGonder()}
+              >
+                {agentGonderiliyor ? 'Gönderiliyor…' : '📣 KartaL\u2019a Gönder'}
+              </button>
+            </section>
+
+            <div className="v2-donehead">
+              <span>Geçmiş</span>
+              <span>{agentVeri?.komutlar.length ?? 0}</span>
+            </div>
+            {!agentVeri && <div className="v2-card v2-empty">Kuyruk yükleniyor…</div>}
+            {agentVeri && agentVeri.komutlar.length === 0 && (
+              <div className="v2-card v2-empty">Henüz komut yok — yukarıdan ilkini ver</div>
+            )}
+            {agentVeri?.komutlar.map((k) => {
+              const d = agentDurumLabel(k.durum);
+              return (
+                <div key={k.id} className="v2-card v2-kitsmall">
+                  <span className={`v2-agent-dot ${d.cls}`}>
+                    {k.durum === 'BITTI' ? '✓' : k.durum === 'HATA' ? '✗' : k.durum === 'CALISIYOR' ? '⚙' : '…'}
+                  </span>
+                  <div className="v2-vbody">
+                    <div className="v2-vtitle">{k.komut}</div>
+                    <div className="v2-vmeta">
+                      <b className={`v2-agent-durum ${d.cls}`}>{d.etiket}</b> · {timeShort(k.updated_at)}
+                      {k.sonuc ? ` — ${k.sonuc}` : ''}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </main>
+        )}
+
         {/* ===== SİSTEM ===== */}
         {report && tab === 'sistem' && (
           <main className="v2-main">
@@ -639,6 +801,7 @@ export default function PanelV2Page() {
             { id: 'bugun', icon: '📊', label: 'Bugün' },
             { id: 'videolar', icon: '🎬', label: 'Videolar' },
             { id: 'paylasim', icon: '📤', label: 'Paylaşım' },
+            { id: 'kartal', icon: '🤖', label: 'KartaL' },
             { id: 'sistem', icon: '⚙️', label: 'Sistem' },
           ] as { id: TabId; icon: string; label: string }[]
         ).map((t) => (
@@ -805,6 +968,30 @@ const CSS = `
 .v2-errsub { font-size: 12px; color: #8B94A7; margin: 6px 0 14px; }
 .v2-skel { min-height: 90px; animation: v2skel 1.4s ease-in-out infinite; }
 @keyframes v2skel { 0%,100% { opacity: .5; } 50% { opacity: .9; } }
+
+/* --- kartal ajan --- */
+.v2-agent-title { font-size: 22px; font-weight: 850; letter-spacing: -.02em; margin-top: 8px; color: #fff; }
+.v2-agent-status { display: flex; align-items: center; gap: 9px; margin-top: 12px; font-size: 12.5px;
+  line-height: 1.5; color: #AAB3C4; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.09);
+  border-radius: 14px; padding: 11px 13px; }
+.v2-agent-led { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; }
+.v2-agent-led.on { background: #34D399; box-shadow: 0 0 10px rgba(52,211,153,.8); animation: v2pulse 1.8s ease-in-out infinite; }
+.v2-agent-led.off { background: #FFC53D; box-shadow: 0 0 8px rgba(255,197,61,.6); }
+.v2-agent-on { border-color: rgba(52,211,153,.35); }
+.v2-agent-err { font-size: 12px; font-weight: 600; color: #F87171; margin-top: 10px; }
+.v2-agent-send { width: 100%; margin-top: 12px; }
+.v2-agent-send:disabled { opacity: .5; }
+.v2-agent-dot { flex: 0 0 auto; width: 27px; height: 27px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 13px; font-weight: 800; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); }
+.v2-adot-ok { color: #34D399; border-color: rgba(52,211,153,.5); }
+.v2-adot-err { color: #F87171; border-color: rgba(248,113,113,.5); }
+.v2-adot-run { color: #C6F52E; border-color: rgba(198,245,46,.55); animation: v2pulse 1.6s ease-in-out infinite; }
+.v2-adot-warn { color: #FFC53D; border-color: rgba(255,197,61,.45); }
+.v2-agent-durum { font-weight: 800; }
+.v2-agent-durum.v2-adot-ok { color: #34D399; }
+.v2-agent-durum.v2-adot-err { color: #F87171; }
+.v2-agent-durum.v2-adot-run { color: #C6F52E; }
+.v2-agent-durum.v2-adot-warn { color: #FFC53D; }
 
 /* --- alt nav --- */
 .v2-nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 2; display: flex; justify-content: space-around;
