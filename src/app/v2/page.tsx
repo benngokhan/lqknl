@@ -279,7 +279,7 @@ export default function PanelV2Page() {
   const [imgMime, setImgMime] = useState('image/png');
   const [imgAspect, setImgAspect] = useState('16:9');
   const [imgBusy, setImgBusy] = useState(false);
-  const [imgResult, setImgResult] = useState<{ b64: string; mime: string } | null>(null);
+  const [imgResult, setImgResult] = useState<{ b64: string; mime: string; provider: string } | null>(null);
   const [imgError, setImgError] = useState<string | null>(null);
 
   const onImgFile = (f: File | undefined) => {
@@ -316,9 +316,9 @@ export default function PanelV2Page() {
           aspect: imgAspect,
         }),
       });
-      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; image_base64?: string; mime_type?: string; error?: string };
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; image_base64?: string; mime_type?: string; provider?: string; error?: string };
       if (!j.ok) throw new Error(j.error || `HTTP ${res.status}`);
-      setImgResult({ b64: String(j.image_base64 || ''), mime: j.mime_type || 'image/png' });
+      setImgResult({ b64: String(j.image_base64 || ''), mime: j.mime_type || 'image/png', provider: j.provider || 'gemini' });
     } catch (e) {
       setImgError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -887,7 +887,7 @@ export default function PanelV2Page() {
             {imgResult && (
               <section className="v2-card">
                 <div className="v2-sechead">
-                  <span>Sonuç</span>
+                  <span>Sonuç {imgResult.provider === 'pollinations' ? '· yedek hat (Gemini kotası dolu)' : '· Gemini'}</span>
                   <a className="v2-backlink" download="gorsel.png" href={`data:${imgResult.mime};base64,${imgResult.b64}`}>
                     ⬇ İndir
                   </a>
