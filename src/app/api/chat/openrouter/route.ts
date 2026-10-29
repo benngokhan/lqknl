@@ -16,7 +16,7 @@ const KEY_ROW = "openrouter_api_key";
 let keyCache: { at: number; key: string } | null = null;
 
 async function getOrKey(): Promise<string> {
-  if (process.env.OPENROUTER_API_KEY?.trim()) return process.env.OPENROUTER_API_KEY.trim();
+  // ÖNCELİK: DB (panel içi yönetim) > env (yedek).
   if (keyCache && Date.now() - keyCache.at < 60_000) return keyCache.key;
   try {
     const rows = await db.select().from(integrations).where(eq(integrations.key, KEY_ROW));
@@ -28,7 +28,7 @@ async function getOrKey(): Promise<string> {
   } catch {
     /* DB erişimi yoksa env'ye düş */
   }
-  return "";
+  return process.env.OPENROUTER_API_KEY?.trim() || "";
 }
 
 type Msg = { role: "system" | "user" | "assistant"; content: string };

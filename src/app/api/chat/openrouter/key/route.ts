@@ -19,10 +19,12 @@ export async function GET() {
   } catch {
     /* DB yoksa env'e göre karar */
   }
-  const active = envKey || dbKey;
+  // ÖNCELİK: DB (panel içi yönetim) > env (yedek)
+  const active = dbKey || envKey;
   return NextResponse.json({
     ok: true,
     hasKey: Boolean(active),
+    source: dbKey ? "db" : envKey ? "env" : "yok",
     // Doğrulama için: anahtarın kendisi DEĞİL, parmak izi (başlangıç + uzunluk + sha256 özeti)
     prefix: active ? `${active.slice(0, 8)}…${active.slice(-4)}` : "",
     len: active.length,
