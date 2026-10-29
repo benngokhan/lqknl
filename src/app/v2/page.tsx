@@ -97,6 +97,18 @@ function timeShort(iso: string): string {
 
 const DRIVE_STOK_URL = 'https://drive.google.com/drive/folders/1w8tz_lv7iMFsRRCaTKUSY_ri0F107rz_';
 
+// Yazı stüdyosu — ücretsiz hatlar ve varsayılan modelleri
+const YAZI_DEFAULTS: Record<string, string> = {
+  openrouter: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+  gemini: 'gemini-2.5-flash',
+  pollinations: 'openai',
+};
+const YAZI_HATLAR: Array<[string, string]> = [
+  ['openrouter', 'OpenRouter · ücretsiz'],
+  ['gemini', 'Gemini · ücretsiz'],
+  ['pollinations', 'Yedek · anahtarsız'],
+];
+
 /* ================= YARDIMCILAR ================= */
 
 function fmt(n: number | null | undefined): string {
@@ -296,9 +308,36 @@ export default function PanelV2Page() {
   const [chatSystem, setChatSystem] = useState(
     () => (typeof window === 'undefined' ? '' : localStorage.getItem('v2_yazi_sys') || ''),
   );
-  const [chatModel, setChatModel] = useState(
-    () => (typeof window === 'undefined' ? 'venice/uncensored' : localStorage.getItem('v2_yazi_model') || 'venice/uncensored'),
-  );
+  const [chatProvider, setChatProvider] = useState<string>(() => {
+    try {
+      if (typeof window === 'undefined') return 'openrouter';
+      return (localStorage.getItem('v2_yazi_prov') as string) || 'openrouter';
+    } catch {
+      return 'openrouter';
+    }
+  });
+  const [chatModel, setChatModel] = useState<string>(() => {
+    try {
+      if (typeof window === 'undefined') return YAZI_DEFAULTS.openrouter;
+      const p = (localStorage.getItem('v2_yazi_prov') as string) || 'openrouter';
+      return localStorage.getItem(`v2_yazi_model_${p}`) || YAZI_DEFAULTS[p] || YAZI_DEFAULTS.openrouter;
+    } catch {
+      return YAZI_DEFAULTS.openrouter;
+    }
+  });
+  const switchChatProv = (p: string) => {
+    setChatProvider(p);
+    try { localStorage.setItem('v2_yazi_prov', p); } catch { /* yok say */ }
+    setChatModel(
+      (() => {
+        try {
+          return localStorage.getItem(`v2_yazi_model_${p}`) || YAZI_DEFAULTS[p] || YAZI_DEFAULTS.openrouter;
+        } catch {
+          return YAZI_DEFAULTS.openrouter;
+        }
+      })(),
+    );
+  };
   const [chatInput, setChatInput] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -351,7 +390,7 @@ export default function PanelV2Page() {
       const res = await fetch('/api/chat/openrouter', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ messages: withUser, system: chatSystem, model: chatModel }),
+        body: JSON.stringify({ messages: withUser, system: chatSystem, model: chatModel, provider: chatProvider }),
       });
       const j = (await res.json().catch(() => ({}))) as { ok?: boolean; content?: string; error?: string };
       if (!j.ok || !j.content) throw new Error(j.error || `HTTP ${res.status}`);
@@ -992,24 +1031,31 @@ export default function PanelV2Page() {
         {tab === 'yazi' && (
           <main className="v2-main">
           <section className="v2-card">
-            <div className="v2-sechead"><span>Yazı Stüdyosu</span><span className="v2-live">OpenRouter</span></div>
-            <div className="v2-imglabel">Serbest metin sohbeti — senin için, panel şifresi arkasında.</div>
-            <div className="v2-imgrow" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <div className="v2-sechead"><span>Yazı Stüdyosu</span><span className="v2-live">ücretsiz 3 hat</span></div>
+            <div className="v2-imglabel">Serbest metin sohbeti — senin için, panel şifresi arkasında. Hat seç, modelini gerekirse değiştir.</div>
+            <div className="v2-imgrow" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              {YAZI_HATLAR.map(([p, l]) => (
+                <button key={p} className={`v2-chip ${chatProvider === p ? 'v2-chip-on' : ''}`} onClick={() => switchChatProv(p)}>
+                  {l}
+                </button>
+              ))}
+              <button
+                className="v2-chip"
+                onClick={() => { if (confirm('Sohbeti temizle?')) { saveChat([]); setChatError(null); } }}
+                title="Sohbeti temizle"
+              >
+                🗑 Temizle
+              </button>
+            </div>
+            <div className="v2-imgrow" style={{ marginTop: 6, gap: 8 }}>
               <input
                 className="v2-imgprompt"
                 style={{ flex: 1, minWidth: 200, padding: 8 }}
                 value={chatModel}
-                onChange={(e) => { setChatModel(e.target.value); localStorage.setItem('v2_yazi_model', e.target.value); }}
-                placeholder="model (venice/uncensored)"
+                onChange={(e) => { setChatModel(e.target.value); try { localStorage.setItem(`v2_yazi_model_${chatProvider}`, e.target.value); } catch { /* yok say */ } }}
+                placeholder={`model (${YAZI_DEFAULTS[chatProvider] || 'varsayılan'})`}
               />
-                  <button
-                    className="v2-chip"
-                    onClick={() => { if (confirm('Sohbeti temizle?')) { saveChat([]); setChatError(null); } }}
-                    title="Sohbeti temizle"
-                  >
-                    🗑 Temizle
-                  </button>
-                </div>
+            </div>
                 <details style={{ margin: '8px 0' }}>
                   <summary style={{ cursor: 'pointer', color: 'rgba(255,255,255,.55)', fontSize: 12 }}>
                     🔑 API Anahtarı {chatHasKey === true ? '— kayıtlı ✓' : chatHasKey === false ? '— tanımlı değil' : '…'}
