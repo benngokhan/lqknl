@@ -62,7 +62,7 @@ interface Plan {
   aksam: string;
 }
 
-type TabId = 'bugun' | 'videolar' | 'paylasim' | 'kartal' | 'sistem';
+type TabId = 'bugun' | 'videolar' | 'paylasim' | 'gorsel' | 'kartal' | 'sistem';
 
 interface AgentKomut {
   id: number;
@@ -272,6 +272,59 @@ export default function PanelV2Page() {
   const [lastUploadFile, setLastUploadFile] = useState<string | null>(null);
   const [err, setErr] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+
+  /* ===== Görsel stüdyosu (Gemini: metin→görsel / görsel→görsel) ===== */
+  const [imgPrompt, setImgPrompt] = useState('');
+  const [imgSrc, setImgSrc] = useState<string | null>(null);
+  const [imgMime, setImgMime] = useState('image/png');
+  const [imgAspect, setImgAspect] = useState('16:9');
+  const [imgBusy, setImgBusy] = useState(false);
+  const [imgResult, setImgResult] = useState<{ b64: string; mime: string } | null>(null);
+  const [imgError, setImgError] = useState<string | null>(null);
+
+  const onImgFile = (f: File | undefined) => {
+    if (!f) return;
+    if (!f.type.startsWith('image/')) {
+      setImgError('Sadece görsel dosyası kabul edilir (jpg/png/webp).');
+      return;
+    }
+    if (f.size > 8 * 1024 * 1024) {
+      setImgError('Görsel en fazla 8MB olabilir.');
+      return;
+    }
+    const r = new FileReader();
+    r.onload = () => {
+      setImgSrc(String(r.result));
+      setImgMime(f.type);
+      setImgError(null);
+    };
+    r.readAsDataURL(f);
+  };
+
+  const genImage = async () => {
+    if (!imgPrompt.trim() && !imgSrc) return;
+    setImgBusy(true);
+    setImgError(null);
+    try {
+      const res = await fetch('/api/image/gemini', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          prompt: imgPrompt.trim(),
+          image_base64: imgSrc || undefined,
+          mime_type: imgMime,
+          aspect: imgAspect,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; image_base64?: string; mime_type?: string; error?: string };
+      if (!j.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      setImgResult({ b64: String(j.image_base64 || ''), mime: j.mime_type || 'image/png' });
+    } catch (e) {
+      setImgError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImgBusy(false);
+    }
+  };
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true);
@@ -792,6 +845,58 @@ export default function PanelV2Page() {
             </div>
           </main>
         )}
+
+        {/* ===== GÖRSEL STÜDYOSU ===== */}
+        {tab === 'gorsel' && (
+          <main className="v2-main">
+            <section className="v2-card">
+              <div className="v2-sechead"><span>Görsel Stüdyosu</span><span className="v2-live">Gemini</span></div>
+              <div className="v2-imglabel">Metinden görsel üret ya da bir görsel yükleyip dönüştür — kapak, sahne, konsept.</div>
+              <textarea
+                className="v2-imgprompt"
+                rows={3}
+                placeholder="Örn: 103. yıl Cumhuriyet coşkusu, hologram geometri şekilleri, koyu teal arka plan, sinematik ışık, 3D illüstrasyon"
+                value={imgPrompt}
+                onChange={(e) => setImgPrompt(e.target.value)}
+              />
+              <div className="v2-imgrow">
+                <label className="v2-imgfile">
+                  <input type="file" accept="image/*" onChange={(e) => onImgFile(e.target.files?.[0])} />
+                  {imgSrc ? '🖼 Görsel yüklü (değiştirmek için tıkla)' : '🖼 Görsel ekle — görselden görsel (opsiyonel)'}
+                </label>
+              </div>
+              {imgSrc && <img className="v2-imgprev" src={imgSrc} alt="giriş görseli" />}
+              <div className="v2-imgrow">
+                {['16:9', '9:16', '1:1'].map((a) => (
+                  <button key={a} className={`v2-chip ${imgAspect === a ? 'v2-chip-on' : ''}`} onClick={() => setImgAspect(a)}>
+                    {a}
+                  </button>
+                ))}
+                <button
+                  className="v2-imggen"
+                  disabled={imgBusy || (!imgPrompt.trim() && !imgSrc)}
+                  onClick={genImage}
+                >
+                  {imgBusy ? 'Üretiliyor…' : '✨ Üret'}
+                </button>
+              </div>
+              {imgBusy && <div className="v2-empty">Görsel üretiliyor — 10-40 sn sürebilir</div>}
+              {imgError && !imgBusy && <div className="v2-errline">⚠️ {imgError}</div>}
+            </section>
+
+            {imgResult && (
+              <section className="v2-card">
+                <div className="v2-sechead">
+                  <span>Sonuç</span>
+                  <a className="v2-backlink" download="gorsel.png" href={`data:${imgResult.mime};base64,${imgResult.b64}`}>
+                    ⬇ İndir
+                  </a>
+                </div>
+                <img className="v2-imgout" src={`data:${imgResult.mime};base64,${imgResult.b64}`} alt="üretilen görsel" />
+              </section>
+            )}
+          </main>
+        )}
       </div>
 
       {/* ALT NAV */}
@@ -801,6 +906,7 @@ export default function PanelV2Page() {
             { id: 'bugun', icon: '📊', label: 'Bugün' },
             { id: 'videolar', icon: '🎬', label: 'Videolar' },
             { id: 'paylasim', icon: '📤', label: 'Paylaşım' },
+            { id: 'gorsel', icon: '🎨', label: 'Görsel' },
             { id: 'kartal', icon: '🤖', label: 'KartaL' },
             { id: 'sistem', icon: '⚙️', label: 'Sistem' },
           ] as { id: TabId; icon: string; label: string }[]
@@ -942,6 +1048,28 @@ const CSS = `
 .v2-kitsmall { display: flex; gap: 10px; align-items: center; padding: 12px 14px; margin-bottom: 8px; }
 .v2-kit-ok { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
   font-size: 13px; font-weight: 800; color: #C6F52E; background: rgba(198,245,46,.1); border: 1px solid rgba(198,245,46,.35); }
+
+/* --- görsel stüdyosu --- */
+.v2-imglabel { font-size: 12.5px; color: #8B94A7; margin-bottom: 10px; line-height: 1.45; }
+.v2-imgprompt { width: 100%; box-sizing: border-box; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.1);
+  border-radius: 14px; color: #F4F7FB; font-size: 14px; padding: 10px 12px; resize: vertical; outline: none;
+  font-family: inherit; }
+.v2-imgprompt::placeholder { color: #6B7385; }
+.v2-imgprompt:focus { border-color: rgba(198,245,46,.55); box-shadow: 0 0 0 3px rgba(198,245,46,.12); }
+.v2-imgrow { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+.v2-imgfile { font-size: 12px; color: #C9D2E0; background: rgba(255,255,255,.05);
+  border: 1px dashed rgba(255,255,255,.2); padding: 9px 12px; border-radius: 12px; cursor: pointer; }
+.v2-imgfile:active { transform: scale(.98); }
+.v2-imgfile input { display: none; }
+.v2-imggen { margin-left: auto; border: none; font-size: 14px; font-weight: 800; color: #0A0C10;
+  background: #C6F52E; padding: 10px 20px; border-radius: 14px; cursor: pointer;
+  box-shadow: 0 0 22px rgba(198,245,46,.35); transition: transform .08s ease; }
+.v2-imggen:active { transform: scale(.97); }
+.v2-imggen:disabled { opacity: .45; cursor: default; box-shadow: none; }
+.v2-imgprev { width: 100%; max-height: 220px; object-fit: contain; border-radius: 14px; margin-top: 10px;
+  border: 1px solid rgba(255,255,255,.09); background: rgba(0,0,0,.25); }
+.v2-imgout { width: 100%; border-radius: 14px; border: 1px solid rgba(255,255,255,.09); }
+.v2-errline { color: #FF8A8A; font-size: 12.5px; margin-top: 10px; line-height: 1.5; }
 
 /* --- sistem --- */
 .v2-okline { font-size: 14px; font-weight: 700; color: #C6F52E; padding: 6px 0 12px; }
