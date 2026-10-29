@@ -9,7 +9,7 @@ import { integrations } from "@/db/schema";
 //  3) pollinations : anahtarsız
 // Kişisel kullanım; panel şifresi arkasında. OpenRouter anahtarı DB'de (integrations).
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 200;
 
 const KEY_ROW = "openrouter_api_key";
 const DEFAULTS: Record<string, string> = {
@@ -71,7 +71,8 @@ async function callGemini(model: string, messages: Msg[]): Promise<{ content: st
       ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
       contents: rest.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
     }),
-    signal: AbortSignal.timeout(90_000),
+    // gemini-3.x thinking modelleri ilk yanitta 30-120 sn alabilir
+    signal: AbortSignal.timeout(170_000),
   });
   const data = (await res.json().catch(() => ({}))) as {
     error?: { message?: string };
