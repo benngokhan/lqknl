@@ -1,47 +1,25 @@
-import { NextResponse } from 'next/server';
-import { createMiraSessionValue, isMiraSessionCookie } from '@/lib/mira-auth';
+import { NextResponse } from "next/server";
+import { AUTH_COOKIE, SESSION_DAYS, signToken, verifyPanelPassword } from "@/lib/panel-auth";
 
-const ENTRY_COOKIE = 'mira_entry';
-
-// Check the existing session cookie so the app can restore login after refresh.
-export async function GET(req: Request) {
-  const hasSession = isMiraSessionCookie(req.headers.get("cookie"));
-
-  if (!hasSession) {
-    return NextResponse.json({ ok: false }, { status: 401 });
-  }
-
-  return NextResponse.json({ ok: true });
-}
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  const expected = process.env.MIRA_ENTRY_PASSWORD?.trim();
-
-  if (!expected) {
-    return NextResponse.json(
-      { error: 'MIRA_ENTRY_PASSWORD Railway ortam değişkeninde tanımlanmamış.' },
-      { status: 503 },
-    );
+  const body = await req.json().catch(() => ({}));
+  const password = typeof (body as Record<string, unknown>).password === "string"
+    ? ((body as Record<string, unknown>).password as string)
+    : "";
+  const ok = await verifyPanelPassword(password);
+  if (!ok) {
+    return NextResponse.json({ ok: false, error: "Şifre yanlış" }, { status: 401 });
   }
-
-  try {
-    const { password } = await req.json();
-
-    if (typeof password !== 'string' || password !== expected) {
-      return NextResponse.json({ error: 'Şifre yanlış.' }, { status: 401 });
-    }
-
-    const response = NextResponse.json({ ok: true });
-    response.cookies.set(ENTRY_COOKIE, createMiraSessionValue(), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7,
-    });
-
-    return response;
-  } catch {
-    return NextResponse.json({ error: 'Geçersiz giriş isteği.' }, { status: 400 });
-  }
+  const { token } = signToken();
+  const res = NextResponse.json({ ok: true });
+  res.cookies.set(AUTH_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: true,
+    path: "/",
+    maxAge: SESSION_DAYS * 86_400,
+  });
+  return res;
 }

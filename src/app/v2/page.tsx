@@ -278,6 +278,7 @@ export default function PanelV2Page() {
   const [imgSrc, setImgSrc] = useState<string | null>(null);
   const [imgMime, setImgMime] = useState('image/png');
   const [imgAspect, setImgAspect] = useState('16:9');
+  const [imgProvider, setImgProvider] = useState('auto');
   const [imgBusy, setImgBusy] = useState(false);
   const [imgResult, setImgResult] = useState<{ b64: string; mime: string; provider: string } | null>(null);
   const [imgError, setImgError] = useState<string | null>(null);
@@ -314,6 +315,7 @@ export default function PanelV2Page() {
           image_base64: imgSrc || undefined,
           mime_type: imgMime,
           aspect: imgAspect,
+          provider: imgProvider,
         }),
       });
       const j = (await res.json().catch(() => ({}))) as { ok?: boolean; image_base64?: string; mime_type?: string; provider?: string; error?: string };
@@ -872,6 +874,15 @@ export default function PanelV2Page() {
                     {a}
                   </button>
                 ))}
+                {[
+                  { v: 'auto', l: 'Oto' },
+                  { v: 'gemini', l: 'Gemini' },
+                  { v: 'pollinations', l: 'Yedek' },
+                ].map((p) => (
+                  <button key={p.v} className={`v2-chip ${imgProvider === p.v ? 'v2-chip-on' : ''}`} onClick={() => setImgProvider(p.v)} title="Üretim hattı">
+                    {p.l}
+                  </button>
+                ))}
                 <button
                   className="v2-imggen"
                   disabled={imgBusy || (!imgPrompt.trim() && !imgSrc)}
@@ -887,7 +898,7 @@ export default function PanelV2Page() {
             {imgResult && (
               <section className="v2-card">
                 <div className="v2-sechead">
-                  <span>Sonuç {imgResult.provider === 'pollinations' ? '· yedek hat (Gemini kotası dolu)' : '· Gemini'}</span>
+                  <span>Sonuç {imgResult.provider === 'pollinations' ? '· yedek hat (Pollinations)' : '· Gemini'}</span>
                   <a className="v2-backlink" download="gorsel.png" href={`data:${imgResult.mime};base64,${imgResult.b64}`}>
                     ⬇ İndir
                   </a>

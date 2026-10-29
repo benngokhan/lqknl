@@ -135,6 +135,7 @@ export async function POST(req: Request) {
   });
 
   const mode = imgB64 ? "img2img" : "txt2img";
+  const provider = b.provider === "gemini" || b.provider === "pollinations" ? b.provider : "auto";
 
   try {
     if (mode === "img2img") {
@@ -143,12 +144,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, image_base64: b64, mime_type: mime, mode, model: MODEL, provider: "gemini" });
     }
 
-    // Metinden görsel: önce Gemini, kota doluyorsa Pollinations (anahtarsız)
+    if (provider === "pollinations") {
+      // Doğrudan yedek hat (Pollinations)
+      const { b64, mime } = await pollinationsImage(prompt, aspectKey);
+      return NextResponse.json({
+        ok: true,
+        image_base64: b64,
+        mime_type: mime,
+        mode,
+        model: "pollinations",
+        provider: "pollinations",
+      });
+    }
+
+    // Metinden görsel: önce Gemini; provider=gemini ise yedeksiz, auto ise kota dolarsa Pollinations
     try {
       const { b64, mime } = await geminiImage(key, parts);
       return NextResponse.json({ ok: true, image_base64: b64, mime_type: mime, mode, model: MODEL, provider: "gemini" });
     } catch (e) {
-      if (e instanceof GeminiQuotaError) {
+      if (e instanceof GeminiQuotaError && provider !== "gemini") {
         console.warn("Gemini kotası dolu — Pollinations yedek hata geçiliyor.");
         const { b64, mime } = await pollinationsImage(prompt, aspectKey);
         return NextResponse.json({

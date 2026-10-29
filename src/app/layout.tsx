@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
+import SecurityFab from "@/components/SecurityFab";
 
 export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
@@ -17,7 +18,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="tr">
-      <body className="bg-[#0b0718] text-white antialiased">{children}</body>
+      <body className="bg-[#0b0718] text-white antialiased">
+        {children}
+        <SecurityFab />
+      </body>
     </html>
   );
 }
