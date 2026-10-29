@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { integrations } from "@/db/schema";
@@ -10,16 +11,23 @@ export const runtime = "nodejs";
 const KEY_ROW = "openrouter_api_key";
 
 export async function GET() {
-  let hasKey = Boolean(process.env.OPENROUTER_API_KEY?.trim());
-  if (!hasKey) {
-    try {
-      const rows = await db.select().from(integrations).where(eq(integrations.key, KEY_ROW));
-      hasKey = Boolean((rows[0]?.value as { k?: string } | undefined)?.k?.trim());
-    } catch {
-      /* DB yoksa env'e göre karar */
-    }
+  const envKey = process.env.OPENROUTER_API_KEY?.trim() || "";
+  let dbKey = "";
+  try {
+    const rows = await db.select().from(integrations).where(eq(integrations.key, KEY_ROW));
+    dbKey = (rows[0]?.value as { k?: string } | undefined)?.k?.trim() || "";
+  } catch {
+    /* DB yoksa env'e göre karar */
   }
-  return NextResponse.json({ ok: true, hasKey });
+  const active = envKey || dbKey;
+  return NextResponse.json({
+    ok: true,
+    hasKey: Boolean(active),
+    // Doğrulama için: anahtarın kendisi DEĞİL, parmak izi (başlangıç + uzunluk + sha256 özeti)
+    prefix: active ? `${active.slice(0, 8)}…${active.slice(-4)}` : "",
+    len: active.length,
+    sha: active ? createHash("sha256").update(active).digest("hex").slice(0, 16) : "",
+  });
 }
 
 export async function POST(req: Request) {
