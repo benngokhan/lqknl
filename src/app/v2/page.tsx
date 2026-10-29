@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PAYLASIM_KITLERI, type PaylasimKiti } from '@/data/paylasim_kitleri';
 
 /* ================= TİPLER (KartalTaskManager ile aynı veri şekli) ================= */
@@ -62,7 +62,7 @@ interface Plan {
   aksam: string;
 }
 
-type TabId = 'bugun' | 'videolar' | 'paylasim' | 'gorsel' | 'kartal' | 'sistem';
+type TabId = 'bugun' | 'videolar' | 'paylasim' | 'gorsel' | 'yazi' | 'kartal' | 'sistem';
 
 interface AgentKomut {
   id: number;
@@ -282,6 +282,86 @@ export default function PanelV2Page() {
   const [imgBusy, setImgBusy] = useState(false);
   const [imgResult, setImgResult] = useState<{ b64: string; mime: string; provider: string } | null>(null);
   const [imgError, setImgError] = useState<string | null>(null);
+
+  /* ===== Yazı stüdyosu (OpenRouter sohbet — kişisel) ===== */
+  const [chatMsgs, setChatMsgs] = useState<{ role: string; content: string }[]>(() => {
+    try {
+      if (typeof window === 'undefined') return [];
+      const s = window.localStorage.getItem('v2_yazi_chat');
+      return s ? (JSON.parse(s) as { role: string; content: string }[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [chatSystem, setChatSystem] = useState(
+    () => (typeof window === 'undefined' ? '' : localStorage.getItem('v2_yazi_sys') || ''),
+  );
+  const [chatModel, setChatModel] = useState(
+    () => (typeof window === 'undefined' ? 'venice/uncensored' : localStorage.getItem('v2_yazi_model') || 'venice/uncensored'),
+  );
+  const [chatInput, setChatInput] = useState('');
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatKey, setChatKey] = useState('');
+  const [chatHasKey, setChatHasKey] = useState<boolean | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    fetch('/api/chat/openrouter/key')
+      .then((r) => r.json())
+      .then((j) => setChatHasKey(Boolean(j.hasKey)))
+      .catch(() => setChatHasKey(null));
+  }, []);
+
+  const saveChatKey = async () => {
+    if (!chatKey.trim()) return;
+    const res = await fetch('/api/chat/openrouter/key', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: chatKey.trim() }),
+    });
+    const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (res.ok && j.ok) {
+      setChatHasKey(true);
+      setChatKey('');
+      setChatError(null);
+    } else {
+      setChatError(j.error || 'Anahtar kaydedilemedi.');
+    }
+  };
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [chatMsgs, chatBusy]);
+
+  const saveChat = (msgs: { role: string; content: string }[]) => {
+    setChatMsgs(msgs);
+    try { localStorage.setItem('v2_yazi_chat', JSON.stringify(msgs.slice(-60))); } catch { /* dolu olabilir */ }
+  };
+
+  const sendChat = async () => {
+    const text = chatInput.trim();
+    if (!text || chatBusy) return;
+    setChatBusy(true);
+    setChatError(null);
+    const withUser = [...chatMsgs, { role: 'user', content: text }];
+    saveChat(withUser);
+    setChatInput('');
+    try {
+      const res = await fetch('/api/chat/openrouter', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ messages: withUser, system: chatSystem, model: chatModel }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; content?: string; error?: string };
+      if (!j.ok || !j.content) throw new Error(j.error || `HTTP ${res.status}`);
+      saveChat([...withUser, { role: 'assistant', content: j.content }]);
+    } catch (e) {
+      setChatError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setChatBusy(false);
+    }
+  };
 
   const onImgFile = (f: File | undefined) => {
     if (!f) return;
@@ -908,6 +988,106 @@ export default function PanelV2Page() {
             )}
           </main>
         )}
+
+        {tab === 'yazi' && (
+          <main className="v2-main">
+          <section className="v2-card">
+            <div className="v2-sechead"><span>Yazı Stüdyosu</span><span className="v2-live">OpenRouter</span></div>
+            <div className="v2-imglabel">Serbest metin sohbeti — senin için, panel şifresi arkasında.</div>
+            <div className="v2-imgrow" style={{ flexWrap: 'wrap', gap: 8 }}>
+              <input
+                className="v2-imgprompt"
+                style={{ flex: 1, minWidth: 200, padding: 8 }}
+                value={chatModel}
+                onChange={(e) => { setChatModel(e.target.value); localStorage.setItem('v2_yazi_model', e.target.value); }}
+                placeholder="model (venice/uncensored)"
+              />
+                  <button
+                    className="v2-chip"
+                    onClick={() => { if (confirm('Sohbeti temizle?')) { saveChat([]); setChatError(null); } }}
+                    title="Sohbeti temizle"
+                  >
+                    🗑 Temizle
+                  </button>
+                </div>
+                <details style={{ margin: '8px 0' }}>
+                  <summary style={{ cursor: 'pointer', color: 'rgba(255,255,255,.55)', fontSize: 12 }}>
+                    🔑 API Anahtarı {chatHasKey === true ? '— kayıtlı ✓' : chatHasKey === false ? '— tanımlı değil' : '…'}
+                  </summary>
+                  <div className="v2-imgrow" style={{ marginTop: 6, gap: 8 }}>
+                    <input
+                      className="v2-imgprompt"
+                      style={{ flex: 1, padding: 8 }}
+                      type="password"
+                      placeholder="sk-or- ... (yalnızca sen görürsün; sunucuda veritabanında kalır)"
+                      value={chatKey}
+                      onChange={(e) => setChatKey(e.target.value)}
+                    />
+                    <button className="v2-chip" onClick={() => void saveChatKey()} disabled={!chatKey.trim()}>
+                      Kaydet
+                    </button>
+                  </div>
+                </details>
+            <details style={{ margin: '8px 0' }}>
+              <summary style={{ cursor: 'pointer', color: 'rgba(255,255,255,.55)', fontSize: 12 }}>Karakter / talimat (opsiyonel)</summary>
+              <textarea
+                className="v2-imgprompt"
+                rows={2}
+                style={{ marginTop: 6 }}
+                placeholder="Örn: Kısa, net ve düz Türkçe cevap ver."
+                value={chatSystem}
+                onChange={(e) => { setChatSystem(e.target.value); localStorage.setItem('v2_yazi_sys', e.target.value); }}
+              />
+            </details>
+            <div
+              style={{
+                maxHeight: 420, overflowY: 'auto', border: '1px solid rgba(255,255,255,.08)',
+                borderRadius: 12, padding: 10, marginBottom: 8, background: 'rgba(0,0,0,.2)',
+              }}
+            >
+              {chatMsgs.length === 0 && !chatBusy && (
+                <div className="v2-empty" style={{ padding: 24 }}>Henüz mesaj yok — aşağıdan yaz, ilk mesajı gönder.</div>
+              )}
+              {chatMsgs.map((m, i) => (
+                <div
+                  key={i}
+                  style={{
+                    whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 14, lineHeight: 1.45,
+                    margin: '8px 0', padding: '8px 10px', borderRadius: 10,
+                    background: m.role === 'user' ? 'rgba(251,191,36,.12)' : 'rgba(255,255,255,.05)',
+                    borderLeft: m.role === 'user' ? '3px solid #fbbf24' : '3px solid rgba(255,255,255,.2)',
+                  }}
+                >
+                  <span style={{ fontSize: 11, opacity: .55 }}>{m.role === 'user' ? 'SEN' : 'YANIT'}{'\n'}</span>
+                  {m.content}
+                </div>
+              ))}
+              {chatBusy && <div className="v2-empty">Düşünüyor… (0-2 dk sürebilir)</div>}
+              <div ref={chatEndRef} />
+            </div>
+            {chatError && !chatBusy && <div className="v2-errline">⚠️ {chatError}</div>}
+            <div className="v2-imgrow" style={{ gap: 8 }}>
+              <textarea
+                className="v2-imgprompt"
+                rows={2}
+                style={{ flex: 1, padding: 8 }}
+                placeholder="Mesajını yaz… (Enter = gönder, Shift+Enter = satır)"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendChat(); } }}
+              />
+              <button
+                className="v2-imggen"
+                disabled={chatBusy || !chatInput.trim()}
+                onClick={() => void sendChat()}
+                style={{ alignSelf: 'flex-end' }}
+              >
+                {chatBusy ? '…' : '➤ Gönder'}
+              </button>
+            </div>
+          </section>
+          </main>
+        )}
       </div>
 
       {/* ALT NAV */}
@@ -918,6 +1098,7 @@ export default function PanelV2Page() {
             { id: 'videolar', icon: '🎬', label: 'Videolar' },
             { id: 'paylasim', icon: '📤', label: 'Paylaşım' },
             { id: 'gorsel', icon: '🎨', label: 'Görsel' },
+            { id: 'yazi', icon: '💬', label: 'Yazı' },
             { id: 'kartal', icon: '🤖', label: 'KartaL' },
             { id: 'sistem', icon: '⚙️', label: 'Sistem' },
           ] as { id: TabId; icon: string; label: string }[]
