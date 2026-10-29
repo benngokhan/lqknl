@@ -14,7 +14,7 @@ export const maxDuration = 120;
 const KEY_ROW = "openrouter_api_key";
 const DEFAULTS: Record<string, string> = {
   openrouter: "nvidia/nemotron-3-ultra-550b-a55b:free",
-  gemini: "gemini-2.5-flash",
+  gemini: "gemini-3.8-flash",
   pollinations: "openai",
 };
 

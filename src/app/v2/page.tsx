@@ -100,7 +100,7 @@ const DRIVE_STOK_URL = 'https://drive.google.com/drive/folders/1w8tz_lv7iMFsRRCa
 // Yazı stüdyosu — ücretsiz hatlar ve varsayılan modelleri
 const YAZI_DEFAULTS: Record<string, string> = {
   openrouter: 'nvidia/nemotron-3-ultra-550b-a55b:free',
-  gemini: 'gemini-2.5-flash',
+  gemini: 'gemini-3.8-flash',
   pollinations: 'openai',
 };
 const YAZI_HATLAR: Array<[string, string]> = [
