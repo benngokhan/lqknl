@@ -37,15 +37,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Geçerli bir OpenRouter anahtarı gir (sk-or- ile başlar)." }, { status: 400 });
   }
   try {
-    await db
-      .insert(integrations)
-      .values({ key: KEY_ROW, value: { k: key } })
-      .onConflictDoUpdate({ target: integrations.key, set: { value: { k: key }, updatedAt: new Date() } });
+    const rows = await db.select().from(integrations).where(eq(integrations.key, KEY_ROW));
+    if (rows.length > 0) {
+      await db
+        .update(integrations)
+        .set({ value: { k: key }, updatedAt: new Date() })
+        .where(eq(integrations.key, KEY_ROW));
+    } else {
+      await db.insert(integrations).values({ key: KEY_ROW, value: { k: key } });
+    }
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "Anahtar kaydedilemedi" },
       { status: 500 },
     );
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    prefix: `${key.slice(0, 8)}…${key.slice(-4)}`,
+    len: key.length,
+    sha: createHash("sha256").update(key).digest("hex").slice(0, 16),
+  });
 }
