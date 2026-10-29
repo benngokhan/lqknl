@@ -52,10 +52,29 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
+  // Okuma geri-dogrulama (debug): yazimdan sonra DB'den yeniden oku
+  let dbSha = "";
+  let dbLen = 0;
+  let dbPrefix = "";
+  try {
+    const after = await db.select().from(integrations).where(eq(integrations.key, KEY_ROW));
+    const k2 = (after[0]?.value as { k?: string } | undefined)?.k?.trim() || "";
+    dbSha = k2 ? createHash("sha256").update(k2).digest("hex").slice(0, 16) : "";
+    dbLen = k2.length;
+    dbPrefix = k2 ? `${k2.slice(0, 8)}…${k2.slice(-4)}` : "";
+  } catch {
+    /* okunamadi */
+  }
+  const envK = process.env.OPENROUTER_API_KEY?.trim() || "";
   return NextResponse.json({
     ok: true,
     prefix: `${key.slice(0, 8)}…${key.slice(-4)}`,
     len: key.length,
     sha: createHash("sha256").update(key).digest("hex").slice(0, 16),
+    dbPrefix,
+    dbLen,
+    dbSha,
+    envSet: Boolean(envK),
+    envSha: envK ? createHash("sha256").update(envK).digest("hex").slice(0, 16) : "",
   });
 }
