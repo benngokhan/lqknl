@@ -378,6 +378,42 @@ export default function PanelV2Page() {
     try { localStorage.setItem('v2_yazi_chat', JSON.stringify(msgs.slice(-60))); } catch { /* dolu olabilir */ }
   };
 
+  /* Sesli okuma — panelin mevcut TTS altyapısı (Mira'nın sesi) */
+  const [speakingIdx, setSpeakingIdx] = useState<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const speakMsg = async (text: string, idx: number) => {
+    if (speakingIdx === idx) {
+      audioRef.current?.pause();
+      audioRef.current = null;
+      setSpeakingIdx(null);
+      return;
+    }
+    audioRef.current?.pause();
+    setSpeakingIdx(idx);
+    setChatError(null);
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: text.slice(0, 4800) }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = new Audio(url);
+      audioRef.current = a;
+      a.onended = () => { setSpeakingIdx(null); URL.revokeObjectURL(url); };
+      a.onerror = () => { setSpeakingIdx(null); URL.revokeObjectURL(url); };
+      await a.play();
+    } catch (e) {
+      setChatError(e instanceof Error ? e.message : String(e));
+      setSpeakingIdx(null);
+    }
+  };
+
   const sendChat = async () => {
     const text = chatInput.trim();
     if (!text || chatBusy) return;
@@ -1098,14 +1134,30 @@ export default function PanelV2Page() {
                 <div
                   key={i}
                   style={{
-                    whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 14, lineHeight: 1.45,
                     margin: '8px 0', padding: '8px 10px', borderRadius: 10,
                     background: m.role === 'user' ? 'rgba(251,191,36,.12)' : 'rgba(255,255,255,.05)',
                     borderLeft: m.role === 'user' ? '3px solid #fbbf24' : '3px solid rgba(255,255,255,.2)',
                   }}
                 >
-                  <span style={{ fontSize: 11, opacity: .55 }}>{m.role === 'user' ? 'SEN' : 'YANIT'}{'\n'}</span>
-                  {m.content}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                    <span style={{ fontSize: 11, opacity: .55 }}>{m.role === 'user' ? 'SEN' : 'YANIT'}</span>
+                    {m.role === 'assistant' && (
+                      <button
+                        onClick={() => void speakMsg(m.content, i)}
+                        disabled={!m.content.trim()}
+                        title={speakingIdx === i ? 'Durdur' : 'Sesli oku'}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer', fontSize: 13,
+                          opacity: speakingIdx === i ? 1 : .55, padding: 0, lineHeight: 1,
+                        }}
+                      >
+                        {speakingIdx === i ? '⏹ Durdur' : '🔊 Oku'}
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 14, lineHeight: 1.45 }}>
+                    {m.content}
+                  </div>
                 </div>
               ))}
               {chatBusy && <div className="v2-empty">Düşünüyor… (0-2 dk sürebilir)</div>}
