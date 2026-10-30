@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "mira-prompt/**"
+      - "motor/**"
       - "signal-loop/**"
       - ".github/workflows/verify-content-tools.yml"
   workflow_dispatch:
@@ -21,9 +22,9 @@ jobs:
           python-version: "3.12"
       - name: Check Python syntax
         run: |
-          python -m py_compile mira-prompt/shorts_pipeline.py
-          python -m py_compile mira-prompt/publish.py
-          python -m py_compile mira-prompt/qc_check.py
+          python -m py_compile motor/shorts_pipeline.py
+          python -m py_compile motor/mira_adapter.py
+          python -m py_compile motor/qc_check.py
           python -m py_compile signal-loop/channel_pulse.py
       - name: Validate JSON files and required font assets
         run: |

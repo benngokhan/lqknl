@@ -1,23 +1,22 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
 
-// Sağ altta kilit düğmesi: şifre değiştir + oturumu kapat.
+// Navigation recreates the panel, clearing both its message and password fields.
 export default function SecurityFab() {
   const pathname = usePathname();
+  if (pathname === "/login") return null;
+  return <SecurityFabPanel key={pathname} />;
+}
+
+// Sağ altta kilit düğmesi: şifre değiştir + oturumu kapat.
+function SecurityFabPanel() {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    setOpen(false);
-    setMsg(null);
-  }, [pathname]);
-
-  if (pathname === "/login") return null;
 
   async function changePw(e: React.FormEvent) {
     e.preventDefault();

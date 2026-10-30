@@ -135,8 +135,8 @@ function useCountUp(target: number, dur = 1300): number {
   const [val, setVal] = useState(0);
   useEffect(() => {
     if (!target) {
-      setVal(0);
-      return;
+      const reset = requestAnimationFrame(() => setVal(0));
+      return () => cancelAnimationFrame(reset);
     }
     let raf = 0;
     const t0 = performance.now();
@@ -149,7 +149,7 @@ function useCountUp(target: number, dur = 1300): number {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [target, dur]);
-  return val;
+  return target ? val : 0;
 }
 
 interface SlotInfo {
@@ -513,9 +513,12 @@ export default function PanelV2Page() {
   }, []);
 
   useEffect(() => {
-    load();
-    const id = setInterval(() => load(true), 60_000);
-    return () => clearInterval(id);
+    const initial = setTimeout(() => void load(), 0);
+    const id = setInterval(() => void load(true), 60_000);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(id);
+    };
   }, [load]);
 
   const { slots, next } = useNextSlot(plan);
@@ -610,9 +613,12 @@ export default function PanelV2Page() {
 
   useEffect(() => {
     if (tab !== 'kartal') return;
-    loadAgent();
-    const id = setInterval(() => loadAgent(), 5000);
-    return () => clearInterval(id);
+    const initial = setTimeout(() => void loadAgent(), 0);
+    const id = setInterval(() => void loadAgent(), 5000);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(id);
+    };
   }, [tab, loadAgent]);
 
   const agentGonder = useCallback(
