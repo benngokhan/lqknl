@@ -4,7 +4,7 @@ Bu sürüm mevcut panelin ve yayın işlerinin yanına eklenir; veri tabanı gö
 
 ## Yetenek ve sınırlar
 
-- Genel sohbet: panelde kayıtlı OpenRouter anahtarı veya sunucu ortamındaki OpenRouter anahtarıyla `openrouter/free`; daha sonra anahtarsız Pollinations yedeği; son olarak ortamda tanımlı Groq/Gemini. Bu sağlayıcılar çevrimiçi, harici ve kotalıdır; Groq/Gemini hesabının faturalandırma ayarlarını servis sahibi kontrol etmelidir. OpenRouter'da yalnız `openrouter/free` veya somut bir `:free` model kabul edilir ve sıfır fiyat sınırı uygulanır. Anahtarsız yedeğe veritabanındaki kalıcı anılar gönderilmez. Sağlayıcılar kullanılamazsa başarısızlık açıkça bildirilir.
+- Genel sohbet: panelde kayıtlı OpenRouter anahtarı veya sunucu ortamındaki OpenRouter anahtarıyla `openrouter/free`; daha sonra anahtarsız Pollinations yedeği. Groq/Gemini ancak sunucu sahibi `KARTAL_ALLOW_BILLABLE_FALLBACK=true` ile açıkça açarsa kullanılır. Bu sağlayıcılar çevrimiçi, harici ve kotalıdır; Groq/Gemini hesabının faturalandırma ayarlarını servis sahibi kontrol etmelidir. OpenRouter'da yalnız `openrouter/free` veya somut bir `:free` model kabul edilir ve sıfır fiyat sınırı uygulanır. Anahtarsız yedeğe veritabanındaki kalıcı anılar gönderilmez. Sağlayıcılar kullanılamazsa başarısızlık açıkça bildirilir.
 - Vikipedi araması: ör. `İnternette kara delik araştır`. Bu tam web araştırması değildir; bağlantılı özetleri gösterir.
 - `İşçilerin durumunu kontrol et`: iki GitHub deposunun son workflow kayıtlarını salt okunur listeler. Drive/YouTube veya bütün işçi hattını kontrol ya da onarım anlamına gelmez.
 - `Drive dosyalarını göster`: panelde tanımlı **tek** Drive klasörünün ilk en fazla 1000 öğesi, alt klasörler olmadan listelenir. Panelin Drive bağlantısı ve klasör ayarı gerekir.

@@ -136,3 +136,15 @@ test('free model policy rejects paid auto routers, even when suffixed :free', ()
   assert.equal(safeOpenRouterModel('openrouter/auto'), false);
   assert.equal(safeOpenRouterModel('meta-llama/paid-model'), false);
 });
+
+
+test('reminders and alarms are not falsely promised as scheduled', async () => {
+  for (const message of ['Yarın saat 10da bana hatırlat', 'Sabah 7ye alarm kur', 'Beni yarın uyandır']) {
+    const { calls, services } = fake();
+    const answer = await handleKartal(message, [], services);
+    assert.equal(answer.kind, 'reminder', message);
+    assert.match(answer.reply, /hatırlatma ayarlanmadı/);
+    assert.equal(answer.performed, false);
+    assert.deepEqual(calls, []);
+  }
+});

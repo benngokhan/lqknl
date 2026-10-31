@@ -25,7 +25,7 @@ export function hasCredential(s: string): boolean {
   return /(?:ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AIza[A-Za-z0-9_-]{30,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:access[_ -]?token|refresh[_ -]?token|api[_ -]?key|sifre|şifre|password)\s*[:=]\s*\S+|\bBearer\s+[A-Za-z0-9._-]{16,})/iu.test(s);
 }
 
-export type Intent = { kind: 'hello' | 'research' | 'workers' | 'drive' | 'task' | 'video' | 'blocked' | 'device' | 'chat'; argument?: string };
+export type Intent = { kind: 'hello' | 'research' | 'workers' | 'drive' | 'task' | 'video' | 'blocked' | 'device' | 'reminder' | 'chat'; argument?: string };
 
 export function classify(message: string): Intent {
   const raw = message.normalize('NFKC').trim();
@@ -36,6 +36,7 @@ export function classify(message: string): Intent {
   if (/\b(?:sil|silelim|silinsin|cop[e]? at|hesabi kapat|odem[e]? yap|para gonder|havale|sat[i]?n al|yay[i]?nla|paylas|mesaj gonder|mail gonder|e.?posta gonder|yukle|sifreyi degistir)\b/.test(n)) return { kind: 'blocked' };
   const task = raw.match(/^\s*(?:görev\s+ekle|gorev\s+ekle)(?:\s*[:：-]\s*|\s+)(.{1,250})$/iu);
   if (task) return { kind: 'task', argument: task[1].trim() };
+  if (/\b(?:hatirlat|hatirlatir|hatirlatacak|uyandir)\w*/.test(n) || /\balarm\w*.*\b(?:kur|ayarla)/.test(n)) return { kind: 'reminder' };
   if (/\b(?:isci\w*|worker\w*|workflow\w*|is akisi\w*)/.test(n) && /\b(?:durum\w*|kontrol\w*|nasil|liste\w*|sonuc\w*)/.test(n)) return { kind: 'workers' };
   if (/\b(?:google )?drive\b/.test(n) && /\b(?:dosya\w*|klasor\w*|liste\w*|stok\w*|ara|bul|durum\w*)/.test(n)) {
     const tail = raw.replace(/^.*?\bdrive(?:['’]?(?:daki|deki|dan|den|da|de))?/iu, '').trim();
@@ -73,6 +74,7 @@ export async function handleKartal(messageValue: unknown, historyValue: unknown,
     if (intent.kind === 'video') return { ok: true, kind: 'video', reply: 'Video üretimini bu panelden başlatmıyorum. Senin belirlediğin Arena tetikleme düzeni korunuyor; şu an video üretilmedi.', performed: false };
     if (intent.kind === 'blocked') return { ok: true, kind: 'blocked', reply: 'Bu işlem para, silme, yayın veya dışa gönderim içerebilir. Buradan otomatik yapmadım; açık onay ve uygun bağlantı gerekir.', performed: false };
     if (intent.kind === 'device') return { ok: true, kind: 'device', reply: 'Tablet işlemine doğrudan erişimim henüz doğrulanmadı; uygulamayı açmadım ve ekrana dokunmadım.', performed: false };
+    if (intent.kind === 'reminder') return { ok: true, kind: 'reminder', reply: 'Bu sohbetten alarm veya bildirim kuramıyorum; hatırlatma ayarlanmadı. İstersen görev kaydı tutabilirim, ancak bu bildirim göndermez.', performed: false };
     if (intent.kind === 'task') {
       const title = intent.argument || '';
       if (!title || hasCredential(title)) return { ok: false, kind: 'input', reply: 'Görev başlığını kontrol et; şifre veya anahtar ekleme.' };

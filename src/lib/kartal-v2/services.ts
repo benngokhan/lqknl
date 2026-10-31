@@ -54,6 +54,8 @@ async function askModel(message: string, history: Turn[]): Promise<string | null
   const publicMessages: ModelMessage[] = [{ role: 'system', content: base }, ...history, { role: 'user', content: message }];
   const publicAnswer = await openAiCompatible('https://text.pollinations.ai/openai', '', 'openai-fast', publicMessages);
   if (publicAnswer) return publicAnswer;
+  // Other provider accounts may be billed; no silent paid fallback.
+  if (process.env.KARTAL_ALLOW_BILLABLE_FALLBACK !== 'true') return null;
   const groq = (process.env.GROQ_API_KEY || '').trim();
   if (groq) {
     const result = await openAiCompatible('https://api.groq.com/openai/v1/chat/completions', groq, (process.env.GROQ_MODEL || 'llama-3.3-70b-versatile').trim(), messages);
