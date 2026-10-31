@@ -69,6 +69,8 @@ type SRResult = {
   readonly length: number;
   readonly [index: number]: { transcript: string };
 };
+type KartalChatItem = { role: 'user' | 'assistant'; content: string; sources?: Array<{ title: string; url: string }> };
+
 type SREvent = {
   readonly resultIndex: number;
   readonly results: { readonly length: number; readonly [index: number]: SRResult };
@@ -173,6 +175,14 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
   const [voiceThinking, setVoiceThinking] = useState(false);
   const [voiceInterim, setVoiceInterim] = useState('');
   const [voiceReply, setVoiceReply] = useState('');
+  const [voiceText, setVoiceText] = useState('');
+  const [voiceMessages, setVoiceMessages] = useState<KartalChatItem[]>([
+    { role: 'assistant', content: 'Buradayım reis. Yazabilir veya kartala dokunup konuşabilirsin.' },
+  ]);
+  const voiceTurnsRef = useRef<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const voiceBusyRef = useRef(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, [voiceMessages, voiceThinking]);
   const [subtitleVisible, setSubtitleVisible] = useState(false);
   const [subtitleSpeaker, setSubtitleSpeaker] = useState<'user' | 'kartal'>('kartal');
   const [waveTick, setWaveTick] = useState(0);
@@ -391,52 +401,45 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
 
   async function sendToKartalVoice(text: string) {
     const cleaned = text.trim();
-    if (!cleaned || voiceThinking) return;
+    if (!cleaned || voiceBusyRef.current) return;
+    voiceBusyRef.current = true;
     unlock();
     stop();
-    if (subtitleFadeTimerRef.current) {
-      clearTimeout(subtitleFadeTimerRef.current);
-    }
+    if (subtitleFadeTimerRef.current) clearTimeout(subtitleFadeTimerRef.current);
     setSubtitleSpeaker('user');
     setVoiceInterim(cleaned);
     setSubtitleVisible(true);
     setVoiceThinking(true);
+    setVoiceMessages((prev) => [...prev.slice(-39), { role: 'user', content: cleaned }]);
+    let replyText = '';
+    let sources: KartalChatItem['sources'];
     try {
-      const res = await fetch('/api/chat', {
+      const res = await fetch('/api/kartal/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: cleaned }),
+        body: JSON.stringify({ message: cleaned, history: voiceTurnsRef.current.slice(-12) }),
       });
       const data = await res.json().catch(() => ({}));
-      const replyText =
-        typeof data?.reply === 'string' && data.reply.trim()
-          ? data.reply.trim()
-          : `Bilgi Dozu komuta merkezindeyim patron. Şu an ${report?.summary?.stock_shorts ?? 57} Shorts ve ${report?.summary?.stock_long ?? 10} Uzun Video stokta hazır.`;
+      replyText = typeof data?.reply === 'string' && data.reply.trim()
+        ? data.reply.trim()
+        : 'KartaL bağlantısı yanıt vermedi. Lütfen yeniden dene.';
+      if (Array.isArray(data?.sources)) {
+        sources = data.sources.filter((source: { url?: unknown; title?: unknown }) =>
+          typeof source.url === 'string' && source.url.startsWith('https://') && typeof source.title === 'string').slice(0, 4);
+      }
+      if (res.ok && data.ok) {
+        voiceTurnsRef.current = [...voiceTurnsRef.current, { role: 'user' as const, content: cleaned }, { role: 'assistant' as const, content: replyText }].slice(-12);
+      }
+    } catch {
+      replyText = 'KartaL bağlantısına ulaşamadım. İnternet veya panel bağlantısını kontrol et.';
+    } finally {
       setVoiceInterim('');
       setVoiceReply(replyText);
       setSubtitleSpeaker('kartal');
       setSubtitleVisible(true);
-      void speak(replyText, {
-        solMode: 'close',
-        emotion: 'happy',
-        onEnd: () => {
-          scheduleSubtitleDissolve(1800);
-        },
-      });
-    } catch {
-      const fallback = `Bilgi Dozu kanalımızda ${report?.summary?.total_videos_published ?? 58} video yayında, ${report?.summary?.stock_shorts ?? 57} Shorts stokta hazır patron.`;
-      setVoiceInterim('');
-      setVoiceReply(fallback);
-      setSubtitleSpeaker('kartal');
-      setSubtitleVisible(true);
-      void speak(fallback, {
-        solMode: 'close',
-        emotion: 'happy',
-        onEnd: () => {
-          scheduleSubtitleDissolve(1800);
-        },
-      });
-    } finally {
+      setVoiceMessages((prev) => [...prev.slice(-39), { role: 'assistant', content: replyText, sources }]);
+      void speak(replyText, { solMode: 'close', emotion: 'focused', onEnd: () => scheduleSubtitleDissolve(1800) });
+      voiceBusyRef.current = false;
       setVoiceThinking(false);
     }
   }
@@ -457,14 +460,9 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       setSubtitleVisible(false);
       setVoiceOpen(false);
     } else {
-      // İlk açılışta otomatik mikrofon izni istemez; Kartal alt-ortaya süzülür ve karşılama özetini sesli + canlı altyazılı söyler
+      // Kullanıcı dokunmadan mikrofon açılmaz; stok veya yayın bilgisi uydurulmaz.
       setVoiceOpen(true);
-      const sonDosya = lastUploadFile || '';
-      const sonNo = /video_(\d+)/.exec(sonDosya)?.[1] || '';
-      const siraNo = sonNo ? `video_${Number(sonNo) + 1}` : '';
-      const greeting = sonDosya
-        ? `Ben KartaL kanka! Kanalda en son ${sonDosya} yayına girdi. Stokta ${report?.summary?.stock_shorts ?? ''} Shorts ve ${report?.summary?.stock_long ?? ''} Uzun Video hazır duruyor${siraNo ? `, sıradaki ${siraNo}` : ''}. Bugünkü otomatik turlar ${plan ? `${plan.sabah}, ${plan.ogle} ve ${plan.aksam} saatlerinde` : 'Yayın Planı sayfasındaki saatlerde'}. Ne bakalım?`
-        : `Ben KartaL kanka! Bugünkü otomatik yayın turları ${plan ? `${plan.sabah}, ${plan.ogle} ve ${plan.aksam} saatlerinde` : 'Yayın Planı sayfasına göre'}. Ne bakalım?`;
+      const greeting = 'Buradayım reis. Bana yazabilir veya konuşabilirsin.';
       setVoiceReply(greeting);
       setSubtitleSpeaker('kartal');
       setSubtitleVisible(true);
@@ -541,7 +539,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
     };
     const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!Ctor) {
-      void sendToKartalVoice('günaydın');
+      setVoiceMessages((prev) => [...prev.slice(-39), { role: 'assistant', content: 'Bu tarayıcıda ses tanıma yok; alttan yazarak konuşabilirsin.' }]);
       return;
     }
     manualStopRef.current = false;
@@ -589,6 +587,8 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
       resetSilenceTimer();
     };
     rec.onerror = () => {
+      manualStopRef.current = true;
+      setVoiceMessages((prev) => [...prev.slice(-39), { role: 'assistant', content: 'Mikrofon açılamadı. İzni ve interneti kontrol et veya alttan yaz.' }]);
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = null;
@@ -922,7 +922,8 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
             </button>
             <button
               type="button"
-              title={voiceOpen ? 'Sesli asistanı kapat' : 'Sesli Asistan KartaL'}
+              title={voiceOpen ? 'KartaL sohbetini kapat' : 'KartaL ile konuş veya yaz'}
+              aria-label={voiceOpen ? 'KartaL sohbetini kapat' : 'KartaL ile konuş veya yaz'}
               onClick={handleToggleVoiceWidget}
               className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
                 voiceOpen ? 'bg-[#111827] text-white' : 'text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111827]'
@@ -2008,7 +2009,7 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                           : 'rgba(14,165,233,0.35)'
                     })`,
                   }}
-                  className="w-[310px] sm:w-[360px] h-auto object-contain pointer-events-none select-none transition-[filter] duration-100"
+                  className="w-[min(300px,34vh)] sm:w-[min(360px,34vh)] h-auto object-contain pointer-events-none select-none transition-[filter] duration-100"
                 />
 
                 {/* Konuşurken & Dinlerken Kartal Üzerinde Altın & Camgöbeği Kıvılcımlar */}
@@ -2168,6 +2169,28 @@ export default function KartalTaskManager({ onSwitchToOrb }: { onSwitchToOrb?: (
                   ))}
                 </p>
               ) : null}
+            </div>
+
+            {/* Yazılı sohbet: yanıtlar kaybolmaz; ses ve metin aynı beyni kullanır. */}
+            <div className="pointer-events-auto mt-1 w-full max-w-lg rounded-2xl border border-cyan-600/30 bg-slate-950/95 p-3 text-white shadow-xl">
+              <div ref={chatScrollRef} aria-label="KartaL sohbeti" aria-live="polite" className="max-h-[22vh] min-h-[70px] overflow-y-auto space-y-2 text-sm">
+                {voiceMessages.map((item, index) => (
+                  <div key={index} className={`whitespace-pre-wrap rounded-xl px-3 py-2 ${item.role === 'user' ? 'ml-8 bg-cyan-700/60' : 'mr-5 bg-slate-800'}`}>
+                    <span className="mb-1 block text-[11px] font-bold text-cyan-200">{item.role === 'user' ? 'Sen' : 'KartaL'}</span>
+                    {item.content}
+                    {item.sources?.map((source) => (
+                      <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer" className="mt-1 block break-all text-cyan-300 underline">{source.title}</a>
+                    ))}
+                  </div>
+                ))}
+                {voiceThinking && <div className="px-3 text-cyan-200">KartaL düşünüyor…</div>}
+              </div>
+              <form onSubmit={(event) => { event.preventDefault(); const text = voiceText.trim(); if (text && !voiceBusyRef.current) { setVoiceText(''); void sendToKartalVoice(text); } }} className="mt-2 flex gap-2">
+                <label htmlFor="kartal-text" className="sr-only">KartaL&apos;a mesaj</label>
+                <input id="kartal-text" value={voiceText} onChange={(event) => setVoiceText(event.target.value)} maxLength={3000} autoComplete="off" placeholder="KartaL'a yaz…" className="min-w-0 flex-1 rounded-xl bg-white px-3 py-2 text-sm text-slate-950 outline-cyan-400" />
+                <button type="submit" disabled={voiceThinking || !voiceText.trim()} className="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-40">Gönder</button>
+              </form>
+              <p className="mt-1 text-[10px] text-slate-300">Mikrofon için kartala dokun. Şifre veya anahtar yazma.</p>
             </div>
           </div>
         );

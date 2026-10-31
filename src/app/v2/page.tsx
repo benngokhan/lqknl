@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PAYLASIM_KITLERI, type PaylasimKiti } from '@/data/paylasim_kitleri';
+import KartalAssistant from '@/components/KartalAssistant';
 
 /* ================= TİPLER (KartalTaskManager ile aynı veri şekli) ================= */
 
@@ -598,6 +599,7 @@ export default function PanelV2Page() {
   const [agentKomut, setAgentKomut] = useState('');
   const [agentGonderiliyor, setAgentGonderiliyor] = useState(false);
   const [agentErr, setAgentErr] = useState('');
+  const [showLegacyAgent, setShowLegacyAgent] = useState(false);
 
   const loadAgent = useCallback(async () => {
     try {
@@ -612,19 +614,20 @@ export default function PanelV2Page() {
   }, []);
 
   useEffect(() => {
-    if (tab !== 'kartal') return;
+    if (tab !== 'kartal' || !showLegacyAgent) return;
     const initial = setTimeout(() => void loadAgent(), 0);
     const id = setInterval(() => void loadAgent(), 5000);
     return () => {
       clearTimeout(initial);
       clearInterval(id);
     };
-  }, [tab, loadAgent]);
+  }, [tab, loadAgent, showLegacyAgent]);
 
   const agentGonder = useCallback(
     async (metin?: string) => {
       const k = (metin ?? agentKomut).trim();
       if (!k || agentGonderiliyor) return;
+      if (/(?:sil|yayınla|paylaş|mesaj.*gönder|mail.*gönder|ödeme|havale|satın al)/iu.test(k) && !window.confirm('Bu eski tablet komutu silme, yayın, ödeme veya dışa mesaj içerebilir. Devam edilsin mi?')) return;
       setAgentGonderiliyor(true);
       setAgentErr('');
       try {
@@ -871,14 +874,17 @@ export default function PanelV2Page() {
         {/* ===== KARTAL AJAN ===== */}
         {tab === 'kartal' && (
           <main className="v2-main">
+            <KartalAssistant />
+            <details onToggle={(event) => setShowLegacyAgent(event.currentTarget.open)}>
+              <summary style={{cursor:'pointer', color:'#acc6cd', margin:'14px 0', fontSize:13}}>Eski tablet komut kuyruğu · bağlantı doğrulanmadı</summary>
             <section className="v2-card v2-hero">
               <div className="v2-hero-label">KARTA AJAN · TABLET KÖPRÜSÜ</div>
               <div className="v2-agent-title">Panele yaz, tablet yapsın</div>
               <div className={`v2-agent-status ${agentVeri?.tablet?.online ? 'v2-agent-on' : 'v2-agent-off'}`}>
                 <span className={`v2-agent-led ${agentVeri?.tablet?.online ? 'on' : 'off'}`} />
                 {agentVeri?.tablet?.online
-                  ? 'Tablet çevrimiçi — komutu alır, çalışır, sonucu buraya yazar'
-                  : 'Tablet bekleniyor — KartaL açık olduğunda kuyruktaki komut çalışır'}
+                  ? 'Son tablet bağlantısı görülmüş; sonucu ayrıca kontrol et'
+                  : 'Tablet bağlantısı doğrulanamadı; komutun çalıştığı varsayılmamalı'}
               </div>
             </section>
 
@@ -939,6 +945,7 @@ export default function PanelV2Page() {
                 </div>
               );
             })}
+            </details>
           </main>
         )}
 
